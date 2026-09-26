@@ -1,8 +1,8 @@
 # Local agent/tool state. settings.local.json holds a live ANTHROPIC_AUTH_TOKEN.
 .claude/
 .playwright-mcp/
-node_modules/
-dist/
+
+# Secrets and local noise.
 .env
 .env.local
 *.log
