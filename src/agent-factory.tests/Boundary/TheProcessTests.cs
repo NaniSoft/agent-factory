@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Boundary;
 
 using System.Net;
 using AgentFactory;
+using AgentFactory.Containers;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
@@ -102,13 +103,30 @@ public class TheProcessTests
                 () => github.ListOpenIssuesAsync("https://github.com/NaniSoft/nexus", CancellationToken.None));
 
             Assert.Contains("merging ticket", refusal.Message, StringComparison.Ordinal);
-
-            var agent = app.Services.GetRequiredService<INOpenCode>();
-            var round = await Assert.ThrowsAsync<NotSupportedException>(() => agent.RunRoundAsync(
-                new Round(Guid.NewGuid(), "nexus", "https://github.com/NaniSoft/nexus", 42, "main", string.Empty),
-                CancellationToken.None));
-
-            Assert.Contains("container runtime", round.Message, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void The_agent_seam_is_a_real_container_runtime_and_not_a_refusal()
+    {
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        using var app = FactoryApp.Create(
+            WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                ApplicationName = typeof(FactoryApp).Assembly.GetName().Name,
+                ContentRootPath = root.Path,
+                EnvironmentName = Environments.Development,
+            }),
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")));
+
+        // The counterpart to the refusal above, and the reason that refusal is now about
+        // the one seam that still has nothing behind it. A round asked for in a factory
+        // that still registered the old refusal would say a container runtime is not
+        // built; the container runtime exists, and which runtime it is is a composition
+        // root's business rather than a loop's.
+        var agent = app.Services.GetRequiredService<INOpenCode>();
+
+        Assert.IsType<WorkerRoundRunner>(agent);
+        Assert.IsType<DockerCli>(app.Services.GetRequiredService<IDockerCli>());
     }
 }

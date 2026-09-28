@@ -11,6 +11,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <!--
+      Testcontainers drives the worker image tests. It is here and not in the factory:
+      the factory takes no container-runtime package at all, because ADR-0010 names
+      `docker cp` and `docker logs` as the mechanism and the CLI is what provides them.
+      See WorkerImageTests for what Testcontainers is and is not used for.
+    -->
+    <PackageReference Include="Testcontainers" Version="4.15.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>

@@ -32,6 +32,19 @@ is the trust boundary while the factory runs in development.
 directory and a temporary SQLite file, and asserts against what the board renders. There
 are no sleeps in the suite and no shared state between tests.
 
+Most of the suite is hermetic and needs neither Docker nor a network: the container
+runtime is driven through a recording `IDockerCli` in `Boundary/FakeDockerCli.cs`, which
+behaves like the commands it stands in for rather than remembering what it was told. The
+two classes that do need a real container are separated and **skipped, with the reason,
+on a machine that has no Docker daemon or no worker image** — `DockerFactAttribute` checks
+once and says which. Build the image first with
+`docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/`. `WorkerRoundTests` uses
+the factory's own runtime against the real daemon, which is where the container's
+properties are read back off the container rather than off the command that made it;
+`WorkerImageTests` uses Testcontainers to ask a different question, what is in the image,
+without the factory in the way. Neither binds a port, and do not run `dotnet test`
+alongside anything else that wants the board's.
+
 ## The factory
 
 One process (`src/agent-factory`): the config loader, the work item store, intake, the
@@ -42,13 +55,82 @@ Three seams are the only things that leave the building; everything else runs fo
 `IClock` in `Clock/`, `INOpenCode` in `Rounds/` (one call is one round), and `IGitHub` in
 `GitHub/` (one seam covering both polling and merging — one call is one merge).
 
-`INOpenCode` and `IGitHub` have no implementation yet, so the process registers a
-**refusal** in their place — `Rounds/NOpenCodeNotBuiltYet.cs` and
-`GitHub/GitHubNotBuiltYet.cs` — rather than failing to start. A registered component
+`INOpenCode` is implemented: `Rounds/WorkerRoundRunner.cs` runs one round in a real
+container, and `Containers/` is the runtime beneath it that owns the container's life.
+`IGitHub` still has no implementation, so the process registers a **refusal** in its place
+— `GitHub/GitHubNotBuiltYet.cs` — rather than failing to start. A registered component
 whose dependency cannot be resolved stops the process starting in development, and the
-board is worth having before the adapters exist. The test host's fakes are registered
-first and win, so neither refusal is ever reached under test. Both are deleted, not left
-behind, when the real adapters land (#8 and #10).
+board is worth having before that adapter exists. The test host's fakes are registered
+first and win, so the refusal is never reached under test. It is deleted, not left behind,
+when the merger lands (#10).
+
+## The worker container
+
+`Containers/ContainerRuntime.cs` is one worker container from creation to removal, and it
+is the whole of the factory's knowledge of Docker. It creates the container, starts it,
+follows its log, lifts the round's one result file and its tree out with `docker cp`, and
+removes the container — **in a `finally`, not on the success path**. Success, a round that
+wrote no result, a container that never started, a caller that cancelled, an exception out
+of the log stream: every one of them removes the container. A container that outlives its
+round is what makes "nothing survives a round" untrue (ADR-0001) and it leaks the
+compensating controls ADR-0012 names, which is why this is tested rather than trusted.
+
+Two details there are load-bearing rather than incidental:
+
+- **The removal addresses the container by name and runs on a token nobody can cancel.** A
+  name is known before the container exists, so a `create` whose own output was lost can
+  still be undone; and a round is very often torn down *because* its token was cancelled,
+  so handing that token to the removal would make the one operation that must happen the
+  one operation that could not.
+- **The round's token is honoured everywhere else too.** A round that ignored it would keep
+  its container for ever, which is the trap `#3` left recorded on `#8`. The loop stops
+  waiting on a timed-out round; it does not stop the work, so honouring the token is the
+  implementation's job rather than the loop's.
+
+The round command is created with no `-p`, no `-P`, no `-v`, no `--mount`, no `--network`
+and no `--privileged`. Those are properties of the *command*, not of the image: an image
+that exposes nothing can still be published, and an image with no `VOLUME` can still be
+handed one. The round fetches its own repository over the network instead, because the
+alternative is a host path inside a box the factory does not trust (ADR-0010, ADR-0012).
+
+`Containers/DockerCli.cs` is the Docker CLI as a process, with **no container-runtime
+package reference at all**. ADR-0010 names `docker cp` and `docker logs` as the two ways
+anything crosses a round's boundary, so the CLI's verbs are the mechanism rather than an
+implementation detail of one. Arguments are passed through `ArgumentList` and never
+through a shell, so a reviewer's words cannot become shell syntax on the way in — the
+brief reaches the round as an environment variable, and a test asserts a brief full of
+metacharacters arrives intact and unexpanded. Both streams are read as the process writes
+them, because a 90-minute round that buffered its log would be a round that said nothing
+for 90 minutes. On cancellation the local `docker` process is killed and reaped, so a
+cancelled round leaves nothing holding a socket to the daemon.
+
+`Rounds/WorkerRoundRunner.cs` is the seam's implementation and **not the agent**. What runs
+in the container today is a plain command: the round's brief written outside the working
+tree, and the tree it was given read back through the image's own recording wrapper.
+Driving the OpenCode CLI against a provider is `#9`. The payload it produces is
+correspondingly thin — the result file's own header line, read verbatim, plus the agent's
+one optional note — because deriving a result from the records is ADR-0011's work and
+belongs to the deriver that has not been written. A round whose own command failed is
+still `Produced`: the container worked, and the failure is data inside the result. A round
+whose container broke, or that wrote no result, is `Failed`. Telling those apart for
+retry purposes is `#7`'s, not this component's.
+
+**There is still no production heartbeat.** Nothing steps the orchestrator or the poller on
+a schedule, so in production a work item in Backlog still moves only when a reviewer's
+click asks the loop for a step. That gap is unchanged by this ticket and is recorded here
+rather than left ambiguous: a real `INOpenCode` exists now, but the driver that steps the
+machine between decisions is still nobody's, and adding one is a deliberate call rather
+than a side effect. Nothing in the container runtime sleeps, defers or times out; the one
+thing it waits for is a container, and that wait is ended by the round's token rather than
+by a clock of its own.
+
+## The round's files
+
+`FactoryOptions.RoundsDirectory` is where a round's lifted-out result file and tree land,
+one directory per work item, beside the store. It is **kept** after the round: the host
+has to be able to reach the round's commit once the container that made it is gone, because
+the host pushes and not the container (ADR-0006). Turning that tree into a pull request is
+the merger's ticket (`#10`).
 
 ## Intake
 
@@ -86,9 +168,13 @@ appears.
 One `StepAsync()` applies at most one transition, which is what makes the
 90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
 timer. Like the poller it is stepped rather than driven, and like the poller nothing
-drives it on a schedule: there is no real `INOpenCode` to step against, and a background
-loop that could never run a round is noise. Whoever adds the real agent owns the
-heartbeat that steps both.
+drives it on a schedule. There is now a real `INOpenCode` behind the seam, so a step can
+start a round for real — but nothing in this process steps it on a timer, and that is
+still deliberate rather than an oversight: a background loop that started rounds with no
+budget, no concurrency limit and no log would be a factory spending containers on every
+issue of every project at once, and the container budget and cross-project concurrency are
+`#12`'s. A reviewer's click is the only thing that drives the machine today, and whoever
+adds the driver that steps it between decisions owns that decision deliberately.
 
 A step **does** await the merge an approve asks for, because merging is the transition
 that approve *is* rather than something asked for earlier and collected later: there is no

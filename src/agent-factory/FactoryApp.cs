@@ -1,6 +1,7 @@
 namespace AgentFactory;
 
 using AgentFactory.Clock;
+using AgentFactory.Containers;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
@@ -27,12 +28,23 @@ public static class FactoryApp
         // The real clock, unless a test has already put its own in the container.
         builder.Services.TryAddSingleton<IClock, SystemClock>();
 
-        // The two seams with no implementation behind them yet. What is registered here
-        // is not an implementation but a refusal: the process has to be able to start and
-        // serve the board before the adapters exist, and a call that would leave the
-        // building has to say which ticket brings the adapter rather than fail on a null
-        // or, worse, quietly do nothing. TryAdd, so the fake in the test host wins.
-        builder.Services.TryAddSingleton<INOpenCode, NOpenCodeNotBuiltYet>();
+        // The container runtime, beneath the agent seam. The Docker CLI is a process and
+        // not a package: ADR-0010 names `docker cp` and `docker logs` as the two ways
+        // anything crosses a round's boundary, so the CLI's own verbs are the mechanism,
+        // and this seam is the one place the factory knows Docker exists.
+        builder.Services.TryAddSingleton<IDockerCli, DockerCli>();
+        builder.Services.AddSingleton<ContainerRuntime>();
+
+        // The agent seam now has an implementation, so it is registered as one rather than
+        // refused: a round runs in a real container from the project's configured image,
+        // and the orchestrator still has no concept of a container. TryAdd, so the fake in
+        // the test host wins.
+        builder.Services.TryAddSingleton<INOpenCode, WorkerRoundRunner>();
+
+        // The GitHub seam is still the other one with no implementation behind it, and it
+        // stays a refusal: the process has to be able to start and serve the board, and a
+        // call that would leave the building has to say which ticket brings the adapter
+        // rather than fail on a null or, worse, quietly do nothing.
         builder.Services.TryAddSingleton<IGitHub, GitHubNotBuiltYet>();
 
         builder.Services.AddSingleton<IWorkItemStore>(services =>
@@ -46,17 +58,19 @@ public static class FactoryApp
 
         // The orchestrator is the factory's own policy: it knows the store, how to ask
         // for a round, how to ask for a merge, and the clock. It has no concept of a
-        // container runtime, so the fake agent standing in for one is the only seam
-        // between it and the outside world here; and the merge is one call on the one
-        // GitHub seam, so the loop learns whether a change shipped without learning what
-        // a pull request is.
+        // container runtime — the agent seam it asks for a round through is a component
+        // that has one — and the merge is one call on the one GitHub seam, so the loop
+        // learns whether a change shipped without learning what a pull request is.
         builder.Services.AddSingleton<Orchestrator>();
 
         // The poller is intake: it reads the open issues of the projects being served and
         // records them as work items. Like the orchestrator it is stepped rather than
-        // driven, and like the orchestrator nothing steps it yet — there is no GitHub
-        // behind the seam to step it against, so the heartbeat is the ticket that brings
-        // the real client.
+        // driven, and like the orchestrator nothing steps it on a schedule. A round can now
+        // really start, but nothing starts the *poller* either: there is still no GitHub
+        // behind its seam, so a driver that stepped it on a timer would be stepping a
+        // refusal every minute. The heartbeat belongs with the real client (#10) and the
+        // container budget it would have to respect (#12), and is recorded in AGENTS.md
+        // rather than left to be discovered.
         builder.Services.AddSingleton<Poller>();
 
         // IGitHub is one seam covering both polling and merging — one boundary rather than

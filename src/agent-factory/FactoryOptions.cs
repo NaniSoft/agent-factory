@@ -16,6 +16,16 @@ public sealed record FactoryOptions(
     /// </summary>
     public static readonly Uri DefaultBoardUrl = new("http://127.0.0.1:5000");
 
+    /// <summary>
+    /// Where a round's lifted-out result file and working tree land, one directory per
+    /// round. Beside the store rather than in a temporary directory, and kept after the
+    /// round, because the host has to be able to reach the round's commit once the
+    /// container that made it is gone: the host pushes, not the container (ADR-0006).
+    /// </summary>
+    public string RoundsDirectory => Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(DatabasePath)) ?? "data",
+        "rounds");
+
     public static FactoryOptions FromConfiguration(IConfiguration configuration, string contentRoot)
     {
         var root = FactoryPaths.ResolveRoot(configuration, contentRoot);
