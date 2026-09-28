@@ -1,5 +1,6 @@
 namespace AgentFactory.Pages;
 
+using AgentFactory.Failures;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 
@@ -63,15 +64,47 @@ internal static class HowItEnded
 
         if (parkedBy is { Decision: Decision.Approve })
         {
-            return "Escalated. A reviewer approved it, but the merge did not land, so nothing shipped. It is "
-                + "parked for a human, who can merge it from here; the factory will not keep trying on its own.";
+            return MergeThatDidNotLand(workItem, "A reviewer approved it, but the merge did not land, so nothing shipped.");
+        }
+
+        // The same fact arrived without a reviewer: the feedback threshold fired and the
+        // merge the factory asked for on its own did not land. Named separately, because
+        // this is the path where nothing was read by anybody and the reviewer needs to know
+        // which one they are looking at.
+        if (parkedBy is null
+            && workItem.MergeAttempts > 0
+            && rounds.Any(round => round.Outcome == RoundOutcome.Produced))
+        {
+            return MergeThatDidNotLand(
+                workItem,
+                $"Nobody reviewed it within the {FactoryConstants.FeedbackThresholdText} feedback threshold and the "
+                    + "merge the factory asked for on its own did not land, so nothing shipped.");
         }
 
         var failed = rounds.LastOrDefault(round => round.Outcome != RoundOutcome.Produced);
         if (failed is { } round)
         {
-            return $"Escalated. Round {round.RoundNumber} came back {round.Outcome}, so there is no result to "
-                + "review. It is parked for a human, who can still merge or decline it from here.";
+            return round.Outcome switch
+            {
+                // A transient failure the retry policy spent, which is the only one of these
+                // a second attempt could have helped: the round is not over because the
+                // factory ran out of attempts, not because the change failed.
+                RoundOutcome.TimedOut => $"Escalated. Round {round.RoundNumber} came back "
+                    + $"{round.Outcome}: it ran past the {FactoryConstants.RoundTimeout.TotalMinutes:0} minute round "
+                    + "timeout, so it is a failure and it is parked here rather than tried again. A round that hung "
+                    + "once would very likely hang again, and that is the most expensive thing the factory can do. "
+                    + "Nothing shipped.",
+
+                _ when round.Failure == FailureClass.Transient => $"Escalated. Round {round.RoundNumber} came back "
+                    + $"{round.Outcome} as a transient failure, and it was tried on {round.Attempts} attempts before the "
+                    + "factory gave up, so there is no result to review. It is parked for a human, who can still merge "
+                    + "or decline it from here.",
+
+                _ => $"Escalated. Round {round.RoundNumber} came back {round.Outcome} as a permanent failure, "
+                    + "so there is no result to review and the factory did not try again — a build that fails its own "
+                    + "tests is an answer, and retrying it would only spend a container to be told the same thing. "
+                    + "It is parked for a human, who can still merge or decline it from here.",
+            };
         }
 
         return "Escalated. The factory cannot take this any further, so it is parked for a human, who can still "
@@ -81,4 +114,22 @@ internal static class HowItEnded
     private static string DeclinedBy() =>
         "Rejected. A reviewer declined this change and that is final: it will not be built again and it will not "
         + "be merged. A decline protects the repository where a work item left alone does not.";
+
+    /// <summary>
+    /// A merge that did not land, and how many times the factory is going to say so. The
+    /// count is on the work item rather than in the loop's memory, so a card a reviewer
+    /// reads tomorrow still says what has been tried, and whether anything will be.
+    /// </summary>
+    private static string MergeThatDidNotLand(WorkItem workItem, string whatHappened) =>
+        $"Escalated. {whatHappened} The factory has tried to merge it "
+            + $"{Times(workItem.MergeAttempts)}"
+            + (workItem.MergeRetryAfterUtc is null
+                ? " and will not try again on its own: a permanent failure, or the last attempt the retry policy makes. "
+                    + "It is parked for a human, who can merge it from here."
+                : ", and will try again once that wait has passed. It is parked for a human, who can merge it "
+                    + "from here at any time rather than waiting.");
+
+    /// <summary>An attempt count as a reviewer reads it, including the first one.</summary>
+    private static string Times(int attempts) =>
+        attempts == 1 ? "once" : $"{attempts} times";
 }

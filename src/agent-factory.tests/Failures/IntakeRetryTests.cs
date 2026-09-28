@@ -1,0 +1,351 @@
+namespace AgentFactory.Tests.Failures;
+
+using AgentFactory;
+using AgentFactory.Failures;
+using AgentFactory.GitHub;
+using AgentFactory.Tests.Boundary;
+using AgentFactory.WorkItems;
+
+/// <summary>
+/// A repository that cannot be read, and the backoff that follows. #4 left this as a note:
+/// a failing project was retried at most once per sixty-second pass, and "adding backoff
+/// will interact with the poller's fixed pass cadence in a way nothing currently asserts."
+///
+/// The interaction turns out to be that the pass cadence is a *floor* and the backoff is
+/// a ceiling on how often the factory asks. A backoff that lengthens the wait can only ever
+/// ask a question later, never sooner — and once it grows past the poll interval, later is
+/// later than the pass would have gone anyway, so a project that has been failing for a
+/// while is asked less and less often. That is what an exponential backoff is for, and it
+/// is why the two constants compose the way they do rather than fighting.
+/// </summary>
+/// <remarks>
+/// Nothing here escalates, and that is a decision rather than an omission. Escalation is a
+/// work item's state, and a project that cannot be read has produced no work item to
+/// escalate; there is nothing on the board to park and nothing for a human to finish from
+/// a card. What the poller does instead is stop asking as often, and say so in the log. A
+/// repository that comes back is picked up, because the next pass is intake's own cadence
+/// and not a retry of anything.
+/// </remarks>
+public class IntakeRetryTests
+{
+    private const string RepoUrl = "https://github.com/NaniSoft/nexus";
+
+    [Fact]
+    public async Task A_repository_that_cannot_be_read_is_tried_again_on_the_next_pass()
+    {
+        var clock = new TestClock();
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        await host.PollAsync();
+        Assert.Equal(1, github.TimesPolled(RepoUrl));
+
+        // Short of the poll interval, no pass is due at all — the pass cadence is the floor
+        // and nothing shortens it.
+        clock.Advance(TimeSpan.FromSeconds(59));
+        await host.PollAsync();
+        Assert.Equal(1, github.TimesPolled(RepoUrl));
+
+        // A transient failure is retried, on the next pass, which is the shortest wait the
+        // poller has. A transient failure is not worth asking about three times inside one
+        // turn: a turn cannot wait, so a retry inside a turn would be three identical calls
+        // in a row, and that is a stampede rather than a backoff.
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await host.PollAsync();
+        Assert.Equal(2, github.TimesPolled(RepoUrl));
+
+        // And the project is picked up when it comes back, without a human doing anything.
+        github.WithRepository(
+            RepoUrl,
+            defaultBranch: "main",
+            OpenIssue.Plain(1, "An issue that was there all along", "A body."));
+        clock.Advance(FactoryConstants.PollInterval);
+        await host.PollAsync();
+
+        Assert.Equal(3, github.TimesPolled(RepoUrl));
+        Assert.Equal(1, Assert.Single(host.Store.List()).IssueNumber);
+    }
+
+    [Fact]
+    public async Task A_permanently_failing_repository_is_read_once_per_pass_and_never_sooner()
+    {
+        var clock = new TestClock();
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Permanent, "the repository does not exist");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        for (var pass = 0; pass < 3; pass++)
+        {
+            await host.PollAsync();
+            clock.Advance(FactoryConstants.PollInterval);
+        }
+
+        // One turn per pass, however the turn failed, and never three calls in a row inside
+        // one turn. A permanent failure is not given a wait of its own because a repository
+        // that is gone says the same thing in ten seconds: the pass cadence is already the
+        // slowest this factory asks anything, and a second schedule on top of it would be
+        // the retry policy asking twice where it promised not to.
+        Assert.Equal(3, github.TimesPolled(RepoUrl));
+        Assert.Empty(host.Store.List());
+
+        // A day of passes, and every one of them is read. A transient failure would be
+        // paced away by now; this one never is, which is the whole difference between the
+        // two classes at the poller.
+        for (var pass = 0; pass < 2000; pass++)
+        {
+            clock.Advance(FactoryConstants.PollInterval);
+            await host.PollAsync();
+        }
+
+        Assert.Equal(2003, github.TimesPolled(RepoUrl));
+
+        // And it is not written off either. A project that comes back is read on the next
+        // pass it is due for, with no human involved and no state to reset.
+        github.WithRepository(
+            RepoUrl, defaultBranch: "main", OpenIssue.Plain(1, "An issue", "A body."));
+        clock.Advance(FactoryConstants.PollInterval);
+        await host.PollAsync();
+
+        Assert.Equal(2004, github.TimesPolled(RepoUrl));
+        Assert.Equal(1, Assert.Single(host.Store.List()).IssueNumber);
+    }
+
+    [Fact]
+    public async Task A_transient_failure_stops_the_poller_asking_as_often_as_the_pass_cadence_would()
+    {
+        // The interaction the #4 note was about, asserted rather than assumed: a backoff
+        // may only lengthen the wait, so the sixty-second pass interval paces a project
+        // through its first few failures, and the backoff takes over once it has grown past
+        // that. The numbers are written out rather than read from the constants, because a
+        // test that advanced by the constants would prove only that the poller compares
+        // two values to each other.
+        var clock = new TestClock();
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        // The waits are ten seconds, twenty, forty, eighty. The pass interval is sixty.
+        Assert.Equal(TimeSpan.FromSeconds(10), FactoryConstants.PollBackoff(1));
+        Assert.Equal(TimeSpan.FromSeconds(20), FactoryConstants.PollBackoff(2));
+        Assert.Equal(TimeSpan.FromSeconds(40), FactoryConstants.PollBackoff(3));
+        Assert.Equal(TimeSpan.FromSeconds(80), FactoryConstants.PollBackoff(4));
+        Assert.Equal(TimeSpan.FromSeconds(60), FactoryConstants.PollInterval);
+
+        // Passes at t=0, 60, 120, 180: four turns. The backoff is shorter than the interval
+        // through all of them, so the cadence is what paces this project so far.
+        for (var pass = 0; pass < 4; pass++)
+        {
+            await host.PollAsync();
+            clock.Advance(FactoryConstants.PollInterval);
+        }
+
+        Assert.Equal(4, github.TimesPolled(RepoUrl));
+
+        // The pass due at t=240 is not taken. The wait after the fourth failure is eighty
+        // seconds, and 240 is not yet 260. This is the assertion: without a backoff that
+        // grows, this pass would be read like every other one, and a repository that has
+        // been failing for four minutes would be asked for ever at a minute a piece.
+        await host.PollAsync();
+        Assert.Equal(4, github.TimesPolled(RepoUrl));
+
+        // The pass due at t=300 is taken, and the wait after it is longer still.
+        clock.Advance(FactoryConstants.PollInterval);
+        await host.PollAsync();
+        Assert.Equal(5, github.TimesPolled(RepoUrl));
+    }
+
+    [Fact]
+    public async Task A_repository_that_has_been_failing_all_day_is_read_a_handful_of_times()
+    {
+        // The other end of the same trade, and the reason the growth stops somewhere. A
+        // project that is down is not worth a request a minute for ever, and the ceiling
+        // is what says how far the asking decays to: sixteen minutes, which is a handful
+        // of reads across a day rather than fourteen hundred.
+        var clock = new TestClock();
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        Assert.Equal(TimeSpan.FromMinutes(16), FactoryConstants.PollBackoffCeiling);
+        Assert.Equal(FactoryConstants.PollBackoffCeiling, FactoryConstants.PollBackoff(50));
+
+        // A day of passes, one every sixty seconds. The count is the whole of the claim.
+        var passes = 0;
+        while (clock.UtcNow - new DateTimeOffset(2026, 9, 28, 9, 0, 0, TimeSpan.Zero) < TimeSpan.FromDays(1))
+        {
+            await host.PollAsync();
+            clock.Advance(FactoryConstants.PollInterval);
+            passes++;
+        }
+
+        Assert.Equal(1440, passes);
+        Assert.True(
+            github.TimesPolled(RepoUrl) < 200,
+            $"a project down for a day should be read a handful of times, not {github.TimesPolled(RepoUrl)}");
+
+        // And it is still being served, not written off. This is the cost of the ceiling,
+        // stated rather than discovered: a project that comes back is picked up within
+        // sixteen minutes. Sixteen passes, at worst, and not one of them empty.
+        github.WithRepository(
+            RepoUrl, defaultBranch: "main", OpenIssue.Plain(1, "An issue", "A body."));
+
+        var read = false;
+        for (var pass = 0; pass < 16 && !read; pass++)
+        {
+            clock.Advance(FactoryConstants.PollInterval);
+            await host.PollAsync();
+            read = host.Store.List().Count > 0;
+        }
+
+        Assert.True(read, "a project that comes back is picked up without anyone doing anything");
+    }
+
+    [Fact]
+    public async Task A_permanently_failing_project_is_read_on_every_pass_and_a_transient_one_is_not()
+    {
+        // The distinction as a number, and over a long enough run that the two schedules
+        // have actually parted company — because they are identical for the first four
+        // passes, and a test that stopped there would pass against an implementation that
+        // treated a permanent failure and a transient one the same. This is the test that
+        // mutation M11 has to fail.
+        var clock = new TestClock();
+        var permanent = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Permanent, "the repository does not exist");
+        var transient = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+
+        // Two roots, because two hosts against one SQLite file is two writers for a file
+        // that has one writer by design (ADR-0009), and the point here is the schedules
+        // rather than the store.
+        using var goneRoot = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        using var downRoot = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+
+        var factory = new[]
+        {
+            (Host: await FactoryHost.StartAsync(goneRoot, clock, github: permanent), GitHub: permanent),
+            (Host: await FactoryHost.StartAsync(downRoot, clock, github: transient), GitHub: transient),
+        };
+
+        var passes = 0;
+        while (clock.UtcNow - new DateTimeOffset(2026, 9, 28, 9, 0, 0, TimeSpan.Zero) < TimeSpan.FromDays(1))
+        {
+            foreach (var (host, _) in factory)
+            {
+                await host.PollAsync();
+            }
+
+            clock.Advance(FactoryConstants.PollInterval);
+            passes++;
+        }
+
+        Assert.Equal(1440, passes);
+
+        // Every pass, for the one that is gone: the pass cadence is the whole of its
+        // schedule, and a permanent failure is not given a wait of its own.
+        Assert.Equal(passes, permanent.TimesPolled(RepoUrl));
+
+        // A handful, for the one that is merely down: the backoff grows past the interval
+        // and then keeps growing, and the reads decay to a few a day.
+        Assert.True(
+            transient.TimesPolled(RepoUrl) < 200,
+            $"a project down for a day is paced, and got read {transient.TimesPolled(RepoUrl)} times");
+
+        foreach (var (host, _) in factory)
+        {
+            await host.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_repository_that_reads_again_starts_its_backoff_over()
+    {
+        // The backoff counts consecutive failures, not failures ever: a project that was
+        // unreachable for an afternoon and then answered should not be paced for ever on
+        // the strength of a failure from this morning.
+        var clock = new TestClock();
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub()
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        // Four failures, which is enough to make the next pass too early to be taken.
+        for (var pass = 0; pass < 4; pass++)
+        {
+            await host.PollAsync();
+            clock.Advance(FactoryConstants.PollInterval);
+        }
+
+        await host.PollAsync();
+        Assert.Equal(4, github.TimesPolled(RepoUrl));
+
+        // The repository answers, and the run of failures is over.
+        github.WithRepository(
+            RepoUrl, defaultBranch: "main", OpenIssue.Plain(1, "An issue", "A body."));
+        clock.Advance(FactoryConstants.PollInterval);
+        await host.PollAsync();
+        Assert.Equal(5, github.TimesPolled(RepoUrl));
+        Assert.Single(host.Store.List());
+
+        // Two more transient failures from a cleared count, and then four more passes. The
+        // waits are ten, twenty, forty and eighty seconds again — all shorter than the
+        // sixty-second interval, except the last, so four of these five passes are read and
+        // the fifth is refused. Had the run not been reset, the wait after the fifth
+        // failure in total would be minutes rather than seconds and every one of these
+        // passes would have been refused.
+        github.Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+
+        var reads = 0;
+        for (var pass = 0; pass < 5; pass++)
+        {
+            clock.Advance(FactoryConstants.PollInterval);
+            var before = github.TimesPolled(RepoUrl);
+            await host.PollAsync();
+            reads += github.TimesPolled(RepoUrl) - before;
+        }
+
+        Assert.Equal(4, reads);
+    }
+
+    [Fact]
+    public async Task A_failing_project_still_does_not_stop_the_rest_of_the_rotation()
+    {
+        // Unchanged and worth restating under a retry policy: backoff must not become
+        // starvation. A project being paced is a project's own turn being skipped, and the
+        // rotation carries on round to the others — which is the whole reason the rotation
+        // is one project at a time (ADR-0007).
+        var clock = new TestClock();
+        const string Alpha = "https://github.com/NaniSoft/alpha";
+        using var root = FactoryRoot.Create()
+            .WithProjectFile("alpha.yaml", ProjectFile.For("alpha", Alpha))
+            .WithProjectFile("nexus.yaml", ProjectFile.For("nexus", RepoUrl));
+        var github = new FakeGitHub()
+            .WithRepository(Alpha, "main", OpenIssue.Plain(1, "An issue", "A body."))
+            .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
+        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+
+        // A day of passes. Alpha is read on every one of them — its own turn is never
+        // skipped, because it never failed — while nexus's turns are paced away.
+        var alphaTurns = 0;
+        while (clock.UtcNow - new DateTimeOffset(2026, 9, 28, 9, 0, 0, TimeSpan.Zero) < TimeSpan.FromDays(1))
+        {
+            await host.PollAsync();
+            clock.Advance(FactoryConstants.PollInterval);
+            alphaTurns++;
+        }
+
+        Assert.Equal(1440, alphaTurns);
+        Assert.Equal(alphaTurns, github.TimesPolled(Alpha));
+        Assert.True(
+            github.TimesPolled(RepoUrl) < 200,
+            $"nexus is paced and alpha is not: {github.TimesPolled(RepoUrl)} against {alphaTurns}");
+
+        // One issue in Backlog from alpha, and none from nexus, because nexus was never
+        // successfully read at all.
+        Assert.Equal("alpha", Assert.Single(host.Store.List()).Project);
+    }
+}

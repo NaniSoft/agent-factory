@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Rounds;
 
 using AgentFactory;
 using AgentFactory.Containers;
+using AgentFactory.Failures;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
@@ -148,7 +149,7 @@ public class WorkerRoundRunnerTests
     }
 
     [Fact]
-    public async Task A_round_that_wrote_no_result_is_a_failure_and_says_what_its_log_ended_with()
+    public async Task A_round_that_wrote_no_result_is_a_permanent_failure_and_says_what_its_log_ended_with()
     {
         using var harness = AFactory();
         harness.Docker.Handler = call => call.Arguments[0] == "logs"
@@ -158,15 +159,23 @@ public class WorkerRoundRunnerTests
         var result = await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
 
         Assert.Equal(RoundOutcome.Failed, result.Outcome);
+
+        // Permanent, and this is the classification the whole retry policy turns on. The
+        // container started, ran and produced nothing: the round's own work failed, and a
+        // second container would be told the same thing. A round that is worth another
+        // attempt is the other shape of failure — a container that never ran — and the two
+        // used to arrive here in exactly the same way.
+        Assert.Equal(FailureClass.Permanent, result.Failure);
+        Assert.False(result.IsRetryable);
         Assert.Null(result.ResultPayload);
 
-        // The container still went, which is the half of the promise that has nothing to
-        // do with whether the round produced anything.
+        // The container still went, which is the half of the promise that has nothing to do
+        // with whether the round produced anything.
         Assert.Equal(["rm", "-f", $"agent-factory-round-{WorkItem:N}"], harness.Docker.TheOnly("rm"));
     }
 
     [Fact]
-    public async Task A_round_whose_container_broke_is_a_failure_rather_than_a_result()
+    public async Task A_round_whose_container_broke_is_a_transient_failure_rather_than_a_result()
     {
         using var harness = AFactory();
         harness.Docker.Handler = call => call.Arguments[0] == "create"
@@ -178,6 +187,13 @@ public class WorkerRoundRunnerTests
         // No result, and no payload claiming there was one.
         Assert.Equal(RoundOutcome.Failed, result.Outcome);
         Assert.Null(result.ResultPayload);
+
+        // Transient, and for the reason the classification lives here rather than above:
+        // this runner is the component that knows the round never started, and a `create`
+        // that could not pull an image is a daemon that was not answering rather than a
+        // change that does not build. Worth another attempt; the loop decides how many.
+        Assert.Equal(FailureClass.Transient, result.Failure);
+        Assert.True(result.IsRetryable);
     }
 
     [Fact]
@@ -248,6 +264,12 @@ public class WorkerRoundRunnerTests
 
         Assert.Equal(RoundOutcome.Failed, result.Outcome);
         Assert.Empty(harness.Docker.Calls);
+
+        // Permanent, and unlike a container that would not start this one cannot change:
+        // configuration loads at start and does not hot reload, so a second attempt would
+        // start no container either.
+        Assert.Equal(FailureClass.Permanent, result.Failure);
+        Assert.False(result.IsRetryable);
     }
 
     private static Round ARound(string feedback = "", string project = "nexus") => new(

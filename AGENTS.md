@@ -236,11 +236,100 @@ separate cause column would be a second copy of what the record already says, fr
 disagree with it. The merge failure's own message is *not* persisted — that is the log
 and the response the reviewer was holding.
 
-Still not here, and deliberately: retry classification, backoff, and transient-versus-
-permanent (`#7`) — a failed merge is not retried by anything, on any schedule, ever; and
-the agent and the result deriver (`#9`), the merger (`#10`), the diff (`#11`), the
-container budget (`#12`). Nothing sleeps, defers or times out in any of this: the ceiling
-is a count and the threshold is a comparison against `IClock`.
+Still not here, and deliberately: the agent and the result deriver (`#9`), the merger
+(`#10`), the diff (`#11`), the container budget (`#12`). Retry classification and backoff
+are now here — see **Failure paths and retry** below. Nothing sleeps, defers or times out
+in any of this: the ceiling is a count and the threshold is a comparison against `IClock`.
+
+## Failure paths and retry
+
+Two classes, and the whole ticket is the difference between them. `Failures/FailureClass.cs`
+has `Transient` and `Permanent` — DESIGN.md's own words — and **classification is a type,
+never a message.** `TransientFailure`, `PermanentFailure` and `WorkerContainerException`
+each *are* their class, so a component that observed a failure decides at the point it
+observed it, by throwing the kind of failure it means. There is nowhere in the factory
+where a failure becomes transient by having a word in it, and `Failures.Classify` reads
+anything that has not declared itself as `Permanent` — the safe default, because an
+unclassified unattended retry is what parking a failed merge exists to prevent.
+
+**Where each classification is decided, and why there:**
+
+- `ContainerRuntime` — a `docker create`/`start`/`logs` that failed. It is the only
+  component that knows the verb, and every one of those is a call to a daemon that was
+  either answering or not. Transient. `docker rm` failing is not a round failure at all,
+  so it is logged and nothing else.
+- `DockerCli` — no CLI on the PATH. Permanent: the binary is either there or it is not, and
+  a second attempt in ten seconds begins a second identical failure.
+- `WorkerRoundRunner` — no project file being served, permanent (configuration does not hot
+  reload); a broken container, the runtime's class carried up; a round that *ran and wrote
+  no result*, permanent. Note the last one. A missing result file and a `docker cp` that
+  failed are **the same signal** at that boundary — both are `cp` exiting non-zero — so
+  telling them apart would mean reading the reason out of the message, which is the
+  guessing the policy refuses. It is therefore *not* classified, and the runner calls a
+  round that ran and produced nothing permanent. Do not "fix" this by parsing the output.
+- The loop — the round timeout, which the spec's own state machine gives a row of its own:
+  `In Progress | round timed out | Escalated`. Not retried, because a round that hung for
+  ninety minutes is the most expensive thing the factory has and would very likely hang
+  again. It is still ended and its token still cancelled.
+- `IGitHub` — #10's to declare. Until it does, every merge refusal is permanent, which is
+  the honest reading of "we do not know why this failed".
+
+**A build that fails its tests is structurally unretriable, not merely un-retried.** A
+round that ran and whose change failed comes back `Produced` with the failing exit code in
+the payload; a `Produced` round carries no `Failure` at all, and `RoundResult.IsRetryable`
+is `Failed && Transient`. There is nothing for a retry policy to act on.
+`PolicyTests` asserts by IL scan that `IsRetryable` is read in exactly one method, so a
+second opinion cannot grow next to it.
+
+**A transient round failure retries; the round does not end.** Three attempts total, then
+Escalated. The round is asked for again once the backoff has passed, as the *same* round —
+a container that would not start is not an attempt at building anything, so it is not
+charged to the round ceiling, and the board's "round 1 of 3" stays honest. `RoundCount` and
+the attempt count are different things and both are recorded (`RoundResultRecord.Attempts`).
+While a round waits out its backoff the work item stays in In Progress and keeps its slot,
+because a round that has not ended has not released one.
+
+**A merge retry is the deliberate widening of Escalated, and it is not the 48-hour loop.**
+`WorkItem` carries `MergeAttempts` and `MergeRetryAfterUtc`; `RecordMergeFailure` moves both
+in one write. A transient merge failure gets up to three attempts with the same backoff; a
+permanent one gets exactly one, ever. Four things make it not the loop #6 refused: it is
+**bounded at three**; it is **classified**, so an unclassified refusal is not retried; it
+is **paced by a backoff that grows**, not by a 48-hour threshold; and it is **counted on the
+work item**, so a restart cannot hand a merge the repository has already refused a fresh
+budget. Above all it is **reachable only by a work item that has a merge failure of its
+own** — a work item parked by a failed build, by spent rounds or by a decline has no such
+record, so nothing here can merge it however long it sits. A reviewer's new decision clears
+the count, because approving again is a second complete decision, not a continuation.
+
+**A parked work item is never re-opened. Not by the loop, not by a decision.** This was
+#6's to leave and it is ruled here: a parked work item is finished by a human, merged or
+declined, and those are the only two ways out of Escalated. Re-opening the build would mint
+a fresh retry budget for the same failure *and* spend rounds that are a reviewer's to spend.
+So a work item parked by a failed round can end up with two of its three rounds unspent,
+and they stay unspent — the honest cost, and said rather than left to be discovered. The
+board's decision set has not grown by one, which is the check `PolicyTests` makes.
+
+**Intake's backoff composes with the poll interval rather than competing.** A backoff can
+only lengthen the wait, so the 60s pass is a floor and the backoff is a ceiling on how
+often the factory asks. The first few waits (10s, 20s, 40s, 80s) are *shorter* than the
+interval, so the interval paces a project for its first few failures and the backoff takes
+over only once it has grown past it. A permanent poll failure is given no wait of its own —
+the pass cadence is already the slowest this factory asks anything. Nothing is escalated,
+because escalation is a work item's state and a repository that cannot be read has produced
+no work item to park. `PollBackoffCeiling` (16 minutes) is where the growth stops: a project
+down for a day is read a handful of times rather than 1440, and one that recovers is picked
+up within sixteen minutes.
+
+Nothing here sleeps, defers or times out. A backoff is a `TimeSpan` compared against
+`IClock`, and a step asked before the wait has passed does nothing at all. `PolicyTests`
+scans the application IL for `Task.Delay`, `Thread.Sleep`, `Timer` and
+`CancellationTokenSource.CancelAfter` and requires none of them — which is also why a
+bounded GitHub read is left to the seam's own client (#10) rather than given a timer here,
+the same answer the merge call already has.
+
+**No production heartbeat still.** A retry waits for something to step the machine, and in
+production the only thing that does is a reviewer's click. The policy is bounded and correct
+without a driver; what is missing is #9's and #12's, not this.
 
 ## Done means merged
 
@@ -267,14 +356,14 @@ the loop's answer to that approval recorded as Escalated — the reviewer approv
 not merged, and the lane says a human has to finish it. #6 owns that decision and the
 argument for it is under "Every way a loop ends" above. Three things follow:
 
-- **The loop does not retry it by itself.** Whether a merge that failed is worth another
-  attempt, how many, how soon, and telling a transient failure from a permanent one, is the
-  retry ticket's (#7). An unclassified, unattended, unbounded retry would be worse than the
-  single attempt a reviewer can see and make again. So the decision is recorded *applied*,
-  not pending: a pending decision is retried on every step and across every restart.
-  Because Escalated is decidable, the board still offers the reviewer the decision form,
-  and approving again is a second, complete, human-attributable decision rather than a
-  silent re-run. `ApproveTests` asserts exactly this, including across a restart.
+- **A permanent merge failure is never retried by anything, on any schedule, ever.** Telling
+  a transient failure from a permanent one, how many attempts, and how soon, is the retry
+  ticket's — now landed, and described under **Failure paths and retry** below. So the
+  decision is recorded *applied*, not pending: a pending decision is retried on every step
+  and across every restart. Because Escalated is decidable, the board still offers the
+  reviewer the decision form, and approving again is a second, complete, human-attributable
+  decision — with its own attempts — rather than a silent re-run. `ApproveTests` asserts
+  the applied-not-pending rule, including across a restart.
 - **It leaves the timeout's reach**, which is why the lane is Escalated and not Review. A
   merge that did not land would otherwise still be in Review 48 hours later, and the
   feedback threshold would try again — unattended, for ever, for a merge already known to

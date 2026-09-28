@@ -1,5 +1,6 @@
 namespace AgentFactory.Tests.Boundary;
 
+using AgentFactory.Failures;
 using AgentFactory.GitHub;
 
 /// <summary>
@@ -17,12 +18,15 @@ public sealed class FakeGitHub : IGitHub
     private readonly List<MergeAttempt> _merges = [];
 
     /// <summary>
-    /// What a merge refuses with, or null when merges land. It starts as a refusal because
-    /// that is what the seam has behind it today: there is no merger, and a fake that
-    /// merged things on its own would let a test pass on a success the factory would not
-    /// have in production. A test that wants Done asks for a merge that lands.
+    /// What a merge refuses with, and how the factory has read it, or null when merges
+    /// land. It starts as a permanent refusal because that is what the seam has behind it
+    /// today: there is no merger, and a fake that merged things on its own would let a test
+    /// pass on a success the factory would not have in production. A test that wants Done
+    /// asks for a merge that lands.
     /// </summary>
-    private string? _mergeRefusal = NoMergerBehindTheSeam;
+    private Refusal? _mergeRefusal = new(
+        FailureClass.Permanent,
+        NoMergerBehindTheSeam);
 
     private const string NoMergerBehindTheSeam =
         "there is no merger behind this seam yet: merging is the merger's business, and the merger is not built";
@@ -43,21 +47,35 @@ public sealed class FakeGitHub : IGitHub
         ArgumentException.ThrowIfNullOrWhiteSpace(repoUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(defaultBranch);
 
-        _repositories[repoUrl] = new Script(defaultBranch, issues, Failing: false, Failure: null);
+        _repositories[repoUrl] = new Script(defaultBranch, issues, Failing: false, FailureClass: null, Failure: null);
         return this;
     }
 
     /// <summary>
-    /// The repository cannot be read: every call against it throws, the way an API
-    /// error or a repository that has gone away does.
+    /// The repository cannot be read: every call against it throws, the way an API error
+    /// or a repository that has gone away does. Transient by default, because the failures
+    /// it stands for — a 503, a rate limit, a connection that dropped — are the ones the
+    /// retry policy exists for, and a test that wants the other kind says so.
     /// </summary>
     public FakeGitHub Failing(
         string repoUrl,
+        string message = "the repository could not be read") =>
+        Failing(repoUrl, FailureClass.Transient, message);
+
+    /// <summary>
+    /// The repository cannot be read and reading it again will not help: a repository that
+    /// has gone away, a credential with nothing to read it with, a name that is not a
+    /// repository. The poller asks on its next pass all the same — intake has no work item
+    /// to escalate — but it does not sit on this one any longer than the pass cadence says.
+    /// </summary>
+    public FakeGitHub Failing(
+        string repoUrl,
+        FailureClass failure,
         string message = "the repository could not be read")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repoUrl);
 
-        _repositories[repoUrl] = new Script("main", [], Failing: true, Failure: message);
+        _repositories[repoUrl] = new Script("main", [], Failing: true, FailureClass: failure, Failure: message);
         return this;
     }
 
@@ -80,13 +98,24 @@ public sealed class FakeGitHub : IGitHub
 
     /// <summary>
     /// Merges refuse with this, the way an unreachable API or a branch protection that will
-    /// not let the merge through does. Every attempt is still recorded, so a test can see
-    /// that the loop tried.
+    /// not let the merge through does. It is a permanent refusal: this is what a merger
+    /// that cannot take the change says, and reading it again tomorrow would say the same
+    /// thing. Every attempt is still recorded, so a test can see that the loop tried.
     /// </summary>
-    public FakeGitHub RefusingToMerge(string message = "the change could not be merged")
+    public FakeGitHub RefusingToMerge(string message = "the change could not be merged") =>
+        RefusingToMerge(FailureClass.Permanent, message);
+
+    /// <summary>
+    /// Merges refuse with this, and the factory has read that as one kind of failure or the
+    /// other. A transient refusal is the one that gets another attempt; a permanent one is
+    /// this attempt and no more, for ever. <see cref="Merging"/> afterwards is a merger that
+    /// has come back, and is how a test watches a retried merge land.
+    /// </summary>
+    public FakeGitHub RefusingToMerge(FailureClass failure, string message = "the change could not be merged")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(message);
-        _mergeRefusal = message;
+
+        _mergeRefusal = new Refusal(failure, message);
         return this;
     }
 
@@ -116,9 +145,22 @@ public sealed class FakeGitHub : IGitHub
         _merges.Add(new MergeAttempt(repoUrl, issueNumber));
 
         return _mergeRefusal is { } refusal
-            ? Task.FromException(new InvalidOperationException(refusal))
+            ? Task.FromException(Refusing(refusal))
             : Task.CompletedTask;
     }
+
+    /// <summary>
+    /// The refusal as the exception the seam would really throw: a classified one, because
+    /// the whole point of the classification is that it is a type rather than a word in a
+    /// message. A seam that has not learned to classify throws an ordinary exception, and
+    /// the factory reads that as permanent — so this fake classifies, and the unclassified
+    /// case is the agent fake's <c>Throwing</c>.
+    /// </summary>
+    private static Exception Refusing(Refusal refusal) => refusal.Class switch
+    {
+        FailureClass.Transient => new TransientFailure(refusal.Message),
+        _ => new PermanentFailure(refusal.Message),
+    };
 
     private Script Read(string repoUrl)
     {
@@ -129,15 +171,22 @@ public sealed class FakeGitHub : IGitHub
         }
 
         return script.Failing
-            ? throw new InvalidOperationException(script.Failure)
+            ? throw Refusing(new Refusal(
+                script.FailureClass ?? FailureClass.Permanent,
+                script.Failure ?? "the repository could not be read"))
             : script;
     }
 
+    /// <summary>A repository as a test described it: readable, or not, and why not.</summary>
     private sealed record Script(
         string DefaultBranch,
         IReadOnlyList<OpenIssue> Issues,
         bool Failing,
+        FailureClass? FailureClass,
         string? Failure);
+
+    /// <summary>A merge the seam will not make, and the class of that refusal.</summary>
+    private sealed record Refusal(FailureClass Class, string Message);
 }
 
 /// <summary>

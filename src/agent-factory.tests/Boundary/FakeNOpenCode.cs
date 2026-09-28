@@ -1,5 +1,6 @@
 namespace AgentFactory.Tests.Boundary;
 
+using AgentFactory.Failures;
 using AgentFactory.Rounds;
 
 /// <summary>
@@ -7,6 +8,13 @@ using AgentFactory.Rounds;
 /// and keeps what it was asked for, so a test can see how many rounds ran and what
 /// each was told. There is no container behind it and nothing to wait on.
 /// </summary>
+/// <remarks>
+/// The three ways a round can come back are kept apart on purpose, because they are what
+/// the retry policy is decided on: a round that produced a result, a round that failed
+/// transiently, and a round that failed permanently. A fourth — a round whose call throws
+/// an exception that has not classified itself — is <see cref="Throwing"/>, and it exists
+/// because "unclassified means not retried" is a policy that has to be testable too.
+/// </remarks>
 public sealed class FakeNOpenCode : INOpenCode
 {
     private readonly Queue<Func<CancellationToken, Task<RoundResult>>> _scripted = new();
@@ -32,7 +40,30 @@ public sealed class FakeNOpenCode : INOpenCode
     }
 
     public FakeNOpenCode Yielding(RoundOutcome outcome, string? resultPayload = null, string? agentNote = null) =>
-        Yielding(new RoundResult(outcome, resultPayload, agentNote));
+        Yielding(outcome == RoundOutcome.Produced
+            ? RoundResult.Produced(resultPayload, agentNote)
+            // A scripted outcome that is not a result is a failure, and a test that scripts
+            // one without saying which kind gets the safe reading: permanent, one attempt.
+            : RoundResult.Failed(FailureClass.Permanent));
+
+    /// <summary>The next round ran, changed files, and came back with a result.</summary>
+    public FakeNOpenCode Producing(string? resultPayload = null, string? agentNote = null) =>
+        Yielding(RoundResult.Produced(resultPayload, agentNote));
+
+    /// <summary>
+    /// The next round never got to run: the container would not start, or the files could
+    /// not be lifted out of it. Worth another attempt, and the test decides how many there
+    /// are by scripting as many of these as it wants to see.
+    /// </summary>
+    public FakeNOpenCode FailingTransiently() =>
+        Yielding(RoundResult.Failed(FailureClass.Transient));
+
+    /// <summary>
+    /// The next round ran and its own work failed. Not worth another attempt at all, which
+    /// is the half of the ticket that is easy to get wrong in the direction of retrying.
+    /// </summary>
+    public FakeNOpenCode FailingPermanently() =>
+        Yielding(RoundResult.Failed(FailureClass.Permanent));
 
     /// <summary>
     /// The next round never comes back on its own. Either <see cref="Release"/> ends it
@@ -51,8 +82,9 @@ public sealed class FakeNOpenCode : INOpenCode
     }
 
     /// <summary>
-    /// The next round fails the way an agent whose container died would: the call comes
-    /// back faulted rather than with a result.
+    /// The next round fails the way a seam that has not learned to classify its failures
+    /// does: the call comes back faulted with an ordinary exception, saying nothing about
+    /// whether another attempt would help.
     /// </summary>
     public FakeNOpenCode Throwing(string? message = null)
     {
@@ -70,7 +102,7 @@ public sealed class FakeNOpenCode : INOpenCode
             throw new InvalidOperationException("no round is being held");
         }
 
-        _held.Dequeue().SetResult(result ?? new RoundResult(RoundOutcome.Produced, null, null));
+        _held.Dequeue().SetResult(result ?? RoundResult.Produced(null, null));
     }
 
     public Task<RoundResult> RunRoundAsync(Round round, CancellationToken cancellationToken)

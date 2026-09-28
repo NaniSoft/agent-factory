@@ -147,7 +147,19 @@ public sealed class ContainerRuntime
     /// a path that is not there, not an error: a round whose result is missing still has a
     /// log, and a round must never be invisible (story 29).
     /// </summary>
-    private async Task<string?> LiftAsync(string name, string from, string to, CancellationToken cancellationToken)
+    /// <remarks>
+    /// There is deliberately no classification here, and this is the boundary that decides
+    /// it. A <c>cp</c> that failed is one signal: a container that wrote no result file and
+    /// a host that could not fetch one come back the same way, and nothing this side of the
+    /// call can tell them apart without reading the reason out of the message — which is
+    /// the guessing the whole retry policy refuses to do. So the lift says only that there
+    /// is no file, and the round runner, which knows the round ran, calls it what it is.
+    /// </remarks>
+    private async Task<string?> LiftAsync(
+        string name,
+        string from,
+        string to,
+        CancellationToken cancellationToken)
     {
         var copied = await _docker.InvokeAsync(["cp", $"{name}:{from}", to], null, cancellationToken);
         if (copied.ExitCode == 0 && (File.Exists(to) || Directory.Exists(to)))
@@ -191,8 +203,7 @@ public sealed class ContainerRuntime
             return;
         }
 
-        throw new WorkerContainerException(
-            $"docker {what} failed for a round: {FirstLine(done.Output)}");
+        throw new WorkerContainerException(what, FirstLine(done.Output));
     }
 
     private static string FirstLine(string output) =>

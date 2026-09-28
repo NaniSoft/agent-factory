@@ -1,6 +1,7 @@
 namespace AgentFactory.Rounds;
 
 using AgentFactory.Containers;
+using AgentFactory.Failures;
 using AgentFactory.Projects;
 using Microsoft.Extensions.Logging;
 
@@ -77,16 +78,19 @@ public sealed class WorkerRoundRunner : INOpenCode
         if (project is null)
         {
             // The project file this work item was taken from is not being served any more.
-            // That is a round that cannot start, not a round that failed, and it says so
-            // rather than starting a container with no image.
+            // That is a round that cannot start, not a round that failed, and it is
+            // permanent rather than transient: configuration loads at start and does not
+            // hot reload, so nothing about the second attempt would differ from the first.
+            // Retrying it would spend two more containers to be told the same thing.
             _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} cannot run: no project file is being served for {Project}, so there is no worker image to start from.",
+                "Round {Round} of {Project}#{Issue} cannot run: no project file is being served for {Project}, "
+                    + "so there is no worker image to start from. Nothing about a second attempt would be different.",
                 round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
                 round.Project);
 
-            return new RoundResult(RoundOutcome.Failed, null, null);
+            return RoundResult.Failed(FailureClass.Permanent);
         }
 
         var landing = Path.Combine(_options.RoundsDirectory, round.WorkItemId.ToString("N"));
@@ -133,20 +137,25 @@ public sealed class WorkerRoundRunner : INOpenCode
 
             throw;
         }
-        catch (WorkerContainerException broken)
+        catch (FactoryFailure broken)
         {
-            // A container that broke is a round that never happened. Telling that apart
-            // from a round that ran and failed, and saying whether either is worth
-            // another attempt, is the retry ticket's business (#7).
+            // A failure the round could not survive rather than one the round produced.
+            // Which kind it is was decided where it was observed — the container runtime
+            // knows it was a daemon that was not answering, and this runner knows a missing
+            // project file is not going to appear — and it is carried here rather than
+            // worked out again from a message, because a message is not a classification.
+            // The loop reads it and decides whether to ask for the round again.
             _logger.LogWarning(
                 broken,
-                "Round {Round} of {Project}#{Issue} had no container to run in: {Reason}",
+                "Round {Round} of {Project}#{Issue} had no container to run in: {Reason}. "
+                    + "The factory has read that as a {Classification} failure.",
                 round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
-                broken.Message);
+                broken.Message,
+                broken.Class);
 
-            return new RoundResult(RoundOutcome.Failed, null, null);
+            return RoundResult.Failed(broken.Class);
         }
 
         _logger.LogInformation(
@@ -159,15 +168,20 @@ public sealed class WorkerRoundRunner : INOpenCode
         if (run.ResultFile is not { } resultFile)
         {
             // A round with no result is not a round with nothing: its log is the whole of
-            // what there is to show, so it is logged here rather than lost.
+            // what there is to show, so it is logged here rather than lost. It is also
+            // permanent, and deliberately so — the container ran, and whatever stopped it
+            // from writing its result would stop a second container the same way. Note what
+            // this is *not*: the container failing to start, which is the transient shape of
+            // the same-looking failure and is classified above.
             _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} came back without a result. Its log ends: {Log}",
+                "Round {Round} of {Project}#{Issue} came back without a result: it ran and produced nothing, "
+                    + "so another attempt would only be told the same thing. Its log ends: {Log}",
                 round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
                 run.LogTail);
 
-            return new RoundResult(RoundOutcome.Failed, null, null);
+            return RoundResult.Failed(FailureClass.Permanent);
         }
 
         var header = WorkerResultFile.ReadHeader(resultFile);
@@ -181,8 +195,7 @@ public sealed class WorkerRoundRunner : INOpenCode
                 run.LogTail);
         }
 
-        return new RoundResult(
-            RoundOutcome.Produced,
+        return RoundResult.Produced(
             header ?? $"a result file with no readable header, at {resultFile}",
             WorkerResultFile.ReadNote(resultFile));
     }

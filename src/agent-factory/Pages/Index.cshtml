@@ -105,6 +105,7 @@
                                 data-round-count="@workItem.RoundCount"
                                 data-rounds="@rounds.Count"
                                 data-decisions="@decisions.Count"
+                                data-merge-attempts="@workItem.MergeAttempts"
                                 data-cause="@cause"
                                 data-auto-merge="@(mergesAt?.ToString("O") ?? string.Empty)">
                                 <span class="project">@workItem.Project</span>
@@ -129,9 +130,21 @@
                                         {
                                             <li class="round"
                                                 data-round="@round.RoundNumber"
-                                                data-outcome="@round.Outcome">
+                                                data-outcome="@round.Outcome"
+                                                data-failure="@(round.Failure?.ToString() ?? string.Empty)"
+                                                data-attempts="@round.Attempts">
                                                 <span class="round-number">round @round.RoundNumber</span>
                                                 <span class="outcome">@round.Outcome</span>
+                                                @if (round.Attempts > 1)
+                                                {
+                                                    @* Only said when it took more than one. A round that needed asking
+                                                        for twice is a fact a reviewer wants; one that did not is noise. *@
+                                                    <span class="attempts">@round.Attempts attempts</span>
+                                                }
+                                                @if (round.Failure is { } failure)
+                                                {
+                                                    <span class="failure">@failure.ToString().ToLowerInvariant() failure</span>
+                                                }
                                                 @if (round.AgentNote is { Length: > 0 })
                                                 {
                                                     <span class="note">@round.AgentNote</span>

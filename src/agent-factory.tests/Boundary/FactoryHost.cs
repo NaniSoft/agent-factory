@@ -71,6 +71,33 @@ public sealed class FactoryHost : IAsyncDisposable
     public Task Settle() => _app.Services.GetRequiredService<Orchestrator>().SettleAsync();
 
     /// <summary>
+    /// Settles the machine, and says so rather than hanging if it takes unreasonably long.
+    /// </summary>
+    /// <remarks>
+    /// The limit is a guard against a loop that is slow rather than unbounded, and it is
+    /// worth being precise about what it cannot do: a <em>tight</em> loop inside
+    /// <see cref="SettleAsync"/> completes synchronously, so the continuation that would
+    /// observe the timeout is never reached and the wait cannot fire. A retry policy with
+    /// no ceiling at all has to be caught some other way, and the tests that assert
+    /// "nothing more happens" do that by taking a bounded number of
+    /// <see cref="Step"/>s rather than settling. This is here so that a machine which is
+    /// still working after thirty seconds says so rather than looking like a hang.
+    /// </remarks>
+    public async Task SettleWithin(TimeSpan limit)
+    {
+        try
+        {
+            await Settle().WaitAsync(limit);
+        }
+        catch (TimeoutException)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"the machine was still applying transitions after {limit.TotalSeconds:0}s: something is retrying "
+                    + "without a ceiling, or a transition is being applied over and over");
+        }
+    }
+
+    /// <summary>
     /// The real poller, in the running process. One step is one project's turn at
     /// intake, taken only when the poll interval has passed — so a test drives intake by
     /// advancing the clock and stepping, never by waiting.

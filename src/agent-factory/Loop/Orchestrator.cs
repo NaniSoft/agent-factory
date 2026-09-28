@@ -1,6 +1,7 @@
 namespace AgentFactory.Loop;
 
 using AgentFactory.Clock;
+using AgentFactory.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
@@ -72,13 +73,16 @@ public sealed class Orchestrator
 
         return await ApplyADecision()
             ?? await MergeWhatNobodyReviewed()
+            ?? await RetryAParkedMerge()
             ?? (AcceptIntoFrontier() || StartARound() ? StepResult.Moved : StepResult.Idle);
     }
 
     /// <summary>
     /// Applies transitions until the machine has nothing left to apply. Stops at a round
     /// that has not come back, because a round that is running is not a transition — the
-    /// caller steps again when it might have finished.
+    /// caller steps again when it might have finished. A round waiting out its retry
+    /// backoff stops it too, for the same reason and with the same consequence: the wait is
+    /// ended by the caller's clock rather than by anything in here.
     /// </summary>
     public async Task SettleAsync()
     {
@@ -215,18 +219,12 @@ public sealed class Orchestrator
         }
         catch (Exception refused)
         {
-            _logger.LogWarning(
-                refused,
-                "The reviewer approved {Project}#{Issue} and the merge did not land: {Reason}. "
-                    + "It is parked in Escalated, where a human can finish it, and nothing shipped.",
-                workItem.Project,
-                workItem.IssueNumber,
-                refused.Message);
+            ParkAMergeThatDidNotLand(workItem, refused, "the reviewer approved it");
 
             // Parked, and applied rather than pending. Applied because a pending decision
             // is re-applied on every step and across every restart, which is retry; retry
-            // is #7's, and an unclassified one would be worse than the single attempt a
-            // reviewer can see and make again themselves.
+            // is bounded here, by the work item's own record of how many attempts it has
+            // had, and a pending decision would be unbounded.
             Land(workItem, decision, Swimlane.Escalated);
 
             return StepResult.Refused(
@@ -237,6 +235,127 @@ public sealed class Orchestrator
         Land(workItem, decision, Swimlane.Done);
         return StepResult.Moved;
     }
+
+    /// <summary>
+    /// A merge that did not land, on the record: one more attempt counted, and a time
+    /// after which there may be one more, or none at all. The classification is the seam's
+    /// and the gate is this policy's, and they are the only two things that decide whether
+    /// a merge is ever tried again.
+    /// </summary>
+    /// <remarks>
+    /// The count goes on the work item rather than in this process's memory, and that is
+    /// the whole of what keeps the retry bounded: a restart does not forget how many
+    /// attempts a merge has had, so it cannot hand a merge the repository has already
+    /// refused a fresh budget, and neither can a second pass through this method.
+    /// </remarks>
+    private void ParkAMergeThatDidNotLand(WorkItem workItem, Exception refused, string how)
+    {
+        // Read here and nowhere else, and read off what the seam declared rather than off
+        // what it said: an exception that did not classify itself is not retried, which is
+        // the same rule a round's classification follows and for the same reason. A
+        // permanent failure is this attempt and no more, ever.
+        var failure = Failures.Classify(refused);
+        var attempts = workItem.MergeAttempts + 1;
+        var again = failure == FailureClass.Transient && attempts < FactoryConstants.TransientRetryAttempts;
+
+        _store.RecordMergeFailure(
+            workItem.Id,
+            failure,
+            again ? _clock.UtcNow + FactoryConstants.RetryBackoff(attempts) : null);
+
+        _logger.LogWarning(
+            refused,
+            "{Project}#{Issue} — {How} — and the merge did not land: {Reason}. Attempt {Attempt} of {Ceiling}. "
+                + "Nothing shipped, it is parked in Escalated, and {WhatNext}.",
+            workItem.Project,
+            workItem.IssueNumber,
+            how,
+            refused.Message,
+            attempts,
+            FactoryConstants.TransientRetryAttempts,
+            again
+                ? $"the factory will try once more after {FactoryConstants.RetryBackoff(attempts).TotalSeconds:0} seconds"
+                : failure == FailureClass.Transient
+                    ? "that was the last attempt the factory makes on its own"
+                    : "the factory read that as a permanent failure and will not try again");
+    }
+
+    /// <summary>
+    /// One more attempt at a merge that failed transiently and is still within its budget.
+    ///
+    /// <para>
+    /// This is the deliberate widening of Escalated that the parking decision was waiting
+    /// for. Parking exists so that a merge the repository will not take is not retried
+    /// unattended every 48 hours for ever; this is how a merge the repository <em>would</em>
+    /// take — a daemon that was restarting, an API that was refusing — gets a second and
+    /// third try without putting it back where the feedback threshold could reach it.
+    /// </para>
+    /// <para>
+    /// It is not the loop #6 refused, and the differences are the argument. Those
+    /// attempts were unbounded, unclassified, and paced by a 48-hour threshold, on a work
+    /// item sitting in Review where the threshold could keep finding it. These are bounded
+    /// at three, classified — a permanent failure is not retried at all — paced by a
+    /// backoff that grows, counted on the work item where a restart cannot forget it, and
+    /// available only to a work item that has a merge failure of its own. A work item
+    /// parked by a failed build, by spent rounds or by a human decline has no such record,
+    /// so nothing here can merge it: this path is reachable only by a work item the
+    /// factory has already tried and failed to ship.
+    /// </para>
+    /// <para>
+    /// It is a transition the loop makes and not a decision a reviewer made, so the board's
+    /// write path does not grow: a parked work item still offers approve and reject, and
+    /// nothing else (ADR-0008). A step that makes an attempt and is refused again is not a
+    /// refusal for the board to render — there is no reviewer holding a response — so it is
+    /// a move and a log line, and the card says where the count got to.
+    /// </para>
+    /// </summary>
+    private async Task<StepResult?> RetryAParkedMerge()
+    {
+        var parked = _store.List().FirstOrDefault(NeedsAnotherMergeAttempt);
+        if (parked is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            await _github.MergeAsync(parked.RepoUrl, parked.IssueNumber, CancellationToken.None);
+        }
+        catch (Exception refused)
+        {
+            ParkAMergeThatDidNotLand(parked, refused, "the factory is retrying a merge that failed transiently");
+
+            return StepResult.Moved;
+        }
+
+        _store.Move(parked.Id, Swimlane.Done);
+        _logger.LogInformation(
+            "The merge for {Project}#{Issue} landed on attempt {Attempt}, so it is Done.",
+            parked.Project,
+            parked.IssueNumber,
+            parked.MergeAttempts + 1);
+
+        return StepResult.Moved;
+    }
+
+    /// <summary>
+    /// Whether a work item is parked with a merge failure of its own that is both still
+    /// within its budget and past its wait.
+    /// </summary>
+    /// <remarks>
+    /// The lane is the least interesting of the three conditions, and the one that would be
+    /// the mistake to lean on: what makes this reachable is the record of a failed merge,
+    /// not the lane that failure parked it in. <c>MergeRetryAfterUtc</c> is the record —
+    /// <c>RecordMergeFailure</c> sets the two together and a permanent failure sets neither,
+    /// so a work item with no gate has nothing owed to it whatever lane it is in. There is
+    /// deliberately no <c>MergeAttempts &gt; 0</c> check as well: it would say the same
+    /// thing twice, and a redundant guard in a predicate reads as a load-bearing one.
+    /// </remarks>
+    private bool NeedsAnotherMergeAttempt(WorkItem workItem) =>
+        workItem.Swimlane == Swimlane.Escalated
+        && workItem.MergeAttempts < FactoryConstants.TransientRetryAttempts
+        && workItem.MergeRetryAfterUtc is { } after
+        && _clock.UtcNow >= after;
 
     /// <summary>
     /// The loop's answer to a decision: the swimlane it means, and the record of which
@@ -298,19 +417,13 @@ public sealed class Orchestrator
         }
         catch (Exception refused)
         {
-            _logger.LogWarning(
-                refused,
-                "{Project}#{Issue} was left past the {Threshold} and the merge did not land: {Reason}. "
-                    + "Nothing shipped, and it is parked where a human can finish it.",
-                ignored.Project,
-                ignored.IssueNumber,
-                FactoryConstants.FeedbackThresholdText,
-                refused.Message);
-
             // Parked for the same reason a failed approval is parked: a merge that did not
             // land is a failure, and Escalated is what a failure is. Parked rather than
-            // left in Review also takes it out of the threshold's reach, so an unattended
-            // retry every 48 hours cannot happen.
+            // left in Review also takes it out of the threshold's reach — and the widening
+            // of Escalated does not bring it back, because a work item the loop merges
+            // unattended is not one it merges because the threshold expired again.
+            ParkAMergeThatDidNotLand(ignored, refused, "it was left past the feedback threshold");
+
             _store.Move(ignored.Id, Swimlane.Escalated);
 
             return StepResult.Refused(
@@ -385,16 +498,10 @@ public sealed class Orchestrator
             return false;
         }
 
-        // The round's number is the work item's rounds so far, plus this one. The brief
-        // is the last thing a reviewer said about the work item, which is nothing at all
-        // on a first round and the reviewer's own words on every round after one.
-        var round = new Round(
-            next.Id,
-            next.Project,
-            next.RepoUrl,
-            next.IssueNumber,
-            next.BaseBranch,
-            BriefFor(next.Id));
+        // The round's number is the work item's rounds so far, plus this one. The brief is
+        // the last thing a reviewer said about the work item, which is nothing at all on a
+        // first round and the reviewer's own words on every round after one.
+        var round = RoundFor(next.Id);
 
         // The call is made and not awaited. The result is collected on a later step, which
         // is what keeps the loop from being blocked inside a container it knows nothing
@@ -416,10 +523,18 @@ public sealed class Orchestrator
 
     /// <summary>
     /// Lands the round in flight if it is over: returned, or past the round timeout. A
-    /// round that has done neither is still running, and the machine waits.
+    /// round that has done neither is still running, and the machine waits. A round that
+    /// has failed transiently and is waiting out its backoff is over in the only sense
+    /// that matters — it is not running — but it has not ended, and it goes back through
+    /// here to be asked for again.
     /// </summary>
     private bool LandIfTheRoundIsOver(InFlight run)
     {
+        if (run.IsWaitingToRetry)
+        {
+            return TryTheRetry(run);
+        }
+
         var timedOut = _clock.UtcNow - run.StartedUtc >= FactoryConstants.RoundTimeout;
 
         if (!run.Pending.IsCompleted && !timedOut)
@@ -427,48 +542,135 @@ public sealed class Orchestrator
             return false;
         }
 
-        // The round is over either way, so the machine stops waiting on it and ends the
-        // call it made. A round that produced a result is not cancelled — there is
-        // nothing left running — but one that ran past the timeout is told to stop, so a
-        // stuck session does not go on holding a worker container for ever.
-        _inFlight = null;
+        // A round that produced a result is not cancelled — there is nothing left running —
+        // but one that ran past the timeout is told to stop, so a stuck session does not go
+        // on holding a worker container for ever.
         if (timedOut && !run.Pending.IsCompleted)
         {
             run.End();
         }
 
-        run.Dispose();
-
         var result = timedOut && !run.Pending.IsCompleted ? TimedOut(run) : Read(run);
+
+        // The retry policy, in the two lines that are all of it: a round that says it is
+        // transient and has attempts left does not end, and everything else does. The
+        // comparison is `IsRetryable` rather than anything read here, because a round that
+        // came back with a result — a build whose own tests failed, most of all — has no
+        // classification to be transient about.
+        if (result.IsRetryable && run.Attempts < FactoryConstants.TransientRetryAttempts)
+        {
+            return WaitOutTheBackoff(run);
+        }
+
+        // The round is over, and now the in-flight state can go: the container is gone, the
+        // round's token has nothing left to cancel, and a work item in Escalated is not
+        // holding a slot.
+        _inFlight = null;
+        run.Dispose();
 
         var round = _store.RecordRound(
             run.WorkItemId,
             result.Outcome,
             result.ResultPayload,
             result.AgentNote,
-            run.StartedUtc);
+            run.StartedUtc,
+            run.Attempts,
+            result.Failure);
 
         // A round that came back with a result is what a reviewer judges, so it goes to
         // Review. A round that did not is not merged over: it parks in Escalated, which a
-        // human can still merge or reject (ADR-0008).
+        // human can still merge or reject (ADR-0008). That is the answer for a permanent
+        // failure, for a timeout, and for a transient one that has spent its attempts.
         _store.Move(
             run.WorkItemId,
             result.Outcome == RoundOutcome.Produced ? Swimlane.Review : Swimlane.Escalated);
 
         _logger.LogInformation(
-            "Round {Round} of work item {WorkItem} returned {Outcome}.",
+            "Round {Round} of work item {WorkItem} returned {Outcome} after {Attempts} attempt(s).",
             round.RoundNumber,
             round.WorkItemId,
-            result.Outcome);
+            result.Outcome,
+            round.Attempts);
 
         return true;
     }
 
     /// <summary>
+    /// A round that failed transiently and has attempts left does not end: it is asked for
+    /// again, once its backoff has passed, as the same round. Not a new round, because a
+    /// container that would not start is not an attempt at building anything — charging it
+    /// to the ceiling would spend a reviewer's budget on the factory's own infrastructure
+    /// (ADR-0001). The work item stays in In Progress and keeps its slot, because a round
+    /// that has not ended has not released one.
+    /// </summary>
+    private bool WaitOutTheBackoff(InFlight run)
+    {
+        var backoff = FactoryConstants.RetryBackoff(run.Attempts);
+        run.WaitForRetryUntil(_clock.UtcNow + backoff);
+
+        _logger.LogWarning(
+            "Round {Round} of work item {WorkItem} failed transiently on attempt {Attempt} of {Ceiling}. "
+                + "It is asked for again after {Backoff}, and nothing waits here for it.",
+            run.RoundNumber,
+            run.WorkItemId,
+            run.Attempts,
+            FactoryConstants.TransientRetryAttempts,
+            backoff);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Asks for the round again, if the wait has passed. A step asked sooner is Idle and
+    /// does nothing at all: the backoff is a comparison against the clock and not a wait,
+    /// which is what lets three attempts with backoff be tested in microseconds and keeps
+    /// a sleep out of the loop.
+    /// </summary>
+    private bool TryTheRetry(InFlight run)
+    {
+        if (_clock.UtcNow < run.RetryAfterUtc)
+        {
+            return false;
+        }
+
+        run.Attempts++;
+        run.TakeTheRetryGate();
+        run.Pending = AskForTheRound(RoundFor(run.WorkItemId), run.Token);
+
+        _logger.LogInformation(
+            "Round {Round} of work item {WorkItem} is being asked for again, on attempt {Attempt}.",
+            run.RoundNumber,
+            run.WorkItemId,
+            run.Attempts);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The round as it is handed to the agent: the same round, with the same brief it had
+    /// the first time. The brief is the last thing a reviewer said about the work item,
+    /// which is nothing at all on a first round and the reviewer's own words on every
+    /// round after one.
+    /// </summary>
+    private Round RoundFor(Guid workItemId)
+    {
+        var workItem = _store.Get(workItemId)
+            ?? throw new KeyNotFoundException($"no work item {workItemId} to run a round for");
+
+        return new Round(
+            workItem.Id,
+            workItem.Project,
+            workItem.RepoUrl,
+            workItem.IssueNumber,
+            workItem.BaseBranch,
+            BriefFor(workItemId));
+    }
+
+    /// <summary>
     /// Asks the agent for the round, and never lets the call escape: an agent that throws
     /// before it has a task to hand back is a round that came back without a result, and
-    /// the machine has to survive that in order to record it. Classifying the failure is
-    /// the retry ticket's work.
+    /// the machine has to survive that in order to record it. The classification is the
+    /// throwing exception's own — see <see cref="Read"/>.
     /// </summary>
     private Task<RoundResult> AskForTheRound(Round round, CancellationToken cancellationToken)
     {
@@ -485,14 +687,22 @@ public sealed class Orchestrator
     private RoundResult TimedOut(InFlight run)
     {
         _logger.LogWarning(
-            "Round {Round} of work item {WorkItem} ran past the {Timeout} round timeout.",
+            "Round {Round} of work item {WorkItem} ran past the {Timeout} round timeout. "
+                + "The spec's own state machine gives a timeout a row of its own: it is a failure, "
+                + "it is parked, and it is not retried.",
             run.RoundNumber,
             run.WorkItemId,
             FactoryConstants.RoundTimeout);
 
-        return new RoundResult(RoundOutcome.TimedOut, null, null);
+        return RoundResult.TimedOut();
     }
 
+    /// <summary>
+    /// A round that came back without a result. The classification is the exception's own,
+    /// and an exception that did not classify itself is not retried: a retry nobody
+    /// classified is the unbounded unattended one that parking exists to prevent, so the
+    /// safe answer to "we do not know" is a single attempt and a human.
+    /// </summary>
     private RoundResult Read(InFlight run)
     {
         if (run.Pending.IsCompletedSuccessfully)
@@ -500,19 +710,27 @@ public sealed class Orchestrator
             return run.Pending.Result;
         }
 
-        _logger.LogWarning(
-            run.Pending.Exception,
-            "Round {Round} of work item {WorkItem} came back without a result.",
-            run.RoundNumber,
-            run.WorkItemId);
+        var failure = run.Pending.Exception
+            ?? throw new InvalidOperationException(
+                $"round {run.RoundNumber} of work item {run.WorkItemId} ended with neither a result nor a failure");
 
-        return new RoundResult(RoundOutcome.Failed, null, null);
+        _logger.LogWarning(
+            failure,
+            "Round {Round} of work item {WorkItem} came back without a result: {Reason}. "
+                + "The factory has read that as a {Classification} failure.",
+            run.RoundNumber,
+            run.WorkItemId,
+            failure.Message,
+            Failures.Classify(failure));
+
+        return RoundResult.Failed(Failures.Classify(failure));
     }
 
     /// <summary>
     /// One round this process is inside. The pending call is kept rather than awaited
     /// inline, so that a round is a thing the machine can be asked about instead of a call
-    /// it is blocked in.
+    /// it is blocked in — and so that a round waiting out a retry backoff is the same kind
+    /// of thing as a round running: an attempt at one round that has not ended.
     /// </summary>
     private sealed class InFlight(Guid workItemId, int roundNumber, DateTimeOffset startedUtc) : IDisposable
     {
@@ -526,11 +744,34 @@ public sealed class Orchestrator
 
         public CancellationToken Token => _rounds.Token;
 
-        public Task<RoundResult> Pending { get; set; } = Task.FromResult(
-            new RoundResult(RoundOutcome.Failed, null, null));
+        /// <summary>How many times this round has been asked for. One until it fails.</summary>
+        public int Attempts { get; set; } = 1;
+
+        /// <summary>
+        /// When the next attempt may be made, and null while the round is not waiting. Set
+        /// only by a failure the round runner called transient, so it is null for a round
+        /// that is running, for a permanent failure and for a timeout alike.
+        /// </summary>
+        public DateTimeOffset? RetryAfterUtc { get; private set; }
+
+        public bool IsWaitingToRetry => RetryAfterUtc is not null;
+
+        public Task<RoundResult> Pending { get; set; } =
+            Task.FromResult(RoundResult.Failed(FailureClass.Permanent));
 
         /// <summary>Ends a round the factory has stopped waiting for.</summary>
         public void End() => _rounds.Cancel();
+
+        /// <summary>
+        /// Holds the round open until the wait has passed, and gives the gate back when it
+        /// has. Both halves matter: without the first, a transient failure would end the
+        /// round, and without the second, the gate would still say "wait" and every step
+        /// after the wait would ask for the round again — for ever, and with a round
+        /// number nobody is counting.
+        /// </summary>
+        public void WaitForRetryUntil(DateTimeOffset when) => RetryAfterUtc = when;
+
+        public void TakeTheRetryGate() => RetryAfterUtc = null;
 
         public void Dispose() => _rounds.Dispose();
     }

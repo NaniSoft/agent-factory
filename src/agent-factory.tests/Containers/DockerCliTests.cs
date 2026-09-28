@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using AgentFactory.Containers;
+using AgentFactory.Failures;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -189,12 +190,19 @@ public class DockerCliTests
     {
         var cli = new DockerCli("agent-factory-no-such-executable", NullLogger<DockerCli>.Instance);
 
-        var refused = await Assert.ThrowsAsync<WorkerContainerException>(
+        var refused = await Assert.ThrowsAsync<PermanentFailure>(
             () => cli.InvokeAsync(["version"], null, CancellationToken.None));
 
         // A machine with no Docker is a deployment fact an operator can read, rather than
         // a Win32Exception from inside a process wrapper with nothing said about it.
         Assert.Contains("Docker CLI", refused.Message, StringComparison.Ordinal);
+
+        // And it is permanent, which is the classification this is for: the binary is
+        // either on the PATH or it is not, so a round asked for again in ten seconds would
+        // begin a second identical failure and end exactly where the first one did. The
+        // Win32Exception is still carried, so the cause is not lost.
+        Assert.Equal(FailureClass.Permanent, refused.Class);
+        Assert.IsType<System.ComponentModel.Win32Exception>(refused.InnerException);
     }
 
     /// <summary>

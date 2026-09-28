@@ -1,5 +1,6 @@
 namespace AgentFactory.WorkItems;
 
+using AgentFactory.Failures;
 using AgentFactory.Rounds;
 
 /// <summary>
@@ -49,15 +50,43 @@ public interface IWorkItemStore
     /// appended, never replaced, so a work item that has run three rounds keeps all
     /// three.
     /// </summary>
+    /// <param name="attempts">
+    /// How many times the factory asked for this round. Recorded rather than inferred,
+    /// because a round is charged to the ceiling once however many attempts it took, and
+    /// a reader of the board needs to be able to see the difference.
+    /// </param>
+    /// <param name="failure">
+    /// The round runner's classification of a failure the round did not survive, and null
+    /// for a round that came back with a result — including one whose own tests failed.
+    /// </param>
     RoundResultRecord RecordRound(
         Guid workItemId,
         RoundOutcome outcome,
         string? resultPayload,
         string? agentNote,
-        DateTimeOffset startedUtc);
+        DateTimeOffset startedUtc,
+        int attempts = 1,
+        FailureClass? failure = null);
 
     /// <summary>Every round the work item has run, oldest first.</summary>
     IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId);
+
+    /// <summary>
+    /// Records that the factory tried to ship this work item and it did not land, and
+    /// when it may try again. The count goes up and the gate is set in one write, so a
+    /// second attempt cannot be made without the first being on the record.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes one more attempt possible at all, and keeping it here rather than
+    /// in the loop's memory is what stops a restart granting a fresh budget to a merge the
+    /// repository has already refused. A work item with no merge attempt against it can
+    /// never be merged by anything the loop does on its own.
+    /// </remarks>
+    /// <param name="retryAfterUtc">
+    /// When another attempt may be made, or null when there will not be one: a permanent
+    /// failure is escalated without a retry, so there is no time after which to look again.
+    /// </param>
+    void RecordMergeFailure(Guid workItemId, FailureClass failure, DateTimeOffset? retryAfterUtc);
 
     /// <summary>
     /// Records a reviewer's decision about a work item: which of the three it was, and
@@ -69,6 +98,11 @@ public interface IWorkItemStore
     /// is the loop's policy, so the board records and the loop applies — and a decision
     /// that turned out not to be applicable is still a decision that was made, and is
     /// still what the reviewer said.
+    ///
+    /// It does clear the work item's merge attempts, because a decision is a human saying
+    /// something about the change again: approving a work item whose merge failed is a
+    /// second, complete, attributable decision and it is entitled to its own attempts
+    /// rather than inheriting the ones a previous approval spent.
     /// </remarks>
     /// <exception cref="KeyNotFoundException">There is no such work item.</exception>
     /// <exception cref="InvalidOperationException">

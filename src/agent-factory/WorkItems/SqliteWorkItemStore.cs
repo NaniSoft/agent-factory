@@ -1,6 +1,7 @@
 namespace AgentFactory.WorkItems;
 
 using AgentFactory.Clock;
+using AgentFactory.Failures;
 using AgentFactory.Rounds;
 using Microsoft.Data.Sqlite;
 
@@ -98,8 +99,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc)
-            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $issueBody, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc, $reviewStartedUtc);
+            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, merge_attempts)
+            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $issueBody, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc, $mergeAttempts);
             """;
         Bind(command, workItem);
         command.Parameters.AddWithValue("$reviewStartedUtc", DBNull.Value);
@@ -153,7 +154,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         RoundOutcome outcome,
         string? resultPayload,
         string? agentNote,
-        DateTimeOffset startedUtc)
+        DateTimeOffset startedUtc,
+        int attempts = 1,
+        FailureClass? failure = null)
     {
         var now = _clock.UtcNow;
 
@@ -179,8 +182,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText = """
-            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc)
-            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc);
+            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure)
+            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc, $attempts, $failure);
             """;
         insert.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
         insert.Parameters.AddWithValue("$roundNumber", roundNumber);
@@ -189,6 +192,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         insert.Parameters.AddWithValue("$agentNote", (object?)agentNote ?? DBNull.Value);
         insert.Parameters.AddWithValue("$startedUtc", startedUtc.ToString("O"));
         insert.Parameters.AddWithValue("$completedUtc", now.ToString("O"));
+        insert.Parameters.AddWithValue("$attempts", Math.Max(1, attempts));
+        insert.Parameters.AddWithValue("$failure", (object?)failure?.ToString() ?? DBNull.Value);
         insert.ExecuteNonQuery();
 
         using var bump = connection.CreateCommand();
@@ -212,7 +217,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             resultPayload,
             agentNote,
             startedUtc,
-            now);
+            now,
+            Math.Max(1, attempts),
+            failure);
     }
 
     public IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId)
@@ -220,7 +227,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc
+            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure
             FROM round_results
             WHERE work_item_id = $workItemId
             ORDER BY round_number;
@@ -238,10 +245,37 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 Timestamp(reader.GetString(5)),
-                Timestamp(reader.GetString(6))));
+                Timestamp(reader.GetString(6)),
+                reader.IsDBNull(7) ? 1 : reader.GetInt32(7),
+                reader.IsDBNull(8) ? null : Enum.Parse<FailureClass>(reader.GetString(8))));
         }
 
         return rounds;
+    }
+
+    public void RecordMergeFailure(Guid workItemId, FailureClass failure, DateTimeOffset? retryAfterUtc)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+
+        // The count and the gate move together, and the count goes up in the database
+        // rather than being worked out in the caller: a second attempt must not be
+        // possible without the first one being on the record, and a restart must not hand
+        // a merge the repository has already refused a fresh budget.
+        command.CommandText = """
+            UPDATE work_items
+            SET merge_attempts = merge_attempts + 1, merge_retry_after_utc = $retryAfterUtc
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        command.Parameters.AddWithValue(
+            "$retryAfterUtc",
+            retryAfterUtc is { } after ? after.ToString("O") : (object)DBNull.Value);
+
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to record a failed merge against");
+        }
     }
 
     public DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback)
@@ -268,11 +302,19 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         }
 
         // What finishes a parked work item is a human merging it or declining it. Sending
-        // it round again is the retry policy's business (#7) rather than a thing a click
-        // on the board decides, and it is refused here — where the rule is — so the board
-        // can render only the decisions that are real, rather than a button that always
-        // failed. The refusal is about parking and not about the rounds: a work item
-        // parked by a failed round may well have rounds to spare, and it is still parked.
+        // it round again is not offered and is refused here, and this is the policy rather
+        // than a gap in it: a parked work item is finished by a human, and the only two
+        // ways a human finishes one are the two decisions the board offers on it. Re-opening
+        // the build would be a fourth thing to do with a work item and a fourth way out of
+        // Escalated, and it is refused here — where the rule is — so the board can render
+        // only the decisions that are real, rather than a button that always failed.
+        //
+        // The refusal is about parking and not about the rounds, and that is the whole
+        // argument: a work item parked by a round that would not start may well have two
+        // rounds to spare, and it is still parked. The retry policy has already spent
+        // itself on the failure that parked it — three attempts for a transient one, one
+        // for a permanent one — and re-opening the work item would mint a fresh budget for
+        // the same failure while spending rounds that are a reviewer's to spend.
         if (workItem.Swimlane == Swimlane.Escalated && decision == Decision.RequestChanges)
         {
             throw new InvalidOperationException(
@@ -326,6 +368,22 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         insert.Parameters.AddWithValue("$feedback", words);
         insert.Parameters.AddWithValue("$decidedUtc", now.ToString("O"));
         insert.ExecuteNonQuery();
+
+        // A decision clears the merge attempts this work item has behind it. A reviewer
+        // approving again is a second, complete, attributable decision rather than a
+        // continuation of the one that failed, and it is entitled to its own attempts
+        // rather than inheriting the ones the last approval spent. Nothing else clears
+        // them: a merge that failed and nobody has decided about again keeps its count, so
+        // a restart cannot hand it a fresh budget either.
+        using var forget = connection.CreateCommand();
+        forget.Transaction = transaction;
+        forget.CommandText = """
+            UPDATE work_items
+            SET merge_attempts = 0, merge_retry_after_utc = NULL
+            WHERE id = $id;
+            """;
+        forget.Parameters.AddWithValue("$id", workItem.Id.ToString("D"));
+        forget.ExecuteNonQuery();
 
         transaction.Commit();
 
@@ -439,7 +497,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 round_count  INTEGER NOT NULL,
                 created_utc  TEXT    NOT NULL,
                 updated_utc  TEXT    NOT NULL,
-                review_started_utc TEXT NULL
+                review_started_utc TEXT NULL,
+                merge_attempts INTEGER NOT NULL DEFAULT 0,
+                merge_retry_after_utc TEXT NULL
             );
 
             -- Intake is idempotent against the store: one issue, one work item. The index
@@ -451,7 +511,11 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
             -- One row per round, and a row is never replaced. A work item that has run
             -- three rounds keeps all three, because a reviewer judges the disagreement
-            -- between them as much as the last one.
+            -- between them as much as the last one. `attempts` and `failure` are the round's
+            -- own story rather than a copy of it: how many times the factory asked for it,
+            -- and what the round runner made of the attempt that did not come back. A round
+            -- that came back with a result has no failure at all, which is what makes "a
+            -- build that failed its tests is not retried" a property of the record.
             CREATE TABLE IF NOT EXISTS round_results (
                 work_item_id   TEXT    NOT NULL,
                 round_number   INTEGER NOT NULL,
@@ -460,6 +524,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 agent_note     TEXT    NULL,
                 started_utc    TEXT    NOT NULL,
                 completed_utc  TEXT    NOT NULL,
+                attempts       INTEGER NOT NULL DEFAULT 1,
+                failure        TEXT    NULL,
                 PRIMARY KEY (work_item_id, round_number)
             );
 
@@ -484,6 +550,36 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 ON decisions (work_item_id, sequence);
             """;
         command.ExecuteNonQuery();
+
+        // A database file written by an earlier build is a developer's own local file
+        // (ADR-0009), and the columns added since are ones a round and a merge cannot be
+        // read back without. Adding them here is idempotent, so a restart on an older file
+        // does not fail on a schema this process did not write.
+        AddColumnIfMissing(connection, "work_items", "merge_attempts", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "work_items", "merge_retry_after_utc", "TEXT NULL");
+        AddColumnIfMissing(connection, "round_results", "attempts", "INTEGER NOT NULL DEFAULT 1");
+        AddColumnIfMissing(connection, "round_results", "failure", "TEXT NULL");
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string declaration)
+    {
+        using (var columns = connection.CreateCommand())
+        {
+            columns.CommandText = $"PRAGMA table_info({table});";
+
+            using var reader = columns.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {declaration};";
+        alter.ExecuteNonQuery();
     }
 
     private static void Bind(SqliteCommand command, WorkItem workItem)
@@ -499,6 +595,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         command.Parameters.AddWithValue("$roundCount", workItem.RoundCount);
         command.Parameters.AddWithValue("$createdUtc", workItem.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", workItem.UpdatedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$mergeAttempts", workItem.MergeAttempts);
     }
 
     /// <summary>
@@ -530,7 +627,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         reader.GetInt32(8),
         Timestamp(reader.GetString(9)),
         Timestamp(reader.GetString(10)),
-        reader.IsDBNull(11) ? null : Timestamp(reader.GetString(11)));
+        reader.IsDBNull(11) ? null : Timestamp(reader.GetString(11)),
+        reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
+        reader.IsDBNull(13) ? null : Timestamp(reader.GetString(13)));
 
     private static DateTimeOffset Timestamp(string value) =>
         DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
@@ -539,7 +638,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
     private const int SqliteConstraint = 19;
 
     private const string Select = """
-        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc
+        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc, merge_attempts, merge_retry_after_utc
         FROM work_items
         """;
 

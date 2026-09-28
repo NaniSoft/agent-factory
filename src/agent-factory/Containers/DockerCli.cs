@@ -2,6 +2,7 @@ namespace AgentFactory.Containers;
 
 using System.Diagnostics;
 using System.Text;
+using AgentFactory.Failures;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -82,17 +83,24 @@ public sealed class DockerCli : IDockerCli
         {
             if (!process.Start())
             {
-                throw new WorkerContainerException(
+                throw new PermanentFailure(
                     $"could not start '{_executable}': the Docker CLI is not on this machine's PATH");
             }
         }
-        catch (Exception failed) when (failed is not WorkerContainerException)
+        catch (Exception failed) when (failed is not FactoryFailure)
         {
             // A machine with no Docker is a deployment fact an operator can read, not a
             // Win32Exception from inside a process wrapper with nothing said about it. ADR-0012
             // makes the daemon's own state a thing the factory is expected to know about, so
             // it is named here rather than left to whoever reads the stack trace.
-            throw new WorkerContainerException(
+            //
+            // And it is a permanent failure, because the binary is either on the PATH or it
+            // is not: asking again in ten seconds would begin a third identical failure and
+            // end exactly where the first one did. This is the one place the factory can see
+            // that a Docker call never even started, and it can see it because the process
+            // never ran — which is the classification being made at the point of failure
+            // rather than guessed at by whoever is reading.
+            throw new PermanentFailure(
                 $"could not start '{_executable}': there is no Docker CLI on this machine's PATH",
                 failed);
         }
