@@ -73,8 +73,15 @@ public sealed class ContainerRuntime
 
         Directory.CreateDirectory(landing);
 
+        // The tail is kept whether or not anybody is listening. It used to be fed only when
+        // a caller asked for progress, which made <see cref="WorkerContainerRun.LogTail"/>
+        // silently empty for a caller that wanted nothing streamed — and the round runner
+        // puts that tail on the round's result, so a round whose result cannot be read would
+        // have degraded to showing nothing at all (story 29). Keeping the tail and passing
+        // the caller's channel on to the same object is what makes the two impossible to
+        // differ.
         var tail = new LogTail(LogTailBytes);
-        var channel = log is null ? null : new Tee(tail, log);
+        var channel = new Tee(tail, log);
 
         try
         {
@@ -256,15 +263,17 @@ public sealed class ContainerRuntime
 
     /// <summary>
     /// The round's log going to two places at once: the tail this runtime keeps, and the
-    /// channel the caller asked for. One class rather than two subscribers, so the tail
-    /// cannot come to hold a different set of lines than the caller was given.
+    /// channel the caller asked for — which is optional, because a caller that wants
+    /// nothing streamed still wants the tail on the result. One class rather than two
+    /// subscribers, so the tail cannot come to hold a different set of lines than the
+    /// caller was given.
     /// </summary>
-    private sealed class Tee(LogTail tail, IProgress<string> to) : IProgress<string>
+    private sealed class Tee(LogTail tail, IProgress<string>? to) : IProgress<string>
     {
         public void Report(string value)
         {
             tail.Append(value);
-            to.Report(value);
+            to?.Report(value);
         }
     }
 }

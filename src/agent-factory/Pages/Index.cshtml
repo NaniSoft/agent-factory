@@ -132,7 +132,9 @@
                                                 data-round="@round.RoundNumber"
                                                 data-outcome="@round.Outcome"
                                                 data-failure="@(round.Failure?.ToString() ?? string.Empty)"
-                                                data-attempts="@round.Attempts">
+                                                data-attempts="@round.Attempts"
+                                                data-has-result="@(round.ResultPayload is { Length: > 0 } ? "true" : "false")"
+                                                data-has-log="@(round.Log is { Length: > 0 } ? "true" : "false")">
                                                 <span class="round-number">round @round.RoundNumber</span>
                                                 <span class="outcome">@round.Outcome</span>
                                                 @if (round.Attempts > 1)
@@ -145,13 +147,32 @@
                                                 {
                                                     <span class="failure">@failure.ToString().ToLowerInvariant() failure</span>
                                                 }
-                                                @if (round.AgentNote is { Length: > 0 })
-                                                {
-                                                    <span class="note">@round.AgentNote</span>
-                                                }
+                                                @* The result: the files changed, the commands run, what each
+                                                    returned, and the diff, all derived by observing the round's
+                                                    container. It is derived text rather than a rendered view of a
+                                                    parsed object, and that is deliberate — the board has no opinion
+                                                    about any part of it, and neither has anything to interpret. *@
                                                 @if (round.ResultPayload is { Length: > 0 })
                                                 {
-                                                    <pre class="result">@round.ResultPayload</pre>
+                                                    <pre class="result" data-result="round @round.RoundNumber">@round.ResultPayload</pre>
+                                                }
+                                                @if (round.AgentNote is { Length: > 0 })
+                                                {
+                                                    @* The only sentence a model wrote. Said after the observations on
+                                                        purpose: it is the one part of a result nothing above is
+                                                        derived from, so it reads as an account and not as a record. *@
+                                                    <span class="note" data-note="round @round.RoundNumber">@round.AgentNote</span>
+                                                }
+                                                @if (round.Log is { Length: > 0 })
+                                                {
+                                                    @* The round's log, kept with the round rather than only in the
+                                                        factory's own logging. A round whose result could not be read
+                                                        is a round whose only account of itself is this, so it is
+                                                        always rendered and never folded away by default. *@
+                                                    <details class="round-log" open="@(round.ResultPayload is not { Length: > 0 })">
+                                                        <summary data-log="round @round.RoundNumber">the round's log</summary>
+                                                        <pre class="log">@round.Log</pre>
+                                                    </details>
                                                 }
                                             </li>
                                         }

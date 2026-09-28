@@ -59,6 +59,12 @@ public interface IWorkItemStore
     /// The round runner's classification of a failure the round did not survive, and null
     /// for a round that came back with a result — including one whose own tests failed.
     /// </param>
+    /// <param name="log">
+    /// The end of what the round said. Kept with the round rather than only in the
+    /// factory's own logging because a round whose result is unreadable is a round whose
+    /// only account of itself is its log, and a round that is not visible is the failure
+    /// the whole rendering of results exists to prevent (story 29).
+    /// </param>
     RoundResultRecord RecordRound(
         Guid workItemId,
         RoundOutcome outcome,
@@ -66,7 +72,8 @@ public interface IWorkItemStore
         string? agentNote,
         DateTimeOffset startedUtc,
         int attempts = 1,
-        FailureClass? failure = null);
+        FailureClass? failure = null,
+        string? log = null);
 
     /// <summary>Every round the work item has run, oldest first.</summary>
     IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId);

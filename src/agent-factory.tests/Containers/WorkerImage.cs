@@ -44,6 +44,67 @@ public static class WorkerImage
         return null;
     }
 
+    /// <summary>
+    /// Whether the OpenCode CLI inside the image can actually be driven to a provider on
+    /// this machine, or why it cannot. This is a separate probe from the daemon and the
+    /// image because it answers a different question: a worker container can start
+    /// perfectly well and still have no way to reach a model, which is the one thing an
+    /// agent round cannot be run without.
+    /// </summary>
+    /// <remarks>
+    /// It is a probe and not an assertion, and it is deliberately cheap: one short prompt,
+    /// no repository, no filesystem, a bounded wait. What it establishes is only whether a
+    /// credential reaches a provider from inside the image — nothing about the quality of
+    /// what comes back, which is not a thing a test can or should measure.
+    /// </remarks>
+    public static string? AgentUnavailableBecause => AgentUnavailable.Value;
+
+    /// <summary>Whether a real agent round can be run on this machine right now.</summary>
+    public static bool AgentAvailable => UnavailableBecause is null && AgentUnavailableBecause is null;
+
+    private static readonly Lazy<string?> AgentUnavailable = new(ProbeTheAgent, isThreadSafe: true);
+
+    private static string? ProbeTheAgent()
+    {
+        if (UnavailableBecause is { } unreachable)
+        {
+            return unreachable;
+        }
+
+        // A credential is looked for in the environment under the name a project file
+        // would declare. Its *value* is never read here or logged: this asks whether the
+        // CLI can reach a provider, not what the provider is called.
+        const string keyName = "NEXUS_ANTHROPIC_API_KEY";
+        var configured = Environment.GetEnvironmentVariable(keyName);
+
+        // Through the image's own entrypoint rather than around it, so the probe is asked
+        // the same question a round asks: can the CLI, as uid 1000, in this image, reach a
+        // provider and come back with an answer.
+        var answered = Docker(
+            "run",
+            "--rm",
+            Tag,
+            "exec",
+            "bash",
+            "-c",
+            "opencode run --standalone --log-level none 'Reply with the single word OK and nothing else.' 2>&1");
+
+        if (answered is null || !answered.Contains("OK", StringComparison.OrdinalIgnoreCase))
+        {
+            return configured is { Length: > 0 }
+                ? $"the OpenCode CLI in {Tag} could not reach a provider even with {keyName} configured, "
+                    + "so a round cannot be driven with the agent here. The test that needs an agent is about the "
+                    + "factory's derivation, which is covered hermetically and by the container tests; this one is "
+                    + "about the agent actually running"
+                : $"no LLM credential is configured in this environment ({keyName} is not set) and the OpenCode CLI "
+                    + $"in {Tag} has no provider it can reach without one, so a round cannot be driven with the agent "
+                    + "here. The test that needs an agent is about the factory's derivation, which is covered "
+                    + "hermetically and by the container tests; this one is about the agent actually running";
+        }
+
+        return null;
+    }
+
     /// <summary>Runs a docker command, returning its output, or null if it could not be run.</summary>
     public static string? Docker(params string[] arguments)
     {
@@ -91,6 +152,32 @@ public sealed class DockerFactAttribute : FactAttribute
     public DockerFactAttribute()
     {
         if (WorkerImage.UnavailableBecause is { } reason)
+        {
+            Skip = $"skipped: {reason}";
+        }
+    }
+}
+
+/// <summary>
+/// A test that needs a real Docker daemon, the real worker image, and a provider the
+/// agent inside it can actually reach. On a machine with no daemon or no image it skips
+/// for the reason <see cref="DockerFactAttribute"/> gives; on a machine that has both but
+/// no LLM credential it skips saying that, rather than failing a machine whose only
+/// problem is that it has no API key.
+/// </summary>
+/// <remarks>
+/// This is the seam the credential problem is honestly handled behind. An agent round
+/// genuinely cannot run without one, and inventing a key or faking the provider would make
+/// a green suite that proves nothing about the agent. What the factory does *not* need a
+/// key for — deriving a result, recording commands and outcomes, degrading to a log — is
+/// tested without one and without a container, and the deterministic container round in
+/// <see cref="AgentRoundTests"/> covers the rest.
+/// </remarks>
+public sealed class AgentFactAttribute : FactAttribute
+{
+    public AgentFactAttribute()
+    {
+        if (WorkerImage.AgentUnavailableBecause is { } reason)
         {
             Skip = $"skipped: {reason}";
         }

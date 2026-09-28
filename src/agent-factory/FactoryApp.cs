@@ -2,10 +2,12 @@ namespace AgentFactory;
 
 using AgentFactory.Clock;
 using AgentFactory.Containers;
+using AgentFactory.Credentials;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
+using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -35,10 +37,21 @@ public static class FactoryApp
         builder.Services.TryAddSingleton<IDockerCli, DockerCli>();
         builder.Services.AddSingleton<ContainerRuntime>();
 
+        // The result deriver, and the one place a credential name becomes a value.
+        //
+        // The deriver is the whole of ADR-0011 on this side of the boundary: it reads what
+        // the container observed and turns it into a result, and it has no way to ask the
+        // agent anything. The credential reader is the only component that can put a value
+        // rather than a name into a worker container, which is why the line between the
+        // LLM key (which goes in) and the GitHub key (which does not) is one method call
+        // away from being checkable rather than merely intended (ADR-0006).
+        builder.Services.AddSingleton<RoundResultDeriver>();
+        builder.Services.TryAddSingleton<ICredentialReader>(ProcessEnvironment.The);
+
         // The agent seam now has an implementation, so it is registered as one rather than
         // refused: a round runs in a real container from the project's configured image,
-        // and the orchestrator still has no concept of a container. TryAdd, so the fake in
-        // the test host wins.
+        // the OpenCode CLI is driven non-interactively inside it, and the orchestrator
+        // still has no concept of a container. TryAdd, so the fake in the test host wins.
         builder.Services.TryAddSingleton<INOpenCode, WorkerRoundRunner>();
 
         // The GitHub seam is still the other one with no implementation behind it, and it

@@ -104,25 +104,134 @@ them, because a 90-minute round that buffered its log would be a round that said
 for 90 minutes. On cancellation the local `docker` process is killed and reaped, so a
 cancelled round leaves nothing holding a socket to the daemon.
 
-`Rounds/WorkerRoundRunner.cs` is the seam's implementation and **not the agent**. What runs
-in the container today is a plain command: the round's brief written outside the working
-tree, and the tree it was given read back through the image's own recording wrapper.
-Driving the OpenCode CLI against a provider is `#9`. The payload it produces is
-correspondingly thin — the result file's own header line, read verbatim, plus the agent's
-one optional note — because deriving a result from the records is ADR-0011's work and
-belongs to the deriver that has not been written. A round whose own command failed is
-still `Produced`: the container worked, and the failure is data inside the result. A round
-whose container broke, or that wrote no result, is `Failed`. Telling those apart for
-retry purposes is `#7`'s, not this component's.
+`Rounds/WorkerRoundRunner.cs` is the seam's implementation **and the agent's driver**. The
+round's brief — the issue, the project, and the reviewer's own words from the round before
+— is composed by `Rounds/RoundBrief.cs`, written outside the working tree, and handed to
+the OpenCode CLI as a **file**: the command line is `opencode run --standalone --auto
+--file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"`, and both the brief and the prompt
+are the factory's own, with the reviewer's words quoted in and never expanded. Three details
+there are deliberate:
+
+- **`--auto` is required, not a convenience.** Without it the CLI stops and waits for a
+  human to approve each edit, and there is no human inside a worker container. What it
+  widens is the agent's freedom *inside* a container that holds no write credential, has no
+  host path and publishes no port (ADR-0006, ADR-0010, ADR-0012), so there is nothing
+  outside it for a confused or injected agent to reach.
+- **`--standalone`** gives the round a private server that dies with the process, rather
+  than the CLI's background service. The worker README names that service as a loopback
+  listener; this way there is not one.
+- **The brief is the issue, not the issue number.** `Round` carries `IssueTitle` and
+  `IssueBody` and the orchestrator fills both from the work item. A round handed a number
+  has to go and look up what it means, and a brief that does not carry the maintainer's
+  words is the factory paraphrasing the work it was asked to do.
+
+The image's recording wrapper under-reports, and that is **known and accepted**:
+`worker/README.md`'s "What the wrapper does not see" is accurate, and option 2 there
+(pointing the agent's own shell at the wrapper) was tried against OpenCode v2.0.18 and
+**does not work** — the CLI's shell tool bypasses `$SHELL`, so a wrapper installed there
+records nothing. The brief therefore takes option 1, telling the agent to prefix its shell
+work with `run`. That gap is contained the way the image says it is, and the containment is
+the reason this design is safe: **ADR-0011's guarantee is carried by `git status` and
+`git diff`, not by the command log.** A build tool that bypassed `run` still shows up in the
+files changed.
+
+### Credentials: one goes in, one does not
+
+`Credentials/ICredentialReader` is the **only** thing in the process that can turn a
+credential *name* into a credential *value*, and `WorkerRoundRunner.EnvironmentFor` is the
+**only** caller of it. `PolicyTests` asserts both by IL scan, so ADR-0006 is structural
+rather than a matter of care:
+
+- **The LLM key goes in.** The agent cannot reach a provider without it. It is scoped to
+  one project, lives for one container, and is never logged. When the environment does not
+  have it the round **still runs** and a warning says so — refusing there would be the
+  factory deciding for itself that the agent needs one, and a round handed nothing that
+  says nothing reads on a board as a round that needed nothing.
+- **The GitHub write token never does.** Its name is never passed to the reader, so the
+  value is never in the runner's hands and cannot be handed over even by accident.
+
+### The deriver
+
+`Results/RoundResultDeriver.cs` is ADR-0011's whole mechanism. It reads the result file and
+turns the records into what a reviewer judges, and it has **no way to ask the agent
+anything** — its only dependency is a logger, which `PolicyTests` asserts. `PolicyTests`
+also asserts by IL scan that a `ChangedFile` is constructed in exactly two places and a
+`CommandOutcome` in exactly one, both inside the deriver's git and record readers, so a
+result cannot grow a path that git did not report.
+
+`FilesChanged` is a **union** of `git status` and the diff, and that is load-bearing: a
+file the round committed is clean in status and visible in the diff, and an untracked
+scratch file is the reverse. Reading either alone silently drops half of what a reviewer
+needs, and the untracked one is what an agent leaves by accident.
+
+A result file that is malformed, truncated or absent still produces a `DerivedResult`,
+carrying `UnreadableBecause` and nothing invented — an unreadable result reports no files
+and no commands rather than reporting none, because "this could not be read" and "this
+round changed nothing and ran nothing" are very different claims. Lines the deriver could
+not read are **counted** and the count reaches the board, which is the design's own named
+failure — "a results payload that parses but is missing the field the reviewer needs" — said
+out loud rather than left for a reader to infer from a shorter file.
+
+`Results/ResultPayload.cs` renders that into the text the board shows. Order is a
+reviewer's order: the facts first, the agent's note last, under a heading that says nothing
+above it is derived from. A result with no files and no commands still renders as a result,
+because an empty `<pre>` on a card reads as a round the factory failed to record.
+
+A round whose own commands failed is still `Produced`, and the failing exit codes are data
+inside the payload. The deriver has **no field saying which commands were tests** and none
+may be added: the repository's own scripts decide what tested means, and a factory that
+guessed would be imposing a test convention (ADR-0011).
+
+### The round's log
+
+`RoundResult`, `RoundResultRecord` and the `round_results` table each gained a `log`, and
+the board renders it in a `<details>` on the round's own card. It is the **tail**, bounded,
+because a ninety-minute build's output does not belong in a database row — the whole log
+still went to `ILogger` as the round ran. It exists because #3 left the gap: a round with no
+readable result had nowhere to point a reviewer, and now it has the log. `ContainerRuntime`
+now keeps its tail whether or not a caller asked for progress; it used to be fed only when
+one did, which would have made the tail silently empty for exactly the caller that needs
+it.
 
 **There is still no production heartbeat.** Nothing steps the orchestrator or the poller on
 a schedule, so in production a work item in Backlog still moves only when a reviewer's
-click asks the loop for a step. That gap is unchanged by this ticket and is recorded here
-rather than left ambiguous: a real `INOpenCode` exists now, but the driver that steps the
-machine between decisions is still nobody's, and adding one is a deliberate call rather
-than a side effect. Nothing in the container runtime sleeps, defers or times out; the one
-thing it waits for is a container, and that wait is ended by the round's token rather than
-by a clock of its own.
+click asks the loop for a step. The gap is now the *only* thing between this factory and a
+moving one — the agent runs, the result is derived, and the board renders both — which makes
+it worth stating precisely: the driver that steps the machine between decisions is still
+nobody's, and adding one is a deliberate call rather than a side effect. Nothing in the
+container runtime sleeps, defers or times out; the one thing it waits for is a container, and
+that wait is ended by the round's token rather than by a clock of its own.
+
+## Testing the rounds and the results
+
+Two layers, and the split between them is the honest one.
+
+`Results/RoundResultDeriverTests.cs` is **hermetic**: result files are written to a temp
+directory in the shape `worker/bin/worker-collect` writes them. It proves the reading — git
+porcelain v2, diff headers, quoted paths, renames, exit codes, truncation, degradation —
+with no Docker and no model. Its limit is stated in its own doc comment: a fixture the test
+wrote agrees with the deriver by construction.
+
+`Containers/AgentRoundTests.cs` is the other half, against a **real container**: the
+factory's own `ContainerRuntime`, the real image, the real entrypoint, the real recording
+wrapper, the real collector, and the real deriver over whatever actually came back. What
+runs in the container is a **deterministic script**, exactly as `worker/smoke-test.sh` does
+it and for the same reason — an LLM is not what is under test. It changes a file, runs a
+passing command, runs a failing one, leaves a scratch file, writes a note, and commits, so
+every case the deriver has to get right is exercised against a real result file.
+
+`AgentFactAttribute` is the credential seam. It probes once whether the OpenCode CLI inside
+the image can reach **any** provider, and skips with the reason stated when it cannot — the
+same idiom as `DockerFactAttribute`, and the same intent. It does not invent a key, does not
+stub a provider, and does not let a test pass on a fabricated round. A machine with no LLM
+credential still runs every derivation test and every deterministic container test; it skips
+only the one that needs a model.
+
+Note the assertion in the agent test is **deliberately one-directional**: if the file the
+brief asked for is on disk, the result must name it (a result that omits a real change is the
+failure this ticket exists to prevent); if it is not there, the result must not claim it,
+but a round that did not do the work is a legitimate outcome and not a test failure. A model
+is a model, and a test that asserts it obeys tests the provider.
 
 ## The round's files
 
@@ -168,13 +277,14 @@ appears.
 One `StepAsync()` applies at most one transition, which is what makes the
 90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
 timer. Like the poller it is stepped rather than driven, and like the poller nothing
-drives it on a schedule. There is now a real `INOpenCode` behind the seam, so a step can
-start a round for real — but nothing in this process steps it on a timer, and that is
-still deliberate rather than an oversight: a background loop that started rounds with no
-budget, no concurrency limit and no log would be a factory spending containers on every
-issue of every project at once, and the container budget and cross-project concurrency are
-`#12`'s. A reviewer's click is the only thing that drives the machine today, and whoever
-adds the driver that steps it between decisions owns that decision deliberately.
+drives it on a schedule. There is a real `INOpenCode` behind the seam, and a step starts a
+round that really runs an agent in a real container, so there is now something for a
+heartbeat to step — but nothing in this process steps it on a timer, and that is still
+deliberate rather than an oversight: a background loop that started rounds with no budget,
+no concurrency limit and no log would be a factory spending containers on every issue of
+every project at once, and the container budget and cross-project concurrency are `#12`'s. A
+reviewer's click is the only thing that drives the machine today, and whoever adds the driver
+that steps it between decisions owns that decision deliberately.
 
 A step **does** await the merge an approve asks for, because merging is the transition
 that approve *is* rather than something asked for earlier and collected later: there is no
@@ -236,10 +346,11 @@ separate cause column would be a second copy of what the record already says, fr
 disagree with it. The merge failure's own message is *not* persisted — that is the log
 and the response the reviewer was holding.
 
-Still not here, and deliberately: the agent and the result deriver (`#9`), the merger
-(`#10`), the diff (`#11`), the container budget (`#12`). Retry classification and backoff
-are now here — see **Failure paths and retry** below. Nothing sleeps, defers or times out
-in any of this: the ceiling is a count and the threshold is a comparison against `IClock`.
+Still not here, and deliberately: the merger (`#10`), the diff view (`#11`), the container
+budget (`#12`). The agent and the result deriver are here — see **The worker container**.
+Retry classification and backoff are here too: see **Failure paths and retry** below. Nothing
+sleeps, defers or times out in any of this: the ceiling is a count and the threshold is a
+comparison against `IClock`.
 
 ## Failure paths and retry
 
@@ -329,7 +440,7 @@ the same answer the merge call already has.
 
 **No production heartbeat still.** A retry waits for something to step the machine, and in
 production the only thing that does is a reviewer's click. The policy is bounded and correct
-without a driver; what is missing is #9's and #12's, not this.
+without a driver; what is missing is the driver and `#12`'s budget, not this.
 
 ## Done means merged
 
@@ -393,7 +504,8 @@ decision means is the loop's policy (ADR-0005), so a page that decided lanes its
 be a second state machine that could disagree with the loop about the same work item. That
 one step is also the only thing that drives the loop in production today, and it is
 deliberate: a reviewer's click has to do something now, and nothing else is there to step
-the machine between decisions until the real agent's heartbeat lands.
+the machine between decisions until the heartbeat lands (`#12`'s budget, and the driver
+that would have to respect it).
 
 What the loop has to **say** also comes back through that step, as `StepResult`, and the
 board renders a refusal where the reviewer is looking rather than working out for itself

@@ -23,6 +23,12 @@ using AgentFactory.Rounds;
 /// say why a round was asked for more than once — or, for a build that failed its own
 /// tests, that it was not asked for twice.
 /// </param>
+/// <param name="Log">
+/// The end of what the round said, and the whole of what a reviewer has when the payload
+/// is not a readable result. It is the tail rather than the log: a ninety-minute build's
+/// output does not belong in a database row, and the whole of it went to the factory's
+/// own logging as the round ran (story 28, story 29).
+/// </param>
 public sealed record RoundResultRecord(
     Guid WorkItemId,
     int RoundNumber,
@@ -32,4 +38,5 @@ public sealed record RoundResultRecord(
     DateTimeOffset StartedUtc,
     DateTimeOffset CompletedUtc,
     int Attempts = 1,
-    FailureClass? Failure = null);
+    FailureClass? Failure = null,
+    string? Log = null);

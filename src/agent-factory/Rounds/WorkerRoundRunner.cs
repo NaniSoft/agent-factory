@@ -1,72 +1,102 @@
 namespace AgentFactory.Rounds;
 
 using AgentFactory.Containers;
+using AgentFactory.Credentials;
 using AgentFactory.Failures;
 using AgentFactory.Projects;
+using AgentFactory.Results;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// A round, run for real: one fresh worker container from the project's configured image,
-/// one command inside it, and the result and the tree lifted back out. One call is one
-/// round and one result, which is the whole of what the orchestrator is promised
-/// (ADR-0004) and the only thing it knows.
+/// the agent driven inside it, and the result, the tree and the log lifted back out. One
+/// call is one round and one result, which is the whole of what the orchestrator is
+/// promised (ADR-0004) and the only thing it knows.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the seam's implementation, not the agent. What runs inside the container today
-/// is a plain command — the round's brief written down outside the working tree, and the
-/// tree it was given read back through the image's own recording wrapper — because driving
-/// the OpenCode CLI against a provider is the next ticket's (#9) and not this one's. The
-/// payload it produces is correspondingly thin: the result file's own header line, read
-/// verbatim, rather than a derived reading of the round (ADR-0011).
+/// This is the seam's implementation and the agent's driver. The round's brief reaches the
+/// container as an environment variable and the container's entrypoint drives the
+/// OpenCode CLI non-interactively with it (ADR-0004, ADR-0005). The reviewer's words are
+/// never written into the command: a feedback of <c>"; rm -rf /; echo "</c> has to arrive
+/// as those words rather than as shell syntax, and the brief is quoted into a file inside
+/// the container and handed to the CLI as a file rather than as a command line.
 /// </para>
 /// <para>
-/// The brief reaches the container as an environment variable and is never written into
-/// the command. A reviewer's words are not the factory's to quote, and a feedback of
-/// <c>"; rm -rf /; echo "</c> has to arrive as those words rather than as shell syntax.
+/// What comes back is not authored here either. The container records what it observed —
+/// git for the files changed, the recording wrapper for the commands run, exit codes for
+/// the outcomes — and the <see cref="RoundResultDeriver"/> reads that into a result. The
+/// only thing in a result a model wrote is the agent's note, and nothing is derived from
+/// it (ADR-0011).
 /// </para>
 /// <para>
-/// No credential is set here, of either kind. The container holds nothing that can write
-/// to a remote (ADR-0006), and the LLM credential belongs to the agent that does not yet
-/// exist.
+/// Credentials are the sharp line here. A worker container holds <strong>no</strong>
+/// credential that can write to a remote, and the project file's GitHub key is never
+/// read: this component never calls <see cref="ICredentialReader.Read"/> with that name,
+/// so it cannot hand the value over even by accident (ADR-0006). The project's LLM
+/// credential is a different matter and does go in, because the agent cannot reach a
+/// provider without one; it is scoped to the one project, to the one container, and dies
+/// with the container (story 66, 67). When the environment does not have it, the round
+/// still runs and still records — the round is not refused for a missing key, because a
+/// refusal would be the factory guessing whether the agent needs it, and a warning is
+/// said out loud rather than left to be discovered on a board.
 /// </para>
 /// </remarks>
 public sealed class WorkerRoundRunner : INOpenCode
 {
     /// <summary>
-    /// What a round runs in its container while the factory has no agent to run (#9).
-    /// It is a script rather than a command list because a round is several steps, and it
-    /// runs under <c>bash -c</c> through the image's own recording wrapper so each step
-    /// is recorded the way every other command in a round is.
+    /// What a round runs in its container: write the brief out, read it back through the
+    /// image's recording wrapper, and then hand it to the agent. It is a script rather
+    /// than a command list because a round is several steps and each of them belongs in
+    /// the round's own record.
     /// </summary>
     /// <remarks>
-    /// Nothing here decides what the project's tests are (ADR-0011). The round is handed
-    /// its repository, its brief and its tree, and says what it found — which is all this
-    /// ticket claims.
+    /// The script is fixed: every line in it is the factory's, and the reviewer's words
+    /// reach the container only as <c>"$AGENT_FACTORY_BRIEF"</c>. A round therefore has
+    /// the same command line whatever issue it is building, which is what makes "the
+    /// reviewer's words cannot become shell syntax" a property of the code rather than a
+    /// claim about it.
     /// </remarks>
     public const string RoundScript = """
         set -uo pipefail
+        out="${AGENT_FACTORY_OUT:-/out}"
         cd "$AGENT_FACTORY_WORK"
-        printf '%s' "$AGENT_FACTORY_BRIEF" > "${AGENT_FACTORY_OUT:-/out}/brief.md"
-        run -o 'the brief this round was given' cat "${AGENT_FACTORY_OUT:-/out}/brief.md"
-        run -o 'the tree this round was given' git log --oneline -1
-        run -o 'the tree this round left behind' git status --porcelain
+        printf '%s' "$AGENT_FACTORY_BRIEF" > "$out/brief.md"
+        run -o 'the brief this round was given' cat "$out/brief.md"
+        run -o 'the agent, building and testing the change' \
+            opencode run --standalone --auto --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"
         """;
+
+    /// <summary>
+    /// The one message the factory sends the agent. It is fixed too, and it points at the
+    /// brief rather than carrying it: the work item's own words are in the file, and a
+    /// prompt that quoted them would be a prompt a shell could have rewritten.
+    /// </summary>
+    public const string AgentPrompt =
+        "Read /out/brief.md. It is the work item you are building, in the words the maintainer and "
+            + "the reviewer wrote them. Do that work in this repository, then write a short note to "
+            + "/out/note.md saying what you changed and why.";
 
     private readonly ContainerRuntime _containers;
     private readonly ProjectLoadReport _projects;
     private readonly FactoryOptions _options;
+    private readonly RoundResultDeriver _deriver;
+    private readonly ICredentialReader _credentials;
     private readonly ILogger<WorkerRoundRunner> _logger;
 
     public WorkerRoundRunner(
         ContainerRuntime containers,
         ProjectLoadReport projects,
         FactoryOptions options,
+        RoundResultDeriver deriver,
+        ICredentialReader credentials,
         ILogger<WorkerRoundRunner> logger)
     {
         _containers = containers ?? throw new ArgumentNullException(nameof(containers));
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _deriver = deriver ?? throw new ArgumentNullException(nameof(deriver));
+        _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -105,14 +135,7 @@ public sealed class WorkerRoundRunner : INOpenCode
             name,
             project.WorkerImage,
             ["shell", "-c", RoundScript],
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                // The tree arrives over the network because a worker container is given no
-                // host path to put one in (ADR-0010).
-                ["AGENT_FACTORY_REPO_URL"] = round.RepoUrl,
-                ["AGENT_FACTORY_BASE_REF"] = round.BaseBranch,
-                ["AGENT_FACTORY_BRIEF"] = round.Feedback,
-            });
+            EnvironmentFor(round, project));
 
         WorkerContainerRun run;
         try
@@ -168,11 +191,11 @@ public sealed class WorkerRoundRunner : INOpenCode
         if (run.ResultFile is not { } resultFile)
         {
             // A round with no result is not a round with nothing: its log is the whole of
-            // what there is to show, so it is logged here rather than lost. It is also
-            // permanent, and deliberately so — the container ran, and whatever stopped it
-            // from writing its result would stop a second container the same way. Note what
-            // this is *not*: the container failing to start, which is the transient shape of
-            // the same-looking failure and is classified above.
+            // what there is to show, so it travels on the result rather than being lost in
+            // a log line. It is also permanent, and deliberately so — the container ran,
+            // and whatever stopped it from writing its result would stop a second container
+            // the same way. Note what this is *not*: the container failing to start, which is
+            // the transient shape of the same-looking failure and is classified above.
             _logger.LogWarning(
                 "Round {Round} of {Project}#{Issue} came back without a result: it ran and produced nothing, "
                     + "so another attempt would only be told the same thing. Its log ends: {Log}",
@@ -181,29 +204,91 @@ public sealed class WorkerRoundRunner : INOpenCode
                 round.IssueNumber,
                 run.LogTail);
 
-            return RoundResult.Failed(FailureClass.Permanent);
+            return RoundResult.Failed(FailureClass.Permanent, run.LogTail);
         }
 
-        var header = WorkerResultFile.ReadHeader(resultFile);
-        if (header is null)
-        {
-            _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} wrote a result file with nothing in it that can be read. Its log ends: {Log}",
-                round.WorkItemId,
-                round.Project,
-                round.IssueNumber,
-                run.LogTail);
-        }
+        var derived = _deriver.Derive(resultFile, run.LogTail);
 
+        _logger.LogInformation(
+            "Round {Round} of {Project}#{Issue} derived {Files} changed file(s) and {Commands} recorded command(s) "
+                + "from what its container observed.{Reading}",
+            round.WorkItemId,
+            round.Project,
+            round.IssueNumber,
+            derived.FilesChanged.Count,
+            derived.CommandsRun.Count,
+            derived.UnreadableBecause is { } unreadable ? " It could not be read: " + unreadable : string.Empty);
+
+        // Produced whatever the round's own commands returned, and whatever the result
+        // file's shape was. A round that ran and whose change failed its own tests is
+        // Produced, with the failing exit codes in the payload — that is the structural
+        // half of "a build that fails its tests is not retried" (ADR-0001), and it is why
+        // nothing here reads the deriver's outcome to decide what to return.
         return RoundResult.Produced(
-            header ?? $"a result file with no readable header, at {resultFile}",
-            WorkerResultFile.ReadNote(resultFile));
+            ResultPayload.Of(derived, run.LogTail),
+            derived.AgentNote,
+            run.LogTail);
+    }
+
+    /// <summary>
+    /// The round's environment, and the one place a credential value is put into a worker
+    /// container.
+    /// </summary>
+    /// <remarks>
+    /// The project's <c>keys.github</c> name is not read here, anywhere, ever. That is
+    /// what makes ADR-0006 structural rather than a matter of care: the value is never in
+    /// this component's hands, so a round cannot be given one by accident or by a later
+    /// edit that adds it. The LLM key is read because the agent cannot reach a provider
+    /// without it, and it is put in under the name the project file gave — a project
+    /// declares a name, and the name is the same on both sides of the container boundary.
+    /// </remarks>
+    private Dictionary<string, string> EnvironmentFor(Round round, Project project)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            // The tree arrives over the network because a worker container is given no
+            // host path to put one in (ADR-0010).
+            ["AGENT_FACTORY_REPO_URL"] = round.RepoUrl,
+            ["AGENT_FACTORY_BASE_REF"] = round.BaseBranch,
+            ["AGENT_FACTORY_BRIEF"] = RoundBrief.For(round),
+            ["AGENT_FACTORY_AGENT_PROMPT"] = AgentPrompt,
+        };
+
+        if (_credentials.Read(project.LlmKeyName) is { Length: > 0 } key)
+        {
+            environment[project.LlmKeyName] = key;
+
+            _logger.LogInformation(
+                "Round {Round} of {Project} is being handed {Key} for the life of its container.",
+                round.WorkItemId,
+                project.Name,
+                project.LlmKeyName);
+        }
+        else
+        {
+            // Said out loud rather than left to be discovered. The round still runs: a
+            // factory that refused here would be deciding for itself that the agent
+            // cannot work without a key, and the agent is the thing that knows. What the
+            // round does about it is in the round's own log, and the result records
+            // which credentials it was actually handed.
+            _logger.LogWarning(
+                "Round {Round} of {Project} is being handed no LLM credential: the project names {Key} and this "
+                    + "process's environment does not have it. The round runs anyway and whatever the agent says "
+                    + "about that is in the round's own log.",
+                round.WorkItemId,
+                project.Name,
+                project.LlmKeyName);
+        }
+
+        return environment;
     }
 
     /// <summary>
     /// A round's log, line by line, as the round writes it. This is the live channel out
     /// of a round (ADR-0010) and the only place the factory's own logs say anything about
-    /// what a round was doing while it was doing it.
+    /// what a round was doing while it was doing it. The end of it also travels on the
+    /// round's result, so a round that produced nothing usable is still readable by a
+    /// reviewer (story 29).
     /// </summary>
     private sealed class RoundLog(ILogger logger, Guid workItemId) : IProgress<string>
     {

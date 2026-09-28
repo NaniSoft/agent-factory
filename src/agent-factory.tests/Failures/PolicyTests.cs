@@ -1,9 +1,11 @@
 namespace AgentFactory.Tests.Failures;
 
 using System.Reflection;
+using AgentFactory.Credentials;
 using AgentFactory.Failures;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
+using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
@@ -117,6 +119,170 @@ public class PolicyTests
                 type.GetProperty("Class")!.PropertyType);
         }
     }
+    [Fact]
+    public void Only_the_round_runner_can_put_a_credential_value_into_a_worker_container()
+    {
+        // ADR-0006 as a structural property rather than a matter of care. One component in
+        // the process may turn a credential *name* into a credential *value*, and it is the
+        // one that hands a round to a container. Every other component that touches a
+        // credential holds the name and nothing else, so a GitHub token cannot reach a
+        // worker container by a route nobody re-checked.
+        //
+        // It is checked by who calls the reader rather than by what the runner does with
+        // what it reads, because the caller is the boundary: one caller is a line that can
+        // be read and argued with, and a second is a second way in.
+        var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType?.Name == "ICredentialReader"
+                && call.Called.Name == "Read"
+                && call.Caller?.DeclaringType != typeof(ICredentialReader))
+            .Select(call => $"{call.Caller?.DeclaringType?.Name}.{call.Caller?.Name}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(["WorkerRoundRunner.EnvironmentFor"], readers);
+
+        // And the same check the other way round: the GitHub key name is never an argument
+        // to anything that could resolve it. The project's record holds the name, the
+        // runner holds the reader, and nothing connects them outside EnvironmentFor.
+        var uses = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType == typeof(ICredentialReader))
+            .Select(call => call.Caller?.DeclaringType?.Name)
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(["WorkerRoundRunner"], uses);
+    }
+
+    [Fact]
+    public void The_deriver_has_no_way_to_ask_the_agent_anything()
+    {
+        // ADR-0011's guarantee, made structural. The component that produces a result reads
+        // a file and reads an environment; it holds no agent, no client and no transport, so
+        // "the factory derives the result and the agent only narrates" is a property of the
+        // constructor rather than a claim about the code inside it. A deriver that gained a
+        // way to prompt a model would be able to believe one, and every test above would
+        // still pass.
+        Assert.Equal(
+            ["ILogger`1"],
+            typeof(RoundResultDeriver)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(parameter => parameter.ParameterType.Name));
+
+        // Nothing sleeps, defers or times out here either, for the same reason as everywhere
+        // else: a deriver that waited would be a wait in the middle of a round.
+        var calls = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Select(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}")
+            .ToList();
+
+        Assert.DoesNotContain("System.Threading.Tasks.Task:Delay", calls);
+    }
+
+    [Fact]
+    public void The_deriver_reads_the_files_changed_out_of_git_and_out_of_nowhere_else()
+    {
+        // The one thing a result must not be, asserted structurally: a `ChangedFile` cannot
+        // be built anywhere in the process except the two methods that read `git status` and
+        // the diff. If a result could name a file that git did not report, the property
+        // "files changed come from the container's git state" would be a convention rather
+        // than the shape of the code — and the note would be a way in.
+        //
+        // A record's own generated members are excluded for the reason the retry test
+        // excludes them: `with` and the compiler's copy constructor are the type talking to
+        // itself, and one of them adds a field git reported to another git reported. They
+        // cannot introduce a path that was not already there.
+        var constructors = ConstructorsOf<ChangedFile>();
+
+        // Two construction sites, and both are the git half of the deriver: the one that
+        // reads a path out of the diff, and the one that unions the two observations
+        // together.
+        Assert.Equal(["RoundResultDeriver.DiffFiles", "RoundResultDeriver.FilesFrom"], constructors);
+
+        // The same for a command: a `CommandOutcome` can only come from a record the image's
+        // wrapper wrote, so the factory cannot invent a command a round did not run.
+        Assert.Equal(["RoundResultDeriver.CommandFrom"], ConstructorsOf<CommandOutcome>());
+    }
+
+    /// <summary>
+    /// Every method in the process that constructs a <typeparamref name="T"/>, the record's
+    /// own generated members excluded.
+    /// </summary>
+    private static IReadOnlyList<string> ConstructorsOf<T>() => CallsMadeBy(typeof(FactoryApp).Assembly)
+        .Where(call => call.Called.DeclaringType == typeof(T)
+            && call.Called.Name == ".ctor"
+            && Owner(call.Caller) != typeof(T))
+        .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+        .Distinct()
+        .Order(StringComparer.Ordinal)
+        .ToList();
+
+    /// <summary>
+    /// A method's own name, and for an iterator the name of the method it was compiled
+    /// from rather than the state machine's `MoveNext` — which is where the work happens,
+    /// and which would name the same method twice for no gain. The name is recovered from
+    /// the compiler's own artefact, `<DiffFiles>d__17`, because that is the only place it
+    /// survives.
+    /// </summary>
+    private static string Method(MethodBase? method)
+    {
+        var name = method?.Name ?? "?";
+        if (!name.StartsWith("MoveNext", StringComparison.Ordinal))
+        {
+            return name;
+        }
+
+        var artefact = method?.DeclaringType?.Name ?? string.Empty;
+        var open = artefact.IndexOf('<');
+        var close = artefact.IndexOf('>', open + 1);
+
+        return open >= 0 && close > open ? artefact[(open + 1)..close] : name;
+    }
+
+    /// <summary>
+    /// The type a method really belongs to. An iterator's body compiles into a nested
+    /// `<Name>d__17` class, so `DeclaringType` names the compiler's own artefact rather than
+    /// the method's owner — and an assertion on that name would be an assertion on the
+    /// compiler's numbering, which is not a fact about this code.
+    /// </summary>
+    private static Type? Owner(MethodBase? method)
+    {
+        var type = method?.DeclaringType;
+
+        while (type is { IsNested: true } && type.Name.Contains('<', StringComparison.Ordinal))
+        {
+            type = type.DeclaringType;
+        }
+
+        return type;
+    }
+
+    [Fact]
+    public void The_board_and_the_loop_gained_no_write_path_and_no_new_decision()
+    {
+        // The result work added a great deal of text to the board and a log column to the
+        // store. Neither is a way for a human to change anything, and the decision set is
+        // still three — the same check #7 made, re-run because this ticket touched the
+        // board's markup and the store's schema.
+        Assert.Equal(
+            [Decision.Approve, Decision.RequestChanges, Decision.Reject],
+            Decisions.All);
+
+        Assert.Equal([Decision.Approve, Decision.Reject], Decisions.OfferedIn(Swimlane.Escalated));
+
+        // The board's write path is still the one reviewer's form. A second handler would be
+        // a second way a human could change a work item, and the loop would be the only
+        // component applying policy — so a page that could write a result itself would be a
+        // page with an opinion.
+        Assert.Equal(["OnGet", "OnPostDecision"], typeof(Pages.IndexModel)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(method => method.Name.StartsWith("On", StringComparison.Ordinal))
+            .Select(method => method.Name)
+            .Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void The_components_that_gained_a_retry_policy_gained_no_new_seams()
     {

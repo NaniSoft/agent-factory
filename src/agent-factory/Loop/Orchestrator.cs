@@ -575,7 +575,8 @@ public sealed class Orchestrator
             result.AgentNote,
             run.StartedUtc,
             run.Attempts,
-            result.Failure);
+            result.Failure,
+            result.Log);
 
         // A round that came back with a result is what a reviewer judges, so it goes to
         // Review. A round that did not is not merged over: it parks in Escalated, which a
@@ -657,11 +658,17 @@ public sealed class Orchestrator
         var workItem = _store.Get(workItemId)
             ?? throw new KeyNotFoundException($"no work item {workItemId} to run a round for");
 
+        // The issue's own words travel with the round rather than being left behind as a
+        // number the agent would have to go and look up (Round, RoundBrief). Reconstructing
+        // the brief from the issue number instead would mean the agent's brief and the
+        // board's card could be two different things, and only one of them is the record.
         return new Round(
             workItem.Id,
             workItem.Project,
             workItem.RepoUrl,
             workItem.IssueNumber,
+            workItem.IssueTitle,
+            workItem.IssueBody,
             workItem.BaseBranch,
             BriefFor(workItemId));
     }

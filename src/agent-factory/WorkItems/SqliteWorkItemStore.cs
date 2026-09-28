@@ -156,7 +156,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         string? agentNote,
         DateTimeOffset startedUtc,
         int attempts = 1,
-        FailureClass? failure = null)
+        FailureClass? failure = null,
+        string? log = null)
     {
         var now = _clock.UtcNow;
 
@@ -182,8 +183,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText = """
-            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure)
-            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc, $attempts, $failure);
+            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log)
+            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc, $attempts, $failure, $log);
             """;
         insert.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
         insert.Parameters.AddWithValue("$roundNumber", roundNumber);
@@ -194,6 +195,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         insert.Parameters.AddWithValue("$completedUtc", now.ToString("O"));
         insert.Parameters.AddWithValue("$attempts", Math.Max(1, attempts));
         insert.Parameters.AddWithValue("$failure", (object?)failure?.ToString() ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$log", (object?)log ?? DBNull.Value);
         insert.ExecuteNonQuery();
 
         using var bump = connection.CreateCommand();
@@ -219,7 +221,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             startedUtc,
             now,
             Math.Max(1, attempts),
-            failure);
+            failure,
+            log);
     }
 
     public IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId)
@@ -227,7 +230,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure
+            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log
             FROM round_results
             WHERE work_item_id = $workItemId
             ORDER BY round_number;
@@ -247,7 +250,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 Timestamp(reader.GetString(5)),
                 Timestamp(reader.GetString(6)),
                 reader.IsDBNull(7) ? 1 : reader.GetInt32(7),
-                reader.IsDBNull(8) ? null : Enum.Parse<FailureClass>(reader.GetString(8))));
+                reader.IsDBNull(8) ? null : Enum.Parse<FailureClass>(reader.GetString(8)),
+                reader.IsDBNull(9) ? null : reader.GetString(9)));
         }
 
         return rounds;
@@ -526,6 +530,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 completed_utc  TEXT    NOT NULL,
                 attempts       INTEGER NOT NULL DEFAULT 1,
                 failure        TEXT    NULL,
+                log            TEXT    NULL,
                 PRIMARY KEY (work_item_id, round_number)
             );
 
@@ -559,6 +564,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         AddColumnIfMissing(connection, "work_items", "merge_retry_after_utc", "TEXT NULL");
         AddColumnIfMissing(connection, "round_results", "attempts", "INTEGER NOT NULL DEFAULT 1");
         AddColumnIfMissing(connection, "round_results", "failure", "TEXT NULL");
+        AddColumnIfMissing(connection, "round_results", "log", "TEXT NULL");
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string declaration)

@@ -3,25 +3,40 @@ namespace AgentFactory.Containers;
 using System.Text.Json;
 
 /// <summary>
-/// The round's one result file, read at the shallowest level the factory reads anything.
-/// The image writes JSON lines and guarantees the first is the header, which is what
-/// makes a truncated or unreadable result still carry the round's identity rather than
-/// being nothing at all (story 29).
+/// The round's one result file, read for the two things the factory needs that are not a
+/// derivation: the header, which is the round's own account of how it was run, and the
+/// agent's one optional sentence.
 /// </summary>
 /// <remarks>
-/// This is deliberately not a result deriver. What a round's records mean — which files
-/// changed, which commands passed, what a test outcome implies — is the deriver's job
-/// (ADR-0011) and it has not been written: this ticket delivers the boundary, and the
-/// payload it produces is thin on purpose. What is read here is a header line, verbatim,
-/// and the one optional sentence the agent is allowed to contribute.
+/// <para>
+/// Everything else in that file is read by the result deriver, and that separation is
+/// deliberate rather than incidental. The deriver lives in <c>Results/</c> and owns the
+/// records — files changed, commands run, outcomes, the diff — because ADR-0011's whole
+/// claim is that those are derived by observing rather than authored, and a reader that
+/// sits beneath the deriver and hands it a header line is a second reading of the same file
+/// to keep in step. This class reads the header because a round's identity is worth having
+/// on a log line even when nothing else about it can be read (story 29), and the note
+/// because it is the only part a model wrote and it is optional by construction.
+/// </para>
+/// <para>
+/// The image writes JSON lines and guarantees the first is the header, which is what makes
+/// a truncated or unreadable result still carry the round's identity rather than being
+/// nothing at all.
+/// </para>
 /// </remarks>
 public static class WorkerResultFile
 {
     /// <summary>
-    /// The header, or null when the file has no line this can read. A round with an
-    /// unreadable result is still a round that came back, and saying so is better than
-    /// dropping the round on the floor.
+    /// The header line, verbatim, or null when the file has no line this can read. A round
+    /// with an unreadable result is still a round that came back, and saying so is better
+    /// than dropping the round on the floor.
     /// </summary>
+    /// <remarks>
+    /// The line is returned as written rather than parsed into a shape, because nothing on
+    /// this side of the boundary is entitled to an opinion about it. A header that gains a
+    /// field is then a log line that changes on its own rather than a parse that has to be
+    /// taught what the field means.
+    /// </remarks>
     public static string? ReadHeader(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
