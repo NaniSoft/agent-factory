@@ -21,6 +21,13 @@ public class DecisionTests
 
     private const string LaterFeedback = "Still outside the lock. That is the whole of it.";
 
+    /// <summary>
+    /// Each of the three and where it puts the work item. Approve is here with a merger
+    /// behind the seam, because Done means merged: approving is complete only once a merge
+    /// landed, and the theory is about which lane a decision lands the work item in once
+    /// the factory can do what the decision asks. What happens when it cannot is the other
+    /// ticket's, and <see cref="ApproveTests"/>'s.
+    /// </summary>
     public static TheoryData<string, Swimlane> TheThreeDecisions => new()
     {
         { "approve", Swimlane.Done },
@@ -34,7 +41,7 @@ public class DecisionTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         var board = await Board.ReadAsync(host.Board);
 
@@ -53,8 +60,14 @@ public class DecisionTests
     {
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+
+        // A working merger, because Done means merged. Approve is the one decision that
+        // asks the factory to do something outside itself before it can land the work item,
+        // and this theory is about the lane each decision lands a work item in — not about
+        // what happens when the factory cannot do it, which ApproveTests covers.
+        var github = new FakeGitHub().Merging();
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        var workItem = await InReview(host);
 
         using var response = await Board.DecideAsync(host.Board, workItem.Id, decision, Feedback);
 
@@ -84,6 +97,14 @@ public class DecisionTests
         Assert.Equal(Feedback, rendered.Feedback);
         Assert.Equal(expected.ToString(), rendered.AppliedTo);
         Assert.Contains(Feedback, board.Read(Swimlanes.Label(expected)), StringComparison.Ordinal);
+
+        // Where the loop put the work item to apply this one is said on the board, not only
+        // kept in an attribute. It is the whole of what the decision did, so an approval the
+        // loop could not carry out stays readable as such after the page is read again.
+        Assert.Contains(
+            $"applied to {Swimlanes.Label(expected)}",
+            board.Read(Swimlanes.Label(expected)),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -94,7 +115,7 @@ public class DecisionTests
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Index.cs +14 -3", "Second attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         var before = host.Store.Get(workItem.Id)!;
         Assert.Equal(1, before.RoundCount);
@@ -115,7 +136,7 @@ public class DecisionTests
 
         // The build runs, and the round it runs costs the work item another round. The
         // count is of rounds run, so it is the round that comes back that moves it.
-        host.Settle();
+        await host.Settle();
 
         var after = host.Store.Get(workItem.Id)!;
         Assert.Equal(Swimlane.Review, after.Swimlane);
@@ -132,13 +153,13 @@ public class DecisionTests
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Index.cs +14 -3", "Second attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", Feedback))
         {
         }
 
-        host.Settle();
+        await host.Settle();
 
         // A first round has nobody's words to be briefed with, and a round after a
         // request for changes is briefed with exactly what the reviewer wrote — the
@@ -155,19 +176,19 @@ public class DecisionTests
             .Yielding(RoundOutcome.Produced, "src/Index.cs +14 -3", "Second attempt.")
             .Yielding(RoundOutcome.Produced, "src/Index.cs +15 -3", "Third attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", Feedback))
         {
         }
 
-        host.Settle();
+        await host.Settle();
 
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", LaterFeedback))
         {
         }
 
-        host.Settle();
+        await host.Settle();
 
         // The most recent thing the reviewer said is the brief, and both sets of words
         // are still on the record. This is also where the loop's being unbounded is
@@ -187,7 +208,7 @@ public class DecisionTests
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Review.cs +4 -0", "Second attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var (rejected, other) = TwoInReview(host);
+        var (rejected, other) = await TwoInReview(host);
 
         using (await Board.DecideAsync(host.Board, rejected.Id, "reject"))
         {
@@ -232,7 +253,7 @@ public class DecisionTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         // Empty and blank are the same absence of words, and both are refused. The next
         // round's brief is the reviewer's reasons; there are none here, and a factory
@@ -275,7 +296,7 @@ public class DecisionTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         using var response = await Board.PostByHandAsync(host.Board, workItem.Id, decision, Feedback);
 
@@ -297,7 +318,7 @@ public class DecisionTests
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Review.cs +4 -0", "Second attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var (rejected, waiting) = TwoInReview(host);
+        var (rejected, waiting) = await TwoInReview(host);
 
         // The process serves exactly one endpoint, and it is the board page. Anything a
         // human — or anything at all — can reach arrives through it, because there is
@@ -323,7 +344,12 @@ public class DecisionTests
         Assert.DoesNotContain(".Move(", page, StringComparison.Ordinal);
         Assert.DoesNotContain(".ApplyDecision(", page, StringComparison.Ordinal);
         Assert.Contains("RecordDecision(", page, StringComparison.Ordinal);
-        Assert.Contains("Step()", page, StringComparison.Ordinal);
+        Assert.Contains("StepAsync()", page, StringComparison.Ordinal);
+
+        // And it does not merge anything itself either. Approve means merged, so the merge
+        // is the loop's to ask the GitHub seam for; a page that merged would be a second
+        // thing shipping changes, outside the loop whose answer is what Done means.
+        Assert.DoesNotContain("MergeAsync(", page, StringComparison.Ordinal);
 
         // So the three decisions are the whole of it: exactly the three the board offers
         // a reviewer in Review, and the store refuses a decision about anything not in
@@ -358,7 +384,7 @@ public class DecisionTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = InReview(host);
+        var workItem = await InReview(host);
 
         // The board's form carries a token and the endpoint requires it, so a post made
         // without one — a curl, another page, anything that is not this page's form — is
@@ -396,23 +422,23 @@ public class DecisionTests
     }
 
     /// <summary>A work item with a round behind it, sitting in Review where a reviewer can decide.</summary>
-    private static WorkItem InReview(FactoryHost host, int issueNumber = 42)
+    private static async Task<WorkItem> InReview(FactoryHost host, int issueNumber = 42)
     {
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
 
-        host.Settle();
+        await host.Settle();
 
         Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
         return workItem;
     }
 
     /// <summary>Two work items with a round behind each, both waiting on a reviewer.</summary>
-    private static (WorkItem First, WorkItem Second) TwoInReview(FactoryHost host)
+    private static async Task<(WorkItem First, WorkItem Second)> TwoInReview(FactoryHost host)
     {
-        var first = InReview(host, 42);
-        var second = InReview(host, 43);
+        var first = await InReview(host, 42);
+        var second = await InReview(host, 43);
         return (first, second);
     }
 }

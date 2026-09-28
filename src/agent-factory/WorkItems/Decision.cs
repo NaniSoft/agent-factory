@@ -8,7 +8,11 @@ namespace AgentFactory.WorkItems;
 /// </summary>
 public enum Decision
 {
-    /// <summary>The change is right. It goes to Done, and the merger takes it from there.</summary>
+    /// <summary>
+    /// The change is right, and it is shipped: the loop merges it through the GitHub
+    /// seam and the work item reaches Done only when a merge landed. An approval the
+    /// merger could not carry out is not Done, and not a change shipped.
+    /// </summary>
     Approve,
 
     /// <summary>

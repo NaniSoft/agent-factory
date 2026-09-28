@@ -27,6 +27,6 @@ internal sealed class GitHubNotBuiltYet : IGitHub
     public Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken) =>
         throw new NotSupportedException($"{Why} (asked to open a pull request on {request.RepoUrl})");
 
-    public Task MergeAsync(string repoUrl, int pullRequestNumber, CancellationToken cancellationToken) =>
-        throw new NotSupportedException($"{Why} (asked to merge #{pullRequestNumber} on {repoUrl})");
+    public Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken) =>
+        throw new NotSupportedException($"{Why} (asked to merge the change for issue #{issueNumber} on {repoUrl})");
 }

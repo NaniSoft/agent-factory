@@ -70,7 +70,7 @@ public class IndexModel : PageModel
     /// The board's only write. A reviewer posts one of the three decisions, the store
     /// keeps it, and the loop applies it.
     /// </summary>
-    public IActionResult OnPostDecision(string? workItem, string? decision, string? feedback)
+    public async Task<IActionResult> OnPostDecision(string? workItem, string? decision, string? feedback)
     {
         // What a button sent. Anything that is not one of the three is not a decision,
         // and this endpoint has no other thing it can be asked to do — a form posted by
@@ -102,7 +102,20 @@ public class IndexModel : PageModel
         // this step is the decision and nothing else. The heartbeat that steps the loop
         // between decisions is the real agent's ticket; a reviewer's own click is a
         // heartbeat too, and the only one there is today.
-        _ = _loop.Step();
+        var step = await _loop.StepAsync();
+
+        // A decision the loop could not carry out is said here, on the response the
+        // reviewer is holding, for the same reason the store's refusals are: reading the
+        // board again would find a clean page and lose it. An approval whose merge did not
+        // land is the case — the decision is on the record and the work item is still in
+        // Review, and a reviewer who were told nothing would conclude the click was lost
+        // rather than that nothing shipped. What the loop says is what the reviewer is
+        // told; the page does not decide for itself that a decision failed.
+        if (step.Refusal is { Length: > 0 } refusal)
+        {
+            Refusal = refusal;
+            return Page();
+        }
 
         // Post, redirect, get: a reviewer who refreshes after deciding has not decided
         // a second time.

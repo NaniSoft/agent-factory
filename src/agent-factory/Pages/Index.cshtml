@@ -124,6 +124,15 @@
                                                 data-applied-to="@decision.AppliedTo"
                                                 data-decided-utc="@decision.DecidedUtc.ToString("O")">
                                                 <span class="decision">@Decisions.Label(decision.Decision)</span>
+                                                @if (decision.AppliedTo is { } appliedTo)
+                                                {
+                                                    @* Where the loop put the work item to apply this one. Said
+                                                        plainly, because it is the whole of what the decision did:
+                                                        an approval the loop could not carry out reads as applied
+                                                        to Review, which is how a change that was approved and
+                                                        not shipped stays visible after the page is re-read. *@
+                                                    <span class="applied-to">applied to @Swimlanes.Label(appliedTo)</span>
+                                                }
                                                 @if (decision.Feedback is { Length: > 0 })
                                                 {
                                                     <span class="reviewer-words">@decision.Feedback</span>

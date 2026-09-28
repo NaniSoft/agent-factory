@@ -1,6 +1,7 @@
 namespace AgentFactory.Loop;
 
 using AgentFactory.Clock;
+using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
@@ -8,72 +9,81 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// The orchestrator: a hand-rolled deterministic state machine over the work item store,
 /// and the whole of the factory's policy about what runs next. It asks
-/// <see cref="INOpenCode"/> for one round and receives one result. It has no concept of
-/// a container, an image, or a process behind that call (ADR-0004, ADR-0005).
+/// <see cref="INOpenCode"/> for one round and receives one result, and it asks
+/// <see cref="IGitHub"/> for one merge and learns whether it landed. It has no concept of
+/// a container, an image, a process, or a pull request behind either call (ADR-0004,
+/// ADR-0005, ADR-0006).
 /// </summary>
 /// <remarks>
 /// The machine advances only when a caller steps it, and one step applies at most one
-/// transition. A step never waits: a round that has not come back is a round that is still
-/// running, and the next step asks again. That is what makes the round timeout a
-/// comparison against <see cref="IClock"/> rather than a timer, and what lets the whole
-/// loop be tested without a sleep.
+/// transition. A step never waits on a round: a round that has not come back is a round
+/// that is still running, and the next step asks again. That is what makes the round
+/// timeout a comparison against <see cref="IClock"/> rather than a timer, and what lets
+/// the whole loop be tested without a sleep. A step does await the merge an approve asks
+/// for, because merging is the transition that approve *is* rather than something asked
+/// for earlier and collected later — a reviewer's click has to do something now.
 /// </remarks>
 public sealed class Orchestrator
 {
     private readonly IWorkItemStore _store;
     private readonly INOpenCode _agent;
+    private readonly IGitHub _github;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
 
     /// <summary>The round this process is inside, if it is inside one.</summary>
     private InFlight? _inFlight;
 
-    public Orchestrator(IWorkItemStore store, INOpenCode agent, IClock clock, ILogger<Orchestrator> logger)
+    public Orchestrator(
+        IWorkItemStore store,
+        INOpenCode agent,
+        IGitHub github,
+        IClock clock,
+        ILogger<Orchestrator> logger)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+        _github = github ?? throw new ArgumentNullException(nameof(github));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
-    /// Applies at most one transition, and says whether it applied one. A round in flight
-    /// is the only thing the machine waits on; a work item waiting in Frontier is not,
+    /// Applies at most one transition, and says what it made of it. A round in flight is
+    /// the only thing the machine waits on; a work item waiting in Frontier is not,
     /// because starting it is a transition the next step can make. A decision a reviewer
     /// has made comes before everything else, because a reviewer is waiting on it.
     /// </summary>
-    public bool Step() => _inFlight is { } run
-        ? LandIfTheRoundIsOver(run)
-        : ApplyADecision() || AcceptIntoFrontier() || StartARound();
+    public async Task<StepResult> StepAsync()
+    {
+        if (_inFlight is { } run)
+        {
+            return LandIfTheRoundIsOver(run) ? StepResult.Moved : StepResult.Idle;
+        }
+
+        return await ApplyADecision()
+            ?? (AcceptIntoFrontier() || StartARound() ? StepResult.Moved : StepResult.Idle);
+    }
 
     /// <summary>
     /// Applies transitions until the machine has nothing left to apply. Stops at a round
     /// that has not come back, because a round that is running is not a transition — the
     /// caller steps again when it might have finished.
     /// </summary>
-    public void Settle()
+    public async Task SettleAsync()
     {
-        while (Step())
+        while ((await StepAsync()).Applied)
         {
         }
     }
 
     /// <summary>
-    /// Applies a decision a reviewer has made. The board records the decision — which of
-    /// the three, in the reviewer's own words — and this is what it means: which swimlane
-    /// a work item lands in is the whole of the factory's policy, so a page that moved
-    /// work items itself would be a second state machine that could disagree with this
-    /// one about the same work item.
+    /// The first decision the loop has not acted on, applied, or nothing at all if there
+    /// is none. Returning nothing is what lets the step fall through to the rest of the
+    /// machine; a decision that could not be applied is a result of its own, because it
+    /// has an answer the reviewer has to read.
     /// </summary>
-    /// <remarks>
-    /// A decision is pending while the loop has not acted on it, and the record says so
-    /// rather than this process remembering: a restart finds the same pending decision
-    /// and applies it exactly once, because applying one marks it applied in the same
-    /// write that moves the work item. Reading "what has been applied" off the work
-    /// item's swimlane instead would be wrong the moment a request for changes came
-    /// back round and the work item was in Review again with the decision still on it.
-    /// </remarks>
-    private bool ApplyADecision()
+    private async Task<StepResult?> ApplyADecision()
     {
         foreach (var workItem in _store.List())
         {
@@ -90,29 +100,98 @@ public sealed class Orchestrator
                 continue;
             }
 
-            Apply(workItem, pending);
-            return true;
+            return await Apply(workItem, pending);
         }
 
-        return false;
+        return null;
     }
 
-    private void Apply(WorkItem workItem, DecisionRecord decision)
+    private async Task<StepResult> Apply(WorkItem workItem, DecisionRecord decision)
     {
-        var to = decision.Decision switch
+        switch (decision.Decision)
         {
-            Decision.Approve => Swimlane.Done,
-            // Straight back into the build, which is where the next step starts the next
-            // round with the reviewer's words as its brief. What eventually stops this
-            // happening for ever is the round ceiling, which is its own ticket: until it
-            // lands, a work item a reviewer keeps sending back keeps costing rounds.
-            Decision.RequestChanges => Swimlane.Frontier,
-            // Rejected is final, and this is the only edge that reaches it.
-            Decision.Reject => Swimlane.Rejected,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(decision), decision.Decision, "there are only three decisions"),
-        };
+            case Decision.Approve:
+                return await Approve(workItem, decision);
 
+            case Decision.RequestChanges:
+                // Straight back into the build, which is where the next step starts the next
+                // round with the reviewer's words as its brief. What eventually stops this
+                // happening for ever is the round ceiling, which is its own ticket: until it
+                // lands, a work item a reviewer keeps sending back keeps costing rounds.
+                Land(workItem, decision, Swimlane.Frontier);
+                return StepResult.Moved;
+
+            case Decision.Reject:
+                // Rejected is final, and this is the only edge that reaches it.
+                Land(workItem, decision, Swimlane.Rejected);
+                return StepResult.Moved;
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(decision), decision.Decision, "there are only three decisions");
+        }
+    }
+
+    /// <summary>
+    /// The reviewer's approval, made into a merge. <c>Done</c> means merged — DESIGN.md
+    /// says so, and it says approve triggers the auto-merge: the factory opens the pull
+    /// request and merges it — so an approve is not complete until a merge has landed, and
+    /// the loop asks the one GitHub seam to land it rather than deciding for itself that
+    /// a change is shipped.
+    /// </summary>
+    /// <remarks>
+    /// The call is awaited and the loop is not left holding a merge it has not seen the
+    /// end of, because there is no heartbeat to collect one later: the reviewer's own
+    /// click is the only thing that drives this machine between decisions. Nothing here
+    /// sleeps or defers. A merge that could hang rather than fail is not a bound this
+    /// ticket introduces — there is no timer here — and the bound the seam call needs is
+    /// the merger's own (#10).
+    /// </remarks>
+    private async Task<StepResult> Approve(WorkItem workItem, DecisionRecord decision)
+    {
+        try
+        {
+            await _github.MergeAsync(workItem.RepoUrl, workItem.IssueNumber, CancellationToken.None);
+        }
+        catch (Exception refused)
+        {
+            _logger.LogWarning(
+                refused,
+                "The reviewer approved {Project}#{Issue} and the merge did not land: {Reason}. "
+                    + "It is still in Review and nothing was shipped.",
+                workItem.Project,
+                workItem.IssueNumber,
+                refused.Message);
+
+            // The work item does not move, and the decision is recorded as applied to
+            // Review: the loop has acted on the reviewer's approval and its answer was
+            // "not yet". Applied rather than pending is the load-bearing choice. A pending
+            // decision is retried on every step, which is retry — and backoff, and telling
+            // a transient failure from a permanent one, which is the retry ticket's (#7);
+            // an unbounded, unattended, unclassified merge attempt every time anything
+            // steps the machine is not this ticket's fix to ship. Applied, the retry is a
+            // human one: the work item is still in Review and the reviewer can approve it
+            // again when the merger is there. Leaving it in Review rather than parking it
+            // is the other half of that: where a failed merge *goes* — escalated, counted,
+            // retried with backoff — is the exhaustion and escalation ticket's (#6), and
+            // a lane this ticket invented would be the same policy decided twice.
+            Land(workItem, decision, Swimlane.Review);
+
+            return StepResult.Refused(
+                $"{workItem.Project}#{workItem.IssueNumber} was approved, but the change was not merged: "
+                    + $"{refused.Message}. It is still in Review, and nothing shipped.");
+        }
+
+        Land(workItem, decision, Swimlane.Done);
+        return StepResult.Moved;
+    }
+
+    /// <summary>
+    /// The loop's answer to a decision: the swimlane it means, and the record of which
+    /// decision moved the work item, in one write.
+    /// </summary>
+    private void Land(WorkItem workItem, DecisionRecord decision, Swimlane to)
+    {
         _store.ApplyDecision(decision.WorkItemId, decision.Sequence, to);
 
         _logger.LogInformation(

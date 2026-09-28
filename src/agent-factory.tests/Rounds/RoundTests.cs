@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Rounds;
 
 using System.Xml.Linq;
+using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
@@ -28,13 +29,13 @@ public class RoundTests
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
 
         // One step, one transition, asserted as it happens rather than slept through.
-        Assert.True(host.Step());
+        Assert.True(await host.Step());
         Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, workItem.Id));
 
-        Assert.True(host.Step());
+        Assert.True(await host.Step());
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
 
-        Assert.True(host.Step());
+        Assert.True(await host.Step());
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, workItem.Id));
     }
 
@@ -48,14 +49,14 @@ public class RoundTests
         var second = host.Store.Intake("nexus", RepoUrl, 43, "A round, with the agent faked", IssueBody, "main").WorkItem;
 
         // The first work item takes the only slot and stays in it while its round runs.
-        host.Settle();
+        await host.Settle();
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, first.Id));
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, second.Id));
         Assert.Single(agent.AskedFor);
 
         // The round returns, so the slot frees, so the second is accepted.
         agent.Release();
-        host.Settle();
+        await host.Settle();
 
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, first.Id));
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, second.Id));
@@ -69,7 +70,7 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        host.Settle();
+        await host.Settle();
 
         var round = Assert.Single(agent.AskedFor);
         Assert.Equal(workItem.Id, round.WorkItemId);
@@ -100,17 +101,17 @@ public class RoundTests
         // Three rounds, each one started by a reviewer asking for changes on the board:
         // the decision is what puts the work item back in the build, so this is the same
         // sequence a reviewer produces rather than a store call made for the test.
-        host.Settle();
+        await host.Settle();
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "the first thing to change"))
         {
         }
 
-        host.Settle();
+        await host.Settle();
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "and then the second"))
         {
         }
 
-        host.Settle();
+        await host.Settle();
 
         var rounds = host.Store.Rounds(workItem.Id);
         Assert.Equal([1, 2, 3], rounds.Select(round => round.RoundNumber));
@@ -131,7 +132,7 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, clock: clock, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        host.Settle();
+        await host.Settle();
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
 
         // A round is bounded at ninety minutes, and the number is written out here rather
@@ -141,13 +142,13 @@ public class RoundTests
 
         // Short of the timeout, the round is still the round.
         clock.Advance(TimeSpan.FromMinutes(89));
-        host.Settle();
+        await host.Settle();
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
         Assert.Empty(host.Store.Rounds(workItem.Id));
 
         // Past it, the round is over and nothing is merged over the objection.
         clock.Advance(TimeSpan.FromMinutes(1));
-        host.Settle();
+        await host.Settle();
 
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, workItem.Id));
         var recorded = Assert.Single(host.Store.Rounds(workItem.Id));
@@ -167,7 +168,7 @@ public class RoundTests
         {
             var workItem = first.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
             workItemId = workItem.Id;
-            first.Settle();
+            await first.Settle();
         }
 
         await using var restarted = await FactoryHost.StartAsync(root);
@@ -186,7 +187,7 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        host.Settle();
+        await host.Settle();
 
         var board = await Board.ReadAsync(host.Board);
 
@@ -209,7 +210,7 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        host.Settle();
+        await host.Settle();
 
         // A failure is visible rather than silent, and it is never merged over. Whether
         // it is worth another attempt is the retry ticket's classification, so what this
@@ -245,12 +246,13 @@ public class RoundTests
     {
         // A structural check, and the only kind available for a claim about what code does
         // not reference. The whole of the orchestrator's knowledge of the outside world is
-        // its constructor: the store, the agent, the clock, a logger. A container runtime
-        // would have to arrive as a fifth dependency, as a package reference, or as an
-        // assembly reference, so all three are checked. It would not catch a runtime
-        // reached by shelling out, which is the gap a reader should know about.
+        // its constructor: the store, the two seams — one call is one round, one call is
+        // one merge — the clock, a logger. A container runtime would have to arrive as a
+        // sixth dependency, as a package reference, or as an assembly reference, so all
+        // three are checked. It would not catch a runtime reached by shelling out, which
+        // is the gap a reader should know about.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IClock", "ILogger`1"],
+            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1"],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()
@@ -262,6 +264,16 @@ public class RoundTests
         // interface, one call on the object.
         var calls = typeof(INOpenCode).GetMethods().Select(method => method.Name).ToList();
         Assert.Equal(["RunRoundAsync"], calls);
+
+        // And the machine's knowledge of merging is one call too, through the same one seam
+        // intake reads through. Done means merged, so this call is what an approval has to
+        // go through; a loop that decided for itself that a change was shipped would need
+        // no seam at all, and that is the defect this rule exists to keep fixed.
+        var merges = typeof(IGitHub).GetMethods()
+            .Where(method => method.Name.StartsWith("Merge", StringComparison.Ordinal))
+            .Select(method => method.Name)
+            .ToList();
+        Assert.Equal(["MergeAsync"], merges);
 
         var project = FactoryProjectFile();
         var packages = project.Descendants("PackageReference")

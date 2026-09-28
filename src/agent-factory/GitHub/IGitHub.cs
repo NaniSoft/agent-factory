@@ -21,8 +21,26 @@ public interface IGitHub
     /// </summary>
     Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken);
 
-    /// <summary>Merges a pull request. Only ever called after a decision.</summary>
-    Task MergeAsync(string repoUrl, int pullRequestNumber, CancellationToken cancellationToken);
+    /// <summary>
+    /// Merges the change a work item produced, from the host, under the factory's own
+    /// credential: the branch is pushed, the pull request is opened and the pull request
+    /// is merged, in that order and from outside the container that wrote the change
+    /// (ADR-0006). Only ever called after a decision.
+    /// </summary>
+    /// <remarks>
+    /// The merge is one call because it is one thing to the loop, and the loop is what
+    /// asks: <c>Done</c> means merged, so the factory has to be able to say whether a
+    /// merge landed or not, and nothing above this seam knows or cares how it was done.
+    /// Which pull request the change ships as, what it is called and what it says are the
+    /// merger's own business and are not the loop's to decide; the loop knows the issue
+    /// the change answers and nothing more. That is what the real client is (the merging
+    /// ticket, #10), and it is what makes the call mean "shipped" or "not shipped".
+    /// </remarks>
+    /// <param name="repoUrl">The repository the change ships to.</param>
+    /// <param name="issueNumber">
+    /// The issue the change answers, which is what names the pull request it ships as.
+    /// </param>
+    Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken);
 }
 
 /// <summary>

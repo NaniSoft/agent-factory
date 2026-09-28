@@ -52,21 +52,23 @@ public sealed class FactoryHost : IAsyncDisposable
     /// <summary>
     /// The fake GitHub the running factory is wired to. Intake reads every repository's
     /// open issues and default branch through this one seam; script a repository before
-    /// starting the factory, and read the turns back off it afterwards.
+    /// starting the factory, and read the turns back off it afterwards. The loop merges
+    /// through the same seam, and refuses to merge until a test asks for merges that land
+    /// — so an approval cannot quietly succeed against a factory that has no merger.
     /// </summary>
     public FakeGitHub GitHub { get; }
 
     /// <summary>
     /// The real orchestrator, in the running process. A test starts the real factory,
-    /// scripts the two seams it needs, and steps the real state machine rather than
-    /// waiting on a background timer, so no test sleeps or polls. Stepping it directly
-    /// is what makes the 90-minute round timeout testable: time moves on the fake clock
-    /// and the machine is asked again.
+    /// scripts the seams it needs, and steps the real state machine rather than waiting on
+    /// a background timer, so no test sleeps or polls. Stepping it directly is what makes
+    /// the 90-minute round timeout testable: time moves on the fake clock and the machine
+    /// is asked again.
     /// </summary>
-    public bool Step() => _app.Services.GetRequiredService<Orchestrator>().Step();
+    public async Task<bool> Step() => (await _app.Services.GetRequiredService<Orchestrator>().StepAsync()).Applied;
 
     /// <summary>Applies transitions until the machine has nothing left to apply.</summary>
-    public void Settle() => _app.Services.GetRequiredService<Orchestrator>().Settle();
+    public Task Settle() => _app.Services.GetRequiredService<Orchestrator>().SettleAsync();
 
     /// <summary>
     /// The real poller, in the running process. One step is one project's turn at

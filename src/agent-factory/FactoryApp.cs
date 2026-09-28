@@ -44,9 +44,12 @@ public static class FactoryApp
             options.FactoriesDirectory,
             services.GetRequiredService<ILoggerFactory>().CreateLogger("agent-factory.projects")));
 
-        // The orchestrator is the factory's own policy: it knows the store, the clock, and
-        // how to ask for a round. It has no concept of a container runtime, so the fake
-        // agent standing in for one is the only seam between it and the outside world here.
+        // The orchestrator is the factory's own policy: it knows the store, how to ask
+        // for a round, how to ask for a merge, and the clock. It has no concept of a
+        // container runtime, so the fake agent standing in for one is the only seam
+        // between it and the outside world here; and the merge is one call on the one
+        // GitHub seam, so the loop learns whether a change shipped without learning what
+        // a pull request is.
         builder.Services.AddSingleton<Orchestrator>();
 
         // The poller is intake: it reads the open issues of the projects being served and
@@ -57,9 +60,11 @@ public static class FactoryApp
         builder.Services.AddSingleton<Poller>();
 
         // IGitHub is one seam covering both polling and merging — one boundary rather than
-        // two that can disagree about what a repository is. Intake and the merger are
-        // both wired to it, and it is registered above refusing; the real client replaces
-        // that when the merging ticket writes it.
+        // two that can disagree about what a repository is, and now both halves of the
+        // factory are wired to it: intake reads through it and the loop merges through it.
+        // What is registered above is the refusal, so an approve cannot complete until the
+        // real client replaces it. That is the honest outcome: the reviewer's decision is
+        // recorded and the work item does not report a merge that did not happen.
 
         // The board's only write path is the reviewer's three decisions: the one form the
         // page renders, in Review. It records the decision and asks the loop to apply it,
