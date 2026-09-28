@@ -54,6 +54,13 @@ public sealed class Board
 
     public bool Renders(string text) => Html.Contains(text, StringComparison.Ordinal);
 
+    /// <summary>
+    /// One swimlane's markup as a reviewer reads it, with the HTML entities decoded.
+    /// A result payload is a diff, so it is full of characters the board escapes on the
+    /// way out; asserting on the raw markup would be asserting on the escaping.
+    /// </summary>
+    public string Read(string swimlane) => System.Net.WebUtility.HtmlDecode(Swimlane(swimlane));
+
     /// <summary>Every value of a marker attribute, in document order.</summary>
     public IReadOnlyList<string> ValuesOf(string marker)
     {

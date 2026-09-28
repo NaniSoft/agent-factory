@@ -70,16 +70,40 @@
                     <ul>
                         @foreach (var workItem in items)
                         {
+                            var rounds = Model.RoundsOf(workItem.Id);
                             <li class="work-item"
                                 data-work-item="@workItem.Id"
                                 data-project="@workItem.Project"
                                 data-issue="@workItem.IssueNumber"
                                 data-base-branch="@workItem.BaseBranch"
-                                data-round-count="@workItem.RoundCount">
+                                data-round-count="@workItem.RoundCount"
+                                data-rounds="@rounds.Count">
                                 <span class="project">@workItem.Project</span>
                                 <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
                                 <span class="base-branch">base @workItem.BaseBranch</span>
                                 <span class="round-count">round @workItem.RoundCount of @FactoryConstants.RoundCeiling</span>
+                                @if (rounds.Count > 0)
+                                {
+                                    <ol class="rounds">
+                                        @foreach (var round in rounds)
+                                        {
+                                            <li class="round"
+                                                data-round="@round.RoundNumber"
+                                                data-outcome="@round.Outcome">
+                                                <span class="round-number">round @round.RoundNumber</span>
+                                                <span class="outcome">@round.Outcome</span>
+                                                @if (round.AgentNote is { Length: > 0 })
+                                                {
+                                                    <span class="note">@round.AgentNote</span>
+                                                }
+                                                @if (round.ResultPayload is { Length: > 0 })
+                                                {
+                                                    <pre class="result">@round.ResultPayload</pre>
+                                                }
+                                            </li>
+                                        }
+                                    </ol>
+                                }
                             </li>
                         }
                     </ul>

@@ -1,6 +1,7 @@
 namespace AgentFactory.WorkItems;
 
 using AgentFactory.Clock;
+using AgentFactory.Rounds;
 using Microsoft.Data.Sqlite;
 
 /// <summary>
@@ -82,6 +83,121 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
     public IReadOnlyList<WorkItem> List() => Query(Select + Order);
 
+    public void Move(Guid id, Swimlane swimlane)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE work_items
+            SET swimlane = $swimlane, updated_utc = $updatedUtc
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        command.Parameters.AddWithValue("$swimlane", swimlane.ToString());
+        command.Parameters.AddWithValue("$updatedUtc", _clock.UtcNow.ToString("O"));
+
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"no work item {id} to move to {swimlane}");
+        }
+    }
+
+    public RoundResultRecord RecordRound(
+        Guid workItemId,
+        RoundOutcome outcome,
+        string? resultPayload,
+        string? agentNote,
+        DateTimeOffset startedUtc)
+    {
+        var now = _clock.UtcNow;
+
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+
+        // The round's number is the work item's count of rounds, plus this one. Read
+        // inside the transaction so two rounds can never be recorded as the same round.
+        // No row means the work item is not there, which is a caller's mistake and not a
+        // round that produced nothing.
+        using var count = connection.CreateCommand();
+        count.Transaction = transaction;
+        count.CommandText = "SELECT round_count FROM work_items WHERE id = $id;";
+        count.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+
+        if (count.ExecuteScalar() is not long previous)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to record a round against");
+        }
+
+        var roundNumber = (int)previous + 1;
+
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc)
+            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc);
+            """;
+        insert.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
+        insert.Parameters.AddWithValue("$roundNumber", roundNumber);
+        insert.Parameters.AddWithValue("$outcome", outcome.ToString());
+        insert.Parameters.AddWithValue("$resultPayload", (object?)resultPayload ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$agentNote", (object?)agentNote ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$startedUtc", startedUtc.ToString("O"));
+        insert.Parameters.AddWithValue("$completedUtc", now.ToString("O"));
+        insert.ExecuteNonQuery();
+
+        using var bump = connection.CreateCommand();
+        bump.Transaction = transaction;
+        bump.CommandText = """
+            UPDATE work_items
+            SET round_count = $roundCount, updated_utc = $updatedUtc
+            WHERE id = $id;
+            """;
+        bump.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        bump.Parameters.AddWithValue("$roundCount", roundNumber);
+        bump.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+        bump.ExecuteNonQuery();
+
+        transaction.Commit();
+
+        return new RoundResultRecord(
+            workItemId,
+            roundNumber,
+            outcome,
+            resultPayload,
+            agentNote,
+            startedUtc,
+            now);
+    }
+
+    public IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc
+            FROM round_results
+            WHERE work_item_id = $workItemId
+            ORDER BY round_number;
+            """;
+        command.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
+
+        var rounds = new List<RoundResultRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rounds.Add(new RoundResultRecord(
+                Guid.Parse(reader.GetString(0)),
+                reader.GetInt32(1),
+                Enum.Parse<RoundOutcome>(reader.GetString(2)),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                Timestamp(reader.GetString(5)),
+                Timestamp(reader.GetString(6))));
+        }
+
+        return rounds;
+    }
+
     private IReadOnlyList<WorkItem> Query(string sql)
     {
         using var connection = Open();
@@ -126,6 +242,20 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             -- Intake is idempotent against the store: one issue, one work item.
             CREATE UNIQUE INDEX IF NOT EXISTS ix_work_items_source_issue
                 ON work_items (repo_url, issue_number);
+
+            -- One row per round, and a row is never replaced. A work item that has run
+            -- three rounds keeps all three, because a reviewer judges the disagreement
+            -- between them as much as the last one.
+            CREATE TABLE IF NOT EXISTS round_results (
+                work_item_id   TEXT    NOT NULL,
+                round_number   INTEGER NOT NULL,
+                outcome        TEXT    NOT NULL,
+                result_payload TEXT    NULL,
+                agent_note     TEXT    NULL,
+                started_utc    TEXT    NOT NULL,
+                completed_utc  TEXT    NOT NULL,
+                PRIMARY KEY (work_item_id, round_number)
+            );
             """;
         command.ExecuteNonQuery();
     }
@@ -153,8 +283,11 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         reader.GetString(5),
         Enum.Parse<Swimlane>(reader.GetString(6)),
         reader.GetInt32(7),
-        DateTimeOffset.Parse(reader.GetString(8), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        DateTimeOffset.Parse(reader.GetString(9), null, System.Globalization.DateTimeStyles.RoundtripKind));
+        Timestamp(reader.GetString(8)),
+        Timestamp(reader.GetString(9)));
+
+    private static DateTimeOffset Timestamp(string value) =>
+        DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
 
     private const string Select = """
         SELECT id, project, repo_url, issue_number, issue_title, base_branch, swimlane, round_count, created_utc, updated_utc

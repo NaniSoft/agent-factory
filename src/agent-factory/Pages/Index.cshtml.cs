@@ -1,4 +1,5 @@
 using AgentFactory.Projects;
+using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
@@ -26,6 +27,13 @@ public class IndexModel : PageModel
     public IReadOnlyList<ProjectFileRejection> Rejections => _projects.Rejections;
 
     public IReadOnlyList<WorkItem> WorkItems => _store.List();
+
+    /// <summary>
+    /// Every round a work item has run, oldest first. A reviewer in Review judges what
+    /// the rounds produced, and past disagreements with earlier ones, so the board shows
+    /// the whole record and not the latest round alone.
+    /// </summary>
+    public IReadOnlyList<RoundResultRecord> RoundsOf(Guid workItemId) => _store.Rounds(workItemId);
 
     public void OnGet()
     {

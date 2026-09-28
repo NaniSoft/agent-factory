@@ -41,6 +41,18 @@ Three seams are the only things that leave the building; everything else runs fo
 `IClock` in `Clock/`, `INOpenCode` in `Rounds/` (one call is one round), and `IGitHub` in
 `GitHub/` (one seam covering both polling and merging).
 
+## The loop
+
+`Loop/Orchestrator.cs` is the factory's state machine, hand-rolled and deterministic. It
+moves work items Backlog → Frontier → In Progress → Review, and it is the whole of the
+factory's policy. It references no container runtime: asking `INOpenCode` for a round and
+receiving a result is all it knows, so the agent is faked in tests and no Docker appears.
+
+One `Step()` applies at most one transition and never waits, which is what makes the
+90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
+timer. `INOpenCode` has no production implementation yet, so the fake is registered in the
+test host only, and the process serves the board without running the loop.
+
 ## Project files
 
 A project is one file in [`factories/`](factories), and the served set is exactly the

@@ -2,7 +2,9 @@ namespace AgentFactory.Tests.Boundary;
 
 using AgentFactory;
 using AgentFactory.Clock;
+using AgentFactory.Loop;
 using AgentFactory.Projects;
+using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -13,19 +15,20 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// The application boundary: the real factory, started in-process. Config loading,
-/// the store and the board are the real thing; only the three fakes are substituted.
-/// Nothing here is a stand-in for the factory itself.
+/// The application boundary: the real factory, started in-process. Config loading, the
+/// store, the orchestrator and the board are the real thing; only the seams are
+/// substituted. Nothing here is a stand-in for the factory itself.
 /// </summary>
 public sealed class FactoryHost : IAsyncDisposable
 {
     private readonly WebApplication _app;
 
-    private FactoryHost(WebApplication app, HttpClient board, TestClock clock)
+    private FactoryHost(WebApplication app, HttpClient board, TestClock clock, FakeNOpenCode agent)
     {
         _app = app;
         Board = board;
         Clock = clock;
+        Agent = agent;
     }
 
     /// <summary>HTTP client for the board, over a real socket and a real listener.</summary>
@@ -33,6 +36,24 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>The fake clock the running factory is wired to.</summary>
     public TestClock Clock { get; }
+
+    /// <summary>
+    /// The fake agent the running factory is wired to. Script it before starting the
+    /// factory; the loop asks it for one round per round it runs.
+    /// </summary>
+    public FakeNOpenCode Agent { get; }
+
+    /// <summary>
+    /// The real orchestrator, in the running process. A test starts the real factory,
+    /// scripts the two seams it needs, and steps the real state machine rather than
+    /// waiting on a background timer, so no test sleeps or polls. Stepping it directly
+    /// is what makes the 90-minute round timeout testable: time moves on the fake clock
+    /// and the machine is asked again.
+    /// </summary>
+    public bool Step() => _app.Services.GetRequiredService<Orchestrator>().Step();
+
+    /// <summary>Applies transitions until the machine has nothing left to apply.</summary>
+    public void Settle() => _app.Services.GetRequiredService<Orchestrator>().Settle();
 
     /// <summary>The real store the running factory is wired to.</summary>
     public IWorkItemStore Store => _app.Services.GetRequiredService<IWorkItemStore>();
@@ -43,16 +64,28 @@ public sealed class FactoryHost : IAsyncDisposable
     /// <summary>The address the board is actually listening on.</summary>
     public string BoardAddress { get; private set; } = string.Empty;
 
-    public static Task<FactoryHost> StartAsync(FactoryRoot root, TestClock? clock = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")), clock);
+    public static Task<FactoryHost> StartAsync(
+        FactoryRoot root,
+        TestClock? clock = null,
+        FakeNOpenCode? agent = null) =>
+        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")), clock, agent);
 
-    public static Task<FactoryHost> StartAsync(FactoryRoot root, Uri boardUrl, TestClock? clock = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl), clock);
+    public static Task<FactoryHost> StartAsync(
+        FactoryRoot root,
+        Uri boardUrl,
+        TestClock? clock = null,
+        FakeNOpenCode? agent = null) =>
+        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl), clock, agent);
 
     /// <summary>Starts the factory the way its own entry point does: options from configuration.</summary>
-    public static async Task<FactoryHost> StartAsync(FactoryRoot root, FactoryOptions options, TestClock? clock = null)
+    public static async Task<FactoryHost> StartAsync(
+        FactoryRoot root,
+        FactoryOptions options,
+        TestClock? clock = null,
+        FakeNOpenCode? agent = null)
     {
         var testClock = clock ?? new TestClock();
+        var fakeAgent = agent ?? new FakeNOpenCode();
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -65,6 +98,11 @@ public sealed class FactoryHost : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddSingleton<IClock>(testClock);
 
+        // The agent is the one seam with no production implementation yet, so it is
+        // registered here, in the host that has one. The loop takes it as a dependency
+        // and never learns what is behind it.
+        builder.Services.AddSingleton<INOpenCode>(fakeAgent);
+
         var app = FactoryApp.Create(builder, options);
         await app.StartAsync();
 
@@ -75,7 +113,7 @@ public sealed class FactoryHost : IAsyncDisposable
             .Addresses
             .First();
 
-        return new FactoryHost(app, new HttpClient { BaseAddress = new Uri(address) }, testClock)
+        return new FactoryHost(app, new HttpClient { BaseAddress = new Uri(address) }, testClock, fakeAgent)
         {
             BoardAddress = address,
         };

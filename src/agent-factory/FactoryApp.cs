@@ -1,13 +1,15 @@
 namespace AgentFactory;
 
 using AgentFactory.Clock;
+using AgentFactory.Loop;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 /// <summary>
-/// The whole factory, in one process: the config loader, the store and the board.
-/// The board is an endpoint this process serves, not a service it calls (ADR-0003).
+/// The whole factory, in one process: the config loader, the store, the orchestrator and
+/// the board. The board is an endpoint this process serves, not a service it calls
+/// (ADR-0003).
 /// </summary>
 public static class FactoryApp
 {
@@ -31,10 +33,14 @@ public static class FactoryApp
             options.FactoriesDirectory,
             services.GetRequiredService<ILoggerFactory>().CreateLogger("agent-factory.projects")));
 
-        // INOpenCode and IGitHub are the seams that leave the building: one call is one
-        // round, and one seam covers both polling and merging. They are declared here and
-        // registered by the tickets that drive them, so nothing in this process has a
-        // Docker or a GitHub reference yet.
+        // The orchestrator is the factory's own policy: it knows the store, the clock, and
+        // how to ask for a round. It has no concept of a container runtime, so the fake
+        // agent standing in for one is the only seam between it and the outside world here.
+        builder.Services.AddSingleton<Orchestrator>();
+
+        // IGitHub is the other seam that leaves the building — one seam covering both
+        // polling and merging — and it has no implementation yet either. The poller ticket
+        // registers it, and nothing in this process has a GitHub reference until then.
 
         // The board's only write path is the reviewer's three decisions, which arrive
         // with the decisions ticket. Until then the board reads and nothing writes.
