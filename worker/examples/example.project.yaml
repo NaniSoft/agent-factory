@@ -1,0 +1,37 @@
+# An example project file, showing the worker image this directory builds.
+#
+# A project is one file in `factories/`, and the served set is exactly the files there.
+# Copy this to `factories/<your-project>.yaml` and fill in your own values; the schema is
+# these six and nothing else, and a field beyond them is refused rather than ignored, so
+# factory policy cannot drift into project configuration.
+#
+# The running example, `factories/nexus.yaml`, names the same image:
+#
+#   worker:
+#     image: ghcr.io/nanisoft/agent-factory-worker:1
+#
+# That image is built from `worker/Dockerfile` in this repository. To use it locally:
+#
+#   docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
+#   bash worker/smoke-test.sh
+
+name: example
+repo:
+  # Absolute http or https. The worker container fetches this itself, with no credential
+  # that can write to it (ADR-0006, ADR-0010) -- the host pushes, not the container.
+  url: https://github.com/NaniSoft/example
+worker:
+  # The image each round's worker container starts from. One fresh container per round.
+  # Published from worker/Dockerfile; derive a project-specific one from it when the
+  # project needs a toolchain the base image does not carry.
+  # See worker/docs/deriving-a-project-image.md.
+  image: ghcr.io/nanisoft/agent-factory-worker:1
+llm:
+  # The provider the agent runs on. The key itself is passed into the container as an
+  # environment variable for the life of one round and dies with the container.
+  provider: anthropic
+keys:
+  # Names of environment variables, never their values. This is what keeps the project
+  # file committable and rotation an environment change rather than a code change.
+  github: EXAMPLE_GITHUB_TOKEN
+  llm: EXAMPLE_ANTHROPIC_API_KEY

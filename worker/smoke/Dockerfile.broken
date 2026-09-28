@@ -1,0 +1,27 @@
+# A deliberately broken worker image, used only to prove the smoke test can fail.
+#
+# It can run a command and it cannot return a result. Everything else -- the
+# tools, the project, the unprivileged user, the absent ports -- is intact, so
+# the test has to catch it on the one thing that is actually broken. A test that
+# cannot fail is not a test, and the round-output property is the one most likely
+# to be quietly faked, so it is the one this exists to break.
+
+ARG BASE_IMAGE=ghcr.io/nanisoft/agent-factory-worker:1
+FROM ${BASE_IMAGE}
+
+USER root
+COPY fixtures/ /opt/smoke/project/
+RUN set -eux; \
+    mkdir -p /work; \
+    cp -a /opt/smoke/project/. /work/; \
+    chown -R agent:agent /work; \
+    chmod 0755 /work/scripts/test.sh; \
+    su agent -c 'cd /work && git init -q -b main . && git add -A && git commit -q -m "base of the synthetic project"'
+
+USER agent:agent
+WORKDIR /work
+
+# The entrypoint that should be here is replaced by one that runs a command,
+# prints, and returns nothing at all. `docker cp` of the result file then has
+# nothing to find, which is exactly the failure this image exists to model.
+ENTRYPOINT ["/bin/sh", "-c", "cd /work && run -o 'a command that runs' bash -c 'echo something happened'; exit 0"]
