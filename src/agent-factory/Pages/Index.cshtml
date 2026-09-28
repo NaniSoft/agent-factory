@@ -1,0 +1,99 @@
+@page "/"
+@model IndexModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Factory — board</title>
+    <link rel="stylesheet" href="~/board.css" />
+</head>
+<body>
+    <header>
+        <h1>Agent Factory</h1>
+        <p class="served-projects">
+            Serving
+            @if (Model.Projects.Count == 0)
+            {
+                <span>no projects</span>
+            }
+            else
+            {
+                <span>@Model.Projects.Count project@(Model.Projects.Count == 1 ? "" : "s")</span>
+                <ul>
+                    @foreach (var project in Model.Projects)
+                    {
+                        <li data-served-project="@project.Name"
+                            data-repo-url="@project.RepoUrl"
+                            data-worker-image="@project.WorkerImage"
+                            data-llm-provider="@project.LlmProvider"
+                            data-github-key="@project.GitHubKeyName"
+                            data-llm-key="@project.LlmKeyName"
+                            title="@project.SourceFile">
+                            <strong>@project.Name</strong>
+                            <span>@project.RepoUrl</span>
+                            <span>worker @project.WorkerImage</span>
+                            <span>llm @project.LlmProvider</span>
+                            <span>keys @project.GitHubKeyName, @project.LlmKeyName</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </p>
+    </header>
+
+    <main>
+        @if (Model.Rejections.Count > 0)
+        {
+            <section class="refused-project-files">
+                <h2>Project files refused</h2>
+                <ul>
+                    @foreach (var rejection in Model.Rejections)
+                    {
+                        <li data-refused-file="@rejection.FileName" data-reason="@rejection.Reason">
+                            <strong>@rejection.FileName</strong>
+                            <span class="reason">@rejection.Reason</span>
+                            <span class="message">@rejection.Message</span>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+
+        <section class="board">
+            @foreach (var swimlane in Swimlanes.All.Concat(Swimlanes.ParkedAndFinal))
+            {
+                var items = Model.WorkItems.Where(workItem => workItem.Swimlane == swimlane).ToList();
+                <div class="swimlane @(swimlane is Swimlane.Escalated or Swimlane.Rejected ? "parked-and-final" : null)"
+                     data-swimlane="@swimlane">
+                    <h2>@Swimlanes.Label(swimlane)</h2>
+                    <ul>
+                        @foreach (var workItem in items)
+                        {
+                            <li class="work-item"
+                                data-work-item="@workItem.Id"
+                                data-project="@workItem.Project"
+                                data-issue="@workItem.IssueNumber"
+                                data-base-branch="@workItem.BaseBranch"
+                                data-round-count="@workItem.RoundCount">
+                                <span class="project">@workItem.Project</span>
+                                <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
+                                <span class="base-branch">base @workItem.BaseBranch</span>
+                                <span class="round-count">round @workItem.RoundCount of @FactoryConstants.RoundCeiling</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        </section>
+    </main>
+
+    @* Auto-refresh: a board a reviewer has to refresh by hand is a board they stop trusting. *@
+    <script>
+        (function () {
+            const seconds = @FactoryConstants.BoardAutoRefreshSeconds;
+            window.setInterval(function () { window.location.reload(); }, seconds * 1000);
+        })();
+    </script>
+</body>
+</html>

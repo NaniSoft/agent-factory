@@ -1,0 +1,18 @@
+# The Nexus repository, the running example from the design. Adding a project to the
+# factory is adding a file to this directory: no component changes, no rebuild.
+#
+# The schema is exactly these six values and nothing more. A field beyond them is
+# refused rather than ignored, so factory policy cannot move into project configuration.
+#
+# Credentials are referenced by environment variable name and are never read into the
+# project record, which keeps this file committable and rotation an environment change.
+name: nexus
+repo:
+  url: https://github.com/NaniSoft/nexus
+worker:
+  image: ghcr.io/nanisoft/agent-factory-worker:1
+llm:
+  provider: anthropic
+keys:
+  github: NEXUS_GITHUB_TOKEN
+  llm: NEXUS_ANTHROPIC_API_KEY

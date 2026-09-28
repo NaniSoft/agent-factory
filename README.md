@@ -8,9 +8,11 @@ through a Kanban board where a human reviews it.
 ## Status
 
 **Implementation is under way.** This repository began as the design and now
-also carries the implementation. The .NET solution is in `src/`, and it is
-early: the projects are scaffolds built against the design, not a working
-factory. Nothing here polls an issue, runs a round, or merges anything yet.
+also carries the implementation. The .NET solution is in `src/`, and the first
+vertical slice has landed: one process serving the board on port 5000, the project
+files in `factories/`, and work items persisted in SQLite. Nothing here polls an
+issue, runs a round, or merges anything yet. Build and test with the commands in
+[`AGENTS.md`](AGENTS.md).
 
 [`DESIGN.md`](DESIGN.md) is the specification the factory is built against
 (ADR-0002), and the decisions it defers on are recorded one file each in
@@ -33,7 +35,10 @@ implementation.
 - [`CONTEXT.md`](CONTEXT.md) — the domain vocabulary the code and this repository
   speak.
 - [`docs/adr/`](docs/adr/) — the decisions the design defers on.
-- [`src/`](src/) — the .NET solution, under construction.
+- [`src/`](src/) — the .NET solution: one process holding the config loader, the
+  work item store, and the board.
+- [`factories/`](factories/) — one file per project. Adding a project is adding a
+  file.
 - [`.gitignore`](.gitignore) — keeps local agent and tool state, including
   `.claude/settings.local.json`, out of the repository.
 

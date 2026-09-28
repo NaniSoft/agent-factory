@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="agent-factory.tests/agent-factory.tests.csproj" />
+  <Project Path="agent-factory/agent-factory.csproj" />
+</Solution>

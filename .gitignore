@@ -6,3 +6,16 @@
 .env
 .env.local
 *.log
+
+# The build.
+[Bb]in/
+[Oo]bj/
+
+# The store of record is a local file, not a committed artifact (ADR-0009).
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Editor swap files.
+*.swp
