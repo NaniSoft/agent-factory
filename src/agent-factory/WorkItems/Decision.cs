@@ -40,6 +40,35 @@ public static class Decisions
         Decision.Reject,
     ];
 
+    /// <summary>The two that finish a parked work item, in the order they are offered.</summary>
+    private static readonly IReadOnlyList<Decision> FinishOnly =
+    [
+        Decision.Approve,
+        Decision.Reject,
+    ];
+
+    /// <summary>
+    /// The decisions a reviewer can still make about a work item in a given lane. Review
+    /// offers all three. Escalated offers two, because parking is not a grave: a human
+    /// finishes a parked work item from here, and the only two ways to finish one are to
+    /// merge it and to decline it (ADR-0008). Everywhere else offers nothing, because a
+    /// work item there is either not the reviewer's to decide about or is final.
+    /// </summary>
+    /// <remarks>
+    /// Requesting changes is not offered on a parked work item because the rounds are
+    /// spent or the round failed, and in neither case is re-opening the build a decision
+    /// the board takes: whether a failed thing is tried again is the retry policy's
+    /// business (#7). The store refuses it, so this is the same set the store will keep —
+    /// the board renders no button that would fail, and there is no post by hand that
+    /// reaches a decision the board will not offer.
+    /// </remarks>
+    public static IReadOnlyList<Decision> OfferedIn(Swimlane swimlane) => swimlane switch
+    {
+        Swimlane.Review => All,
+        Swimlane.Escalated => FinishOnly,
+        _ => [],
+    };
+
     /// <summary>What a button posts, and so what the board's form carries.</summary>
     public static string Slug(Decision decision) => decision switch
     {

@@ -36,6 +36,12 @@ public interface IWorkItemStore
     /// Moves a work item to another swimlane. This is the only way a work item changes
     /// lane, so the lane a reviewer sees is the lane the loop decided on.
     /// </summary>
+    /// <remarks>
+    /// A move into Review starts the work item's review, and a move out of it ends that
+    /// one, so the moment a reviewer has been waiting is kept with the move rather than
+    /// inferred from the record's last-modified time. It is what the feedback threshold
+    /// is measured from.
+    /// </remarks>
     void Move(Guid id, Swimlane swimlane);
 
     /// <summary>
@@ -66,9 +72,12 @@ public interface IWorkItemStore
     /// </remarks>
     /// <exception cref="KeyNotFoundException">There is no such work item.</exception>
     /// <exception cref="InvalidOperationException">
-    /// The work item is not in Review, so there is nothing to decide about it; or the
-    /// decision requests changes and carries no reasons, which would leave the next
-    /// round with no brief.
+    /// The work item is in no lane a reviewer can act on — nothing outside
+    /// <see cref="Swimlanes.Decidable"/>, which is what keeps Rejected final without a
+    /// later caller having to remember; or the work item is parked and the decision
+    /// requests changes, because a parked work item is finished by a human rather than
+    /// sent round again (ADR-0008); or the decision requests changes and carries no
+    /// reasons, which would leave the next round with no brief.
     /// </exception>
     DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback);
 

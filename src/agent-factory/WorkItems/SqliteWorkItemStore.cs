@@ -92,15 +92,17 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             Swimlane.Backlog,
             RoundCount: 0,
             CreatedUtc: now,
-            UpdatedUtc: now);
+            UpdatedUtc: now,
+            ReviewStartedUtc: null);
 
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc)
-            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $issueBody, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc);
+            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc)
+            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $issueBody, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc, $reviewStartedUtc);
             """;
         Bind(command, workItem);
+        command.Parameters.AddWithValue("$reviewStartedUtc", DBNull.Value);
         command.ExecuteNonQuery();
 
         return workItem;
@@ -136,14 +138,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
     {
         using var connection = Open();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE work_items
-            SET swimlane = $swimlane, updated_utc = $updatedUtc
-            WHERE id = $id;
-            """;
+        command.CommandText = SetSwimlane;
         command.Parameters.AddWithValue("$id", id.ToString("D"));
-        command.Parameters.AddWithValue("$swimlane", swimlane.ToString());
-        command.Parameters.AddWithValue("$updatedUtc", _clock.UtcNow.ToString("O"));
+        BindSwimlane(command, swimlane, _clock.UtcNow);
 
         if (command.ExecuteNonQuery() == 0)
         {
@@ -249,17 +246,38 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
     public DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback)
     {
-        // A decision is made about a work item in Review, and about one that is there.
-        // Anything else is a caller's mistake rather than a decision: the loop is what
-        // moves work items, and it moves them out of Review itself.
+        // A decision is made about a work item a reviewer can still act on, and about one
+        // that is there. Anything else is a caller's mistake rather than a decision: the
+        // loop is what moves work items, and it moves them out of Review itself.
+        //
+        // The two decidable lanes are Review and Escalated. Escalated is in the set
+        // because parking is not a grave — a human finishes a parked work item from the
+        // board, and a store that refused would make ADR-0008's promise unkeepable. The
+        // refusal below names only Review, and that is deliberate rather than stale: it
+        // is shown for lanes that are neither Review nor Escalated, where "not in Review"
+        // is both true and the whole of the reason, and the words are ones a reviewer has
+        // already read.
         var workItem = Get(workItemId)
             ?? throw new KeyNotFoundException($"no work item {workItemId} to decide about");
 
-        if (workItem.Swimlane != Swimlane.Review)
+        if (!Swimlanes.Decidable.Contains(workItem.Swimlane))
         {
             throw new InvalidOperationException(
                 $"{workItem.Project}#{workItem.IssueNumber} is in {Swimlanes.Label(workItem.Swimlane)}, "
                     + "not in Review, so there is nothing to decide about it");
+        }
+
+        // What finishes a parked work item is a human merging it or declining it. Sending
+        // it round again is the retry policy's business (#7) rather than a thing a click
+        // on the board decides, and it is refused here — where the rule is — so the board
+        // can render only the decisions that are real, rather than a button that always
+        // failed. The refusal is about parking and not about the rounds: a work item
+        // parked by a failed round may well have rounds to spare, and it is still parked.
+        if (workItem.Swimlane == Swimlane.Escalated && decision == Decision.RequestChanges)
+        {
+            throw new InvalidOperationException(
+                $"{workItem.Project}#{workItem.IssueNumber} is parked in Escalated, and a parked work item "
+                    + "is finished by a human: merged, or declined. It is not sent round again.");
         }
 
         // Feedback is the reviewer's reasons, and a request for changes hands them to
@@ -342,14 +360,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
         using var move = connection.CreateCommand();
         move.Transaction = transaction;
-        move.CommandText = """
-            UPDATE work_items
-            SET swimlane = $swimlane, updated_utc = $updatedUtc
-            WHERE id = $id;
-            """;
+        move.CommandText = SetSwimlane;
         move.Parameters.AddWithValue("$id", workItemId.ToString("D"));
-        move.Parameters.AddWithValue("$swimlane", swimlane.ToString());
-        move.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+        BindSwimlane(move, swimlane, now);
 
         if (move.ExecuteNonQuery() == 0)
         {
@@ -425,7 +438,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 swimlane     TEXT    NOT NULL,
                 round_count  INTEGER NOT NULL,
                 created_utc  TEXT    NOT NULL,
-                updated_utc  TEXT    NOT NULL
+                updated_utc  TEXT    NOT NULL,
+                review_started_utc TEXT NULL
             );
 
             -- Intake is idempotent against the store: one issue, one work item. The index
@@ -487,6 +501,23 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         command.Parameters.AddWithValue("$updatedUtc", workItem.UpdatedUtc.ToString("O"));
     }
 
+    /// <summary>
+    /// Binds a move, and the two things a move also decides. The swimlane is what the
+    /// loop decided; the moment the review started is the same write, because a work item
+    /// that has just entered Review is one whose feedback clock starts now, and one that
+    /// has just left it is not waiting on anybody. Both go through here — the loop's own
+    /// move and the move a decision causes — so the two paths cannot disagree about when
+    /// a review began.
+    /// </summary>
+    private static void BindSwimlane(SqliteCommand command, Swimlane swimlane, DateTimeOffset now)
+    {
+        command.Parameters.AddWithValue("$swimlane", swimlane.ToString());
+        command.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+        command.Parameters.AddWithValue(
+            "$reviewStartedUtc",
+            swimlane == Swimlane.Review ? now.ToString("O") : (object)DBNull.Value);
+    }
+
     private static WorkItem Read(SqliteDataReader reader) => new(
         Guid.Parse(reader.GetString(0)),
         reader.GetString(1),
@@ -498,7 +529,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         Enum.Parse<Swimlane>(reader.GetString(7)),
         reader.GetInt32(8),
         Timestamp(reader.GetString(9)),
-        Timestamp(reader.GetString(10)));
+        Timestamp(reader.GetString(10)),
+        reader.IsDBNull(11) ? null : Timestamp(reader.GetString(11)));
 
     private static DateTimeOffset Timestamp(string value) =>
         DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
@@ -507,9 +539,20 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
     private const int SqliteConstraint = 19;
 
     private const string Select = """
-        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc
+        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc
         FROM work_items
         """;
 
     private const string Order = " ORDER BY created_utc, issue_number;";
+
+    /// <summary>
+    /// The one statement that puts a work item in a lane. The review's start is part of
+    /// the move rather than a second write beside it, so a work item cannot end up in
+    /// Review with no review to measure the feedback threshold from.
+    /// </summary>
+    private const string SetSwimlane = """
+        UPDATE work_items
+        SET swimlane = $swimlane, updated_utc = $updatedUtc, review_started_utc = $reviewStartedUtc
+        WHERE id = $id;
+        """;
 }

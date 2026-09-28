@@ -44,6 +44,23 @@ public static class Swimlanes
         Swimlane.Rejected,
     ];
 
+    /// <summary>
+    /// The lanes a reviewer can still decide about: the one they are waiting on, and the
+    /// one they have parked.
+    /// </summary>
+    /// <remarks>
+    /// Escalated is in here because escalation parks a work item rather than graving it:
+    /// a human finishes it from the board, by merging it or declining it, and a store
+    /// that refused a decision about anything but Review would make that impossible
+    /// (ADR-0008). Rejected is deliberately absent and cannot be added, which is what
+    /// makes a decline final without a later caller having to remember.
+    /// </remarks>
+    public static readonly IReadOnlyList<Swimlane> Decidable =
+    [
+        Swimlane.Review,
+        Swimlane.Escalated,
+    ];
+
     public static string Label(Swimlane swimlane) => swimlane switch
     {
         Swimlane.InProgress => "In Progress",

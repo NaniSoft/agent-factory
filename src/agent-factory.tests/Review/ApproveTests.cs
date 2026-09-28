@@ -22,7 +22,7 @@ public class ApproveTests
 
     private const string Merged = "nexus#42 was approved, but the change was not merged: "
         + "there is no merger behind this seam yet: merging is the merger's business, and the merger is not built. "
-        + "It is still in Review, and nothing shipped.";
+        + "It is parked in Escalated, where a human can merge it, and nothing shipped.";
 
     [Fact]
     public async Task Approving_asks_the_seam_to_merge_and_a_work_item_reaches_done_only_when_one_landed()
@@ -73,29 +73,32 @@ public class ApproveTests
         Assert.Equal([new MergeAttempt(RepoUrl, 42)], github.Merges);
 
         // The work item did not ship and does not say it did. Done means merged, so an
-        // approval that could not be merged is not Done — and it is not Escalated either,
-        // because which lane a failed merge goes to is the escalation ticket's (#6) and a
-        // lane invented here would be that policy decided twice.
-        Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
+        // approval that could not be merged is not Done. Where it goes instead is the
+        // escalation ticket's (#6) decision, and it is Escalated: a factory that cannot
+        // ship what a human approved has failed, and parking it is what takes it out of
+        // the feedback threshold's reach — so an unattended merge attempt every 48 hours
+        // for a change whose merge is already known to fail cannot happen. The
+        // alternative this ticket considered and rejected was leaving it in Review.
+        Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);
         Assert.DoesNotContain(host.Store.List(), item => item.Swimlane == Swimlane.Done);
 
         var board = await Board.ReadAsync(host.Board);
         Assert.Empty(Board.ValuesOf(board.Swimlane("Done"), "data-work-item"));
-        Assert.Contains(workItem.Id.ToString(), board.Swimlane("Review"), StringComparison.Ordinal);
+        Assert.Contains(workItem.Id.ToString(), board.Swimlane("Escalated"), StringComparison.Ordinal);
 
         // The approval itself is not lost. It is on the record, in the order it was made,
-        // marked as what the loop did with it — and what the loop did with it was leave the
-        // work item in Review, which is exactly what a reviewer reading the board needs to
-        // know: approved, not shipped.
+        // marked as what the loop did with it — and what the loop did with it was park the
+        // work item, which is exactly what a reviewer reading the board needs to know:
+        // approved, not shipped, and here to finish.
         var recorded = Assert.Single(host.Store.Decisions(workItem.Id));
         Assert.Equal(Decision.Approve, recorded.Decision);
         Assert.Equal(host.Clock.UtcNow, recorded.DecidedUtc);
-        Assert.Equal(Swimlane.Review, recorded.AppliedTo);
+        Assert.Equal(Swimlane.Escalated, recorded.AppliedTo);
         Assert.False(recorded.IsPending, "the loop has acted on it; its answer was not Done");
 
         var rendered = Assert.Single(board.DecisionsOn(workItem.Id));
         Assert.Equal("approve", rendered.Decision);
-        Assert.Equal("Review", rendered.AppliedTo);
+        Assert.Equal("Escalated", rendered.AppliedTo);
 
         // And it is not silent: the loop's refusal comes back on the response the reviewer
         // is holding, in the reviewer's own terms, saying the merge did not happen and
@@ -119,10 +122,11 @@ public class ApproveTests
         {
         }
 
-        // It is in Review, so the board renders the decision form for it and the reviewer
-        // has something to press. A work item parked where nothing can be done about it
-        // would be the alternative, and the reviewer is the one who can still finish it.
+        // It is parked in Escalated, and the board still renders the decision form for it,
+        // because a parked work item is a work item a human can still finish (ADR-0008).
+        // Finishing it does not mean leaving the tool to find a branch and merge by hand.
         var stuck = await Board.ReadAsync(host.Board);
+        Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);
         Assert.NotEqual(string.Empty, stuck.DecisionFormFor(workItem.Id));
 
         // The reviewer approves again, now with a merger behind the seam. The second
@@ -139,7 +143,7 @@ public class ApproveTests
         var decided = host.Store.Decisions(workItem.Id).ToList();
         Assert.Equal(2, decided.Count);
         Assert.All(decided, decision => Assert.Equal(Decision.Approve, decision.Decision));
-        Assert.Equal(Swimlane.Review, decided[0].AppliedTo);
+        Assert.Equal(Swimlane.Escalated, decided[0].AppliedTo);
         Assert.Equal(Swimlane.Done, decided[1].AppliedTo);
 
         var board = await Board.ReadAsync(host.Board);
@@ -223,7 +227,7 @@ public class ApproveTests
         // retry loop is not this ticket's fix to ship, and it would be worse than the one
         // attempt a reviewer can see and make again themselves.
         await host.Settle();
-        Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
+        Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);
         Assert.Single(github.Merges);
 
         // Not across a restart either, for the same reason. An approval the loop cannot
@@ -233,7 +237,7 @@ public class ApproveTests
         {
             await restarted.Settle();
             Assert.Single(github.Merges);
-            Assert.Equal(Swimlane.Review, restarted.Store.Get(workItem.Id)!.Swimlane);
+            Assert.Equal(Swimlane.Escalated, restarted.Store.Get(workItem.Id)!.Swimlane);
         }
     }
 
@@ -259,7 +263,7 @@ public class ApproveTests
         // the work item behind it is accepted, built and waiting on a reviewer of its own.
         await host.Settle();
 
-        Assert.Equal(Swimlane.Review, host.Store.Get(stuck.Id)!.Swimlane);
+        Assert.Equal(Swimlane.Escalated, host.Store.Get(stuck.Id)!.Swimlane);
         Assert.Equal(Swimlane.Review, host.Store.Get(next.Id)!.Swimlane);
         Assert.Equal(1, host.Store.Get(next.Id)!.RoundCount);
         Assert.Single(host.Store.Rounds(next.Id));

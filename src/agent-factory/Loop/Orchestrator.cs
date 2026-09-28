@@ -52,8 +52,17 @@ public sealed class Orchestrator
     /// Applies at most one transition, and says what it made of it. A round in flight is
     /// the only thing the machine waits on; a work item waiting in Frontier is not,
     /// because starting it is a transition the next step can make. A decision a reviewer
-    /// has made comes before everything else, because a reviewer is waiting on it.
+    /// has made comes before everything else, because a reviewer who is present is
+    /// waiting on it — and a reviewer who is not is what the feedback threshold is for,
+    /// which comes next.
     /// </summary>
+    /// <remarks>
+    /// The order is the asymmetry, in the order it is read: a decision that was made
+    /// beats a decision that was not. The merge of an ignored work item waits its turn
+    /// like everything else does, and it waits for a round in flight too — bounded, since
+    /// a round is bounded at the round timeout, and the wait makes the dangerous path
+    /// later rather than earlier.
+    /// </remarks>
     public async Task<StepResult> StepAsync()
     {
         if (_inFlight is { } run)
@@ -62,6 +71,7 @@ public sealed class Orchestrator
         }
 
         return await ApplyADecision()
+            ?? await MergeWhatNobodyReviewed()
             ?? (AcceptIntoFrontier() || StartARound() ? StepResult.Moved : StepResult.Idle);
     }
 
@@ -87,13 +97,15 @@ public sealed class Orchestrator
     {
         foreach (var workItem in _store.List())
         {
-            if (workItem.Swimlane != Swimlane.Review)
+            if (!Swimlanes.Decidable.Contains(workItem.Swimlane))
             {
                 continue;
             }
 
-            // Oldest first, because that is the order the reviewer made them in, and the
+            // Oldest work item first, which is the order they were picked up in, and the
             // loop works through them in that order rather than picking and choosing.
+            // Escalated is in the set as well as Review, because a human can still finish
+            // a parked work item from the board (ADR-0008).
             var pending = _store.Decisions(workItem.Id).FirstOrDefault(decision => decision.IsPending);
             if (pending is null)
             {
@@ -115,14 +127,23 @@ public sealed class Orchestrator
 
             case Decision.RequestChanges:
                 // Straight back into the build, which is where the next step starts the next
-                // round with the reviewer's words as its brief. What eventually stops this
-                // happening for ever is the round ceiling, which is its own ticket: until it
-                // lands, a work item a reviewer keeps sending back keeps costing rounds.
+                // round with the reviewer's words as its brief — while a round is left to
+                // spend. The count is of rounds run, so this is the comparison that
+                // matters: a work item that has run the ceiling's worth has nothing left
+                // to hand the change to, and sending it round again would start a fourth
+                // round the ceiling exists to prevent.
+                if (workItem.RoundCount >= FactoryConstants.RoundCeiling)
+                {
+                    return EscalatedForRunningOutOfRounds(workItem, decision);
+                }
+
                 Land(workItem, decision, Swimlane.Frontier);
                 return StepResult.Moved;
 
             case Decision.Reject:
-                // Rejected is final, and this is the only edge that reaches it.
+                // Rejected is final, and this is the only edge that reaches it — from
+                // Review or from a parked work item, and a later step finds no decision to
+                // apply about it because the store keeps none.
                 Land(workItem, decision, Swimlane.Rejected);
                 return StepResult.Moved;
 
@@ -130,6 +151,24 @@ public sealed class Orchestrator
                 throw new ArgumentOutOfRangeException(
                     nameof(decision), decision.Decision, "there are only three decisions");
         }
+    }
+
+    /// <summary>
+    /// A work item that has spent the ceiling, parked by a reviewer asking for changes
+    /// again. It is not merged and it is not built again: the two ends of the ceiling
+    /// are the rule, and ADR-0008 rules the exhausted one in favour of a human.
+    /// </summary>
+    private StepResult EscalatedForRunningOutOfRounds(WorkItem workItem, DecisionRecord decision)
+    {
+        _logger.LogWarning(
+            "The reviewer asked for changes on {Project}#{Issue} and all {Ceiling} rounds are spent, "
+                + "so it is parked for a human rather than built again or merged over that objection.",
+            workItem.Project,
+            workItem.IssueNumber,
+            FactoryConstants.RoundCeiling);
+
+        Land(workItem, decision, Swimlane.Escalated);
+        return StepResult.Moved;
     }
 
     /// <summary>
@@ -146,6 +185,27 @@ public sealed class Orchestrator
     /// sleeps or defers. A merge that could hang rather than fail is not a bound this
     /// ticket introduces — there is no timer here — and the bound the seam call needs is
     /// the merger's own (#10).
+    ///
+    /// A merge that did not land parks the work item in Escalated, and which lane that is
+    /// was this ticket's judgement to make: #20 left it in Review on purpose, so that the
+    /// policy would be decided once and here. The argument runs: a factory that cannot
+    /// ship what a human approved has failed, and a failure is what Escalated means, in
+    /// the design's dead-letter language and in CONTEXT.md's own cause for the state.
+    ///
+    /// Parking is the stronger half of it. Leaving the work item in Review would leave it
+    /// inside the feedback threshold's reach, so every 48 hours the factory would try
+    /// again to merge a change whose merge it already knows fails — an unattended,
+    /// unbounded, unclassified retry of the one operation in this system that the
+    /// repository cannot take back by ignoring it. Escalation takes it out of the
+    /// timeout's window altogether, which is what keeps the more dangerous path governed
+    /// by something. Nothing is lost by parking it, because Escalated is a parking state
+    /// rather than a grave: a human can still merge it from the board, in one click, with
+    /// the refusal in front of them rather than a guess.
+    ///
+    /// The loop still does not retry it — how many attempts, how soon, and telling a
+    /// transient failure from a permanent one is #7's — so the one attempt a reviewer can
+    /// see and make again themselves is the whole of it. The decision is recorded applied
+    /// rather than pending, so nothing re-applies it on a later step or across a restart.
     /// </remarks>
     private async Task<StepResult> Approve(WorkItem workItem, DecisionRecord decision)
     {
@@ -158,28 +218,20 @@ public sealed class Orchestrator
             _logger.LogWarning(
                 refused,
                 "The reviewer approved {Project}#{Issue} and the merge did not land: {Reason}. "
-                    + "It is still in Review and nothing was shipped.",
+                    + "It is parked in Escalated, where a human can finish it, and nothing shipped.",
                 workItem.Project,
                 workItem.IssueNumber,
                 refused.Message);
 
-            // The work item does not move, and the decision is recorded as applied to
-            // Review: the loop has acted on the reviewer's approval and its answer was
-            // "not yet". Applied rather than pending is the load-bearing choice. A pending
-            // decision is retried on every step, which is retry — and backoff, and telling
-            // a transient failure from a permanent one, which is the retry ticket's (#7);
-            // an unbounded, unattended, unclassified merge attempt every time anything
-            // steps the machine is not this ticket's fix to ship. Applied, the retry is a
-            // human one: the work item is still in Review and the reviewer can approve it
-            // again when the merger is there. Leaving it in Review rather than parking it
-            // is the other half of that: where a failed merge *goes* — escalated, counted,
-            // retried with backoff — is the exhaustion and escalation ticket's (#6), and
-            // a lane this ticket invented would be the same policy decided twice.
-            Land(workItem, decision, Swimlane.Review);
+            // Parked, and applied rather than pending. Applied because a pending decision
+            // is re-applied on every step and across every restart, which is retry; retry
+            // is #7's, and an unclassified one would be worse than the single attempt a
+            // reviewer can see and make again themselves.
+            Land(workItem, decision, Swimlane.Escalated);
 
             return StepResult.Refused(
                 $"{workItem.Project}#{workItem.IssueNumber} was approved, but the change was not merged: "
-                    + $"{refused.Message}. It is still in Review, and nothing shipped.");
+                    + $"{refused.Message}. It is parked in Escalated, where a human can merge it, and nothing shipped.");
         }
 
         Land(workItem, decision, Swimlane.Done);
@@ -201,6 +253,88 @@ public sealed class Orchestrator
             workItem.IssueNumber,
             Swimlanes.Label(to));
     }
+
+    /// <summary>
+    /// The feedback timeout: a work item left in Review past
+    /// <see cref="FactoryConstants.FeedbackThreshold"/> is merged, because a pipeline held
+    /// by a reviewer who is not watching is a pipeline that has stopped. The design says
+    /// this plainly rather than inferring it, and the threshold is rendered on the board
+    /// so it can be governed.
+    /// </summary>
+    /// <remarks>
+    /// This is a merge and not a shortcut round Done. It goes through the same
+    /// <see cref="IGitHub"/> seam an approve does and obeys the same rule, so a Done here
+    /// is a claim about a repository rather than about a clock: with no merger behind the
+    /// seam the timeout cannot complete either, and a work item left for two days must not
+    /// report a merge that did not happen. It is also exactly one attempt, because the work
+    /// item leaves Review the moment it lands or parks — Done is outside the threshold's
+    /// reach and so is Escalated, which is what stops an unattended loop of merge attempts
+    /// that nobody classified as transient (#7).
+    ///
+    /// It is a comparison against <see cref="IClock"/> and not a timer, and it is measured
+    /// from when the work item entered Review rather than from when it was last written to.
+    /// So a test drives it by advancing time, nothing waits, and a work item sent back and
+    /// reviewed again gets a full threshold rather than inheriting the last one's remainder.
+    /// </remarks>
+    private async Task<StepResult?> MergeWhatNobodyReviewed()
+    {
+        var ignored = _store.List().FirstOrDefault(WaitedLongEnough);
+        if (ignored is null)
+        {
+            return null;
+        }
+
+        _logger.LogWarning(
+            "{Project}#{Issue} has been in Review since {Since} and nobody reviewed it in {Threshold}, "
+                + "so the factory is merging it. Ignoring a work item merges it; that is deliberate.",
+            ignored.Project,
+            ignored.IssueNumber,
+            ignored.ReviewStartedUtc,
+            FactoryConstants.FeedbackThresholdText);
+
+        try
+        {
+            await _github.MergeAsync(ignored.RepoUrl, ignored.IssueNumber, CancellationToken.None);
+        }
+        catch (Exception refused)
+        {
+            _logger.LogWarning(
+                refused,
+                "{Project}#{Issue} was left past the {Threshold} and the merge did not land: {Reason}. "
+                    + "Nothing shipped, and it is parked where a human can finish it.",
+                ignored.Project,
+                ignored.IssueNumber,
+                FactoryConstants.FeedbackThresholdText,
+                refused.Message);
+
+            // Parked for the same reason a failed approval is parked: a merge that did not
+            // land is a failure, and Escalated is what a failure is. Parked rather than
+            // left in Review also takes it out of the threshold's reach, so an unattended
+            // retry every 48 hours cannot happen.
+            _store.Move(ignored.Id, Swimlane.Escalated);
+
+            return StepResult.Refused(
+                $"{ignored.Project}#{ignored.IssueNumber} was left in Review past the "
+                    + $"{FactoryConstants.FeedbackThresholdText} and the change was not merged: {refused.Message}. "
+                    + "Nothing shipped. It is parked in Escalated, where a human can merge it, and nothing further "
+                    + "will be attempted on its own.");
+        }
+
+        _store.Move(ignored.Id, Swimlane.Done);
+        return StepResult.Moved;
+    }
+
+    /// <summary>
+    /// Whether a work item is waiting in Review for longer than the feedback threshold
+    /// allows. A work item that is not in Review is never overdue however long it has been
+    /// there, which is what keeps the two ends of the asymmetry apart: silence merges, and
+    /// an objection — whether it arrived as spent rounds, a failed build, a failed merge
+    /// or a decline — parks or stays final, and is never merged over (ADR-0008).
+    /// </summary>
+    private bool WaitedLongEnough(WorkItem workItem) =>
+        workItem.Swimlane == Swimlane.Review
+        && workItem.ReviewStartedUtc is { } since
+        && _clock.UtcNow - since >= FactoryConstants.FeedbackThreshold;
 
     /// <summary>
     /// The last thing a reviewer said about this work item, which is what the next round

@@ -182,6 +182,66 @@ heartbeat yet, and a reviewer's click has to do something now. Nothing sleeps, d
 times out in the loop. A merge that hangs rather than fails is bounded by the seam's own
 client when it exists (#10), not by anything here.
 
+## Every way a loop ends
+
+Four endings, three lanes, and one threshold. The loop's step order **is** the asymmetry:
+a decision a reviewer made is applied before anything else, then a work item nobody
+reviewed, then the pipeline. Presence beats absence.
+
+**The ceiling is 3 rounds, and the third request for changes escalates.** The comparison
+is `RoundCount >= FactoryConstants.RoundCeiling` where `RoundCount` is rounds **run**, not
+rounds charged — so a work item sitting in Frontier has not yet spent the round it is
+about to start, and the board's "round 2 of 3" is honest. This is the off-by-one the
+whole ticket turns on: `>` instead of `>=` bites a round early, and the suite catches it.
+An exhausted work item is **parked, never merged**, and the loop has no transition out of
+a parked one, so a fourth round is not merely refused — it is unreachable.
+
+**A work item in Review past 48 hours is merged.** `FactoryConstants.FeedbackThreshold`
+is a single named code constant, not configuration, and the board renders it in a header
+and on every Review card's own "auto-merges at" line. The wait is measured from
+`WorkItem.ReviewStartedUtc` — when the work item *entered* Review, set by the same write
+that moved it there and cleared when it leaves. It is deliberately not `UpdatedUtc`:
+anything else that writes to a work item would silently restart the reviewer's clock, and
+a work item sent back and reviewed again must get a full threshold rather than the
+remainder of the last one. The comparison is against `IClock`, so the suite has no sleeps
+and a restart does not forget the wait.
+
+**That merge is a merge.** It goes through the same `IGitHub.MergeAsync` an approve does
+and obeys the same rule, so there is no second path to `Done`: with no merger behind the
+seam, an ignored work item cannot complete either, and it does not report a change shipped
+that was not. It is exactly one attempt, because the work item leaves Review the moment
+it lands or parks.
+
+**Escalation parks; rejection is final.** `Swimlanes.Decidable` is the two lanes a
+reviewer can still act on — `Review` and `Escalated` — and `Decisions.OfferedIn` is the
+set the board renders, which is deliberately the set the store keeps: a parked work item
+offers **approve and reject only**, and requesting changes on one is refused with a
+message saying why. A button the board offered and the store refused would be a promise
+the factory does not keep, and a post by hand that reached a decision the board did not
+offer would be a way around the loop's policy. Rejected is absent from that set and
+cannot be added, which is what makes a decline final without a later caller remembering.
+
+**A failed merge parks the work item in Escalated.** This is the judgement this ticket
+owns, and #20 left it in Review on purpose so the policy would be decided once. The
+reasoning is in `Orchestrator.Approve`: a factory that cannot ship what a human approved
+has failed, and parking is what takes it out of the threshold's reach — so an unattended
+merge attempt every 48 hours for a merge already known to fail cannot happen. That is the
+decisive argument; the lane name follows from it. Nothing is lost by parking, because a
+parked work item is still mergeable in one click from the board.
+
+**Causes are derived, not stored.** `Pages/HowItEnded.cs` reads the decisions and rounds a
+work item already has and says which ending it is, so "escalated" and "rejected" render as
+distinct states with distinct causes rather than two lanes whose cards read alike. A
+separate cause column would be a second copy of what the record already says, free to
+disagree with it. The merge failure's own message is *not* persisted — that is the log
+and the response the reviewer was holding.
+
+Still not here, and deliberately: retry classification, backoff, and transient-versus-
+permanent (`#7`) — a failed merge is not retried by anything, on any schedule, ever; and
+the agent and the result deriver (`#9`), the merger (`#10`), the diff (`#11`), the
+container budget (`#12`). Nothing sleeps, defers or times out in any of this: the ceiling
+is a count and the threshold is a comparison against `IClock`.
+
 ## Done means merged
 
 **A work item is Done only when a merge actually landed.** `DESIGN.md`'s swimlane table
@@ -199,24 +259,26 @@ branch is pushed are the merger's business behind the seam (#10). The loop has n
 of a pull request, the way it has no concept of a container.
 
 **Today no merger exists, so an approve cannot complete.** The seam refuses, the reviewer's
-decision is recorded and not lost, and the work item stays in Review. That is the honest
+decision is recorded and not lost, and the work item is parked. That is the honest
 outcome rather than a failure to handle.
 
-**A failed merge leaves the work item in Review**, with its approval on the record and the
-loop's answer to that approval recorded as Review — the reviewer approved, and it was not
-merged. Three things follow, and the first two are judgement calls:
+**A failed merge leaves the work item in Escalated**, with its approval on the record and
+the loop's answer to that approval recorded as Escalated — the reviewer approved, it was
+not merged, and the lane says a human has to finish it. #6 owns that decision and the
+argument for it is under "Every way a loop ends" above. Three things follow:
 
-- **It is not Escalated.** Where a failed merge *goes* — escalated, parked, counted — is
-  the exhaustion and escalation ticket's (#6). A lane invented here would be that policy
-  decided twice, in the wrong place.
 - **The loop does not retry it by itself.** Whether a merge that failed is worth another
   attempt, how many, how soon, and telling a transient failure from a permanent one, is the
   retry ticket's (#7). An unclassified, unattended, unbounded retry would be worse than the
   single attempt a reviewer can see and make again. So the decision is recorded *applied*,
-  not pending: a pending decision is retried on every step and across every restart. The
-  work item is still in Review, so the board still offers the reviewer the decision form,
+  not pending: a pending decision is retried on every step and across every restart.
+  Because Escalated is decidable, the board still offers the reviewer the decision form,
   and approving again is a second, complete, human-attributable decision rather than a
   silent re-run. `ApproveTests` asserts exactly this, including across a restart.
+- **It leaves the timeout's reach**, which is why the lane is Escalated and not Review. A
+  merge that did not land would otherwise still be in Review 48 hours later, and the
+  feedback threshold would try again — unattended, for ever, for a merge already known to
+  fail.
 - **It is not silent.** The loop logs a warning and returns a refusal through
   `StepResult`, and `Pages/Index.cshtml.cs` renders it on the response the reviewer is
   holding — a refusal on the next board read would be lost. The card also says plainly
@@ -226,22 +288,15 @@ merged. Three things follow, and the first two are judgement calls:
 One work item's failed merge is contained to that work item: the pipeline behind it keeps
 moving.
 
-**The loop is currently unbounded, and that is a known gap rather than an oversight.** A
-reviewer's request for changes puts a work item back in the build, the next round it runs
-is another round counted against it, and nothing yet says when to stop. The round
-ceiling is the exhaustion and escalation ticket's (#6) and it is deliberately not here:
-no ceiling, no fudge factor, no incidental limit. So the round count on the board is
-what a work item has spent, **not** a bound, and a work item a reviewer keeps sending
-back will keep costing worker containers until that ticket lands.
-
 ## The three decisions
 
 `WorkItems/Decision.cs` is the whole of what a work item leaves Review by: approve,
 request changes, reject. There is no fourth, and a value the board cannot read as one of
-the three is refused rather than guessed at. `Pages/Index.cshtml` renders the three as
-one form, in Review and nowhere else, and that form is the factory's only write path:
-the process serves one route, the board has one reading handler and one writing handler,
-and a test says all of it.
+the three is refused rather than guessed at. `Pages/Index.cshtml` renders them as one
+form wherever a reviewer can still act — Review offers all three, a parked work item
+offers two — and that form is the factory's only write path: the process serves one
+route, the board has one reading handler and one writing handler, and a test says all of
+it.
 
 The board does not move work items, and it does not merge anything. It records what the
 reviewer decided, in their own words, and asks the loop for one step; which swimlane a
@@ -258,20 +313,21 @@ case that needs it: Done means merged, and a merge that did not land is not some
 page could work out on its own.
 
 A decision record carries the swimlane it was applied to, **including the swimlane it was
-not moved to** — an approval applied to Review is a real, readable outcome, not an absence.
-What has been acted on is therefore read off the record rather than off the work item's
-swimlane, which is what makes applying a decision survive a restart and exactly once — the
-swimlane cannot say so, because a request for changes comes back round and the work item is
-in Review again with the same decision still on it.
+not moved to** — an approval applied to Escalated is a real, readable outcome, not an
+absence. What has been acted on is therefore read off the record rather than off the work
+item's swimlane, which is what makes applying a decision survive a restart and exactly
+once — the swimlane cannot say so, because a request for changes comes back round and the
+work item is in Review again with the same decision still on it.
 
 **Feedback** is the reviewer's reasons, kept whole, and the most recent request for
 changes on a work item is the brief its next round is handed. A request for changes with
 nothing to say is **refused**: the brief is the point of the decision, and a placeholder
 in the reviewer's mouth is worse than a refusal. Approve and Reject need no words,
 because neither of them briefs a round. The store refuses a decision about a work item
-that is not in Review, which is what keeps Rejected final without a later caller having
-to remember; an Escalated work item cannot be decided yet, and the parking ticket (#6)
-is what widens that.
+outside `Swimlanes.Decidable` — Review and Escalated — which is what keeps Rejected final
+without a later caller having to remember, and refuses one specifically for a parked work
+item that asks for changes, because a parked work item is finished by a human rather than
+sent round again.
 
 ## Project files
 
