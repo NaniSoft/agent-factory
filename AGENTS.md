@@ -34,12 +34,46 @@ are no sleeps in the suite and no shared state between tests.
 
 ## The factory
 
-One process (`src/agent-factory`): the config loader, the work item store, and the board,
-which is an ASP.NET Core endpoint the same process serves. See ADR-0003.
+One process (`src/agent-factory`): the config loader, the work item store, intake, the
+loop, and the board, which is an ASP.NET Core endpoint the same process serves. See
+ADR-0003.
 
 Three seams are the only things that leave the building; everything else runs for real:
 `IClock` in `Clock/`, `INOpenCode` in `Rounds/` (one call is one round), and `IGitHub` in
 `GitHub/` (one seam covering both polling and merging).
+
+`INOpenCode` and `IGitHub` have no implementation yet, so the process registers a
+**refusal** in their place — `Rounds/NOpenCodeNotBuiltYet.cs` and
+`GitHub/GitHubNotBuiltYet.cs` — rather than failing to start. A registered component
+whose dependency cannot be resolved stops the process starting in development, and the
+board is worth having before the adapters exist. The test host's fakes are registered
+first and win, so neither refusal is ever reached under test. Both are deleted, not left
+behind, when the real adapters land (#8 and #10).
+
+## Intake
+
+`Polling/Poller.cs` is intake: it reads the open issues of every project the factory
+serves and turns each into a work item in Backlog, one project's turn at a time.
+
+The poller is deliberately **indiscriminate** — no label filter, no assignee filter, no
+state filter beyond open, and no gate. That is ADR-0007 and it is not an oversight: a
+filter would put factory policy into project configuration, and which issues are worth
+building is a judgement a human makes **on the board**, the only surface the design
+trusts for human input. The labels and assignees are carried on `OpenIssue` and never
+read, and a test says so, so the rule cannot be quietly reintroduced.
+
+Like the loop it is stepped, not timer-driven. One `StepAsync()` is one project's turn,
+taken only once `FactoryConstants.PollInterval` has passed since the last pass began — a
+comparison against `IClock`, not a `Task.Delay`, so no test sleeps. `PassAsync()` takes
+every project's turn in turn. The rotation order is the directory sorted by file name, so
+it is deterministic without anyone maintaining it, and it is a project's turn that is
+bounded rather than a pass: a busy repository cannot spend a pass on itself.
+
+Intake is idempotent against the store's unique index on `(repo_url, issue_number)`, and
+a re-poll of an open issue leaves the work item it finds exactly as it is — same lane,
+same base, same rounds. One repository erroring is contained to its own turn; the rest
+of the pass still runs, and the next pass tries it again. Nothing polls yet, because
+there is no GitHub behind the seam to poll.
 
 ## The loop
 
@@ -50,8 +84,10 @@ receiving a result is all it knows, so the agent is faked in tests and no Docker
 
 One `Step()` applies at most one transition and never waits, which is what makes the
 90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
-timer. `INOpenCode` has no production implementation yet, so the fake is registered in the
-test host only, and the process serves the board without running the loop.
+timer. Like the poller it is stepped rather than driven, and like the poller nothing
+steps it in production: there is no real `INOpenCode` to step against, and a background
+loop that could never run a round is noise. Whoever adds the real agent owns the
+heartbeat that steps both.
 
 ## Project files
 

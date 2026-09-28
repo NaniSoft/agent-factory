@@ -25,8 +25,23 @@ public interface IGitHub
     Task MergeAsync(string repoUrl, int pullRequestNumber, CancellationToken cancellationToken);
 }
 
-/// <summary>An open issue. The factory's input, and it stays GitHub's object.</summary>
-public sealed record OpenIssue(int Number, string Title);
+/// <summary>
+/// An open issue. The factory's input, and it stays GitHub's object. The labels and
+/// assignees are carried because GitHub issues have them and the seam is faithful to
+/// what it returns — and the poller never reads either of them, which is the point
+/// (ADR-0007). They are here so that "the factory applies no filter" is a decision
+/// visible in one place rather than an absence nobody can find.
+/// </summary>
+public sealed record OpenIssue(
+    int Number,
+    string Title,
+    string Body,
+    IReadOnlyList<string> Labels,
+    IReadOnlyList<string> Assignees)
+{
+    /// <summary>An issue with nothing else on it: no labels, nobody assigned.</summary>
+    public static OpenIssue Plain(int number, string title, string body) => new(number, title, body, [], []);
+}
 
 /// <summary>A pull request the factory opened. Always a real one, so a merge is revertible.</summary>
 public sealed record PullRequest(int Number, string Url);

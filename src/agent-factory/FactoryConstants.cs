@@ -18,4 +18,11 @@ public static class FactoryConstants
 
     /// <summary>How often the board refreshes itself.</summary>
     public const int BoardAutoRefreshSeconds = 5;
+
+    /// <summary>
+    /// How often a project pass runs over the projects the factory serves. Measured
+    /// against the clock rather than waited on, so a test drives it by advancing time
+    /// instead of sleeping, and so a slow pass cannot become a fast one.
+    /// </summary>
+    public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
 }

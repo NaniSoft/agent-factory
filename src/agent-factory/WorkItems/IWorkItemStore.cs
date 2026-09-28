@@ -8,14 +8,24 @@ using AgentFactory.Rounds;
 /// </summary>
 public interface IWorkItemStore
 {
-    /// <summary>Records a new work item. Intake is the only thing that calls this.</summary>
-    WorkItem Create(
+    /// <summary>
+    /// Makes the issue a work item, or says the work item is already there. Intake is
+    /// the only thing that calls this, and it is idempotent: the same issue polled twice
+    /// is one work item, and the second poll leaves the first work item exactly as it
+    /// was — same swimlane, same base, same rounds.
+    /// </summary>
+    /// <remarks>
+    /// A work item is born in Backlog and nowhere else. Every other lane is reached by
+    /// the loop moving one that is already there, so "a work item started outside the
+    /// loop" is not a state this store can represent.
+    /// </remarks>
+    WorkItemRecord Intake(
         string project,
         string repoUrl,
         int issueNumber,
         string issueTitle,
-        string baseBranch,
-        Swimlane swimlane = Swimlane.Backlog);
+        string issueBody,
+        string baseBranch);
 
     WorkItem? Get(Guid id);
 

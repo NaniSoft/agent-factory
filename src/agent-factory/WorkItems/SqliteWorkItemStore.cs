@@ -28,13 +28,48 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         EnsureSchema();
     }
 
-    public WorkItem Create(
+    public WorkItemRecord Intake(
         string project,
         string repoUrl,
         int issueNumber,
         string issueTitle,
-        string baseBranch,
-        Swimlane swimlane = Swimlane.Backlog)
+        string issueBody,
+        string baseBranch)
+    {
+        try
+        {
+            return new WorkItemRecord(
+                Create(project, repoUrl, issueNumber, issueTitle, issueBody, baseBranch),
+                Created: true);
+        }
+        catch (SqliteException constraint) when (constraint.SqliteErrorCode == SqliteConstraint)
+        {
+            // The unique index on (repo_url, issue_number) is what notices the duplicate.
+            // It decides inside the write rather than in a check made before it, so
+            // nothing can slip a second row in between the two. The work item that is
+            // already there is returned as it stands: re-polling an issue is not a reason
+            // to change the record of one, and a work item three rounds deep must not
+            // lose that because its issue was still open.
+            var existing = Find(repoUrl, issueNumber);
+            if (existing is null)
+            {
+                // A constraint that is not the duplicate we expected — a not-null or a
+                // check, which would mean the row is genuinely malformed — leaves nothing
+                // to find, and is rethrown rather than reported as an issue already taken.
+                throw;
+            }
+
+            return new WorkItemRecord(existing, Created: false);
+        }
+    }
+
+    private WorkItem Create(
+        string project,
+        string repoUrl,
+        int issueNumber,
+        string issueTitle,
+        string issueBody,
+        string baseBranch)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(project);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoUrl);
@@ -52,8 +87,9 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             repoUrl,
             issueNumber,
             issueTitle ?? string.Empty,
+            issueBody ?? string.Empty,
             baseBranch,
-            swimlane,
+            Swimlane.Backlog,
             RoundCount: 0,
             CreatedUtc: now,
             UpdatedUtc: now);
@@ -61,13 +97,26 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, base_branch, swimlane, round_count, created_utc, updated_utc)
-            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc);
+            INSERT INTO work_items (id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc)
+            VALUES ($id, $project, $repoUrl, $issueNumber, $issueTitle, $issueBody, $baseBranch, $swimlane, $roundCount, $createdUtc, $updatedUtc);
             """;
         Bind(command, workItem);
         command.ExecuteNonQuery();
 
         return workItem;
+    }
+
+    /// <summary>The work item for this issue, if the store already has one.</summary>
+    private WorkItem? Find(string repoUrl, int issueNumber)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = Select + " WHERE repo_url = $repoUrl AND issue_number = $issueNumber;";
+        command.Parameters.AddWithValue("$repoUrl", repoUrl);
+        command.Parameters.AddWithValue("$issueNumber", issueNumber);
+
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? Read(reader) : null;
     }
 
     public WorkItem? Get(Guid id)
@@ -232,6 +281,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 repo_url     TEXT    NOT NULL,
                 issue_number INTEGER NOT NULL,
                 issue_title  TEXT    NOT NULL,
+                issue_body   TEXT    NOT NULL,
                 base_branch  TEXT    NOT NULL,
                 swimlane     TEXT    NOT NULL,
                 round_count  INTEGER NOT NULL,
@@ -239,7 +289,10 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 updated_utc  TEXT    NOT NULL
             );
 
-            -- Intake is idempotent against the store: one issue, one work item.
+            -- Intake is idempotent against the store: one issue, one work item. The index
+            -- is the whole mechanism — nothing checks whether the issue is already there
+            -- before writing, because a check and a write can disagree and the write is
+            -- the only one of the two that is atomic.
             CREATE UNIQUE INDEX IF NOT EXISTS ix_work_items_source_issue
                 ON work_items (repo_url, issue_number);
 
@@ -267,6 +320,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         command.Parameters.AddWithValue("$repoUrl", workItem.RepoUrl);
         command.Parameters.AddWithValue("$issueNumber", workItem.IssueNumber);
         command.Parameters.AddWithValue("$issueTitle", workItem.IssueTitle);
+        command.Parameters.AddWithValue("$issueBody", workItem.IssueBody);
         command.Parameters.AddWithValue("$baseBranch", workItem.BaseBranch);
         command.Parameters.AddWithValue("$swimlane", workItem.Swimlane.ToString());
         command.Parameters.AddWithValue("$roundCount", workItem.RoundCount);
@@ -281,16 +335,20 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         reader.GetInt32(3),
         reader.GetString(4),
         reader.GetString(5),
-        Enum.Parse<Swimlane>(reader.GetString(6)),
-        reader.GetInt32(7),
-        Timestamp(reader.GetString(8)),
-        Timestamp(reader.GetString(9)));
+        reader.GetString(6),
+        Enum.Parse<Swimlane>(reader.GetString(7)),
+        reader.GetInt32(8),
+        Timestamp(reader.GetString(9)),
+        Timestamp(reader.GetString(10)));
 
     private static DateTimeOffset Timestamp(string value) =>
         DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
 
+    /// <summary>SQLITE_CONSTRAINT. Any constraint, of which the unique index is the one we expect.</summary>
+    private const int SqliteConstraint = 19;
+
     private const string Select = """
-        SELECT id, project, repo_url, issue_number, issue_title, base_branch, swimlane, round_count, created_utc, updated_utc
+        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc
         FROM work_items
         """;
 

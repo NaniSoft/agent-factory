@@ -15,13 +15,15 @@ public class RoundTests
 {
     private const string RepoUrl = "https://github.com/NaniSoft/nexus";
 
+    private const string IssueBody = "What the issue says, in the maintainer's words.";
+
     [Fact]
     public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
     {
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
 
@@ -42,8 +44,8 @@ public class RoundTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var first = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
-        var second = host.Store.Create("nexus", RepoUrl, 43, "A round, with the agent faked", "main");
+        var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        var second = host.Store.Intake("nexus", RepoUrl, 43, "A round, with the agent faked", IssueBody, "main").WorkItem;
 
         // The first work item takes the only slot and stays in it while its round runs.
         host.Settle();
@@ -65,7 +67,7 @@ public class RoundTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         host.Settle();
 
@@ -93,7 +95,7 @@ public class RoundTests
             .Yielding(RoundOutcome.Produced, "round two result", "second note")
             .Yielding(RoundOutcome.Produced, "round three result", "third note");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         // A reviewer's request for changes puts the work item back in Frontier, which is
         // the next round. The decisions themselves arrive with the decisions ticket; here
@@ -121,7 +123,7 @@ public class RoundTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock: clock, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         host.Settle();
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
@@ -157,7 +159,7 @@ public class RoundTests
         Guid workItemId;
         await using (var first = await FactoryHost.StartAsync(root, agent: agent))
         {
-            var workItem = first.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+            var workItem = first.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
             workItemId = workItem.Id;
             first.Settle();
         }
@@ -176,7 +178,7 @@ public class RoundTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         host.Settle();
 
@@ -199,7 +201,7 @@ public class RoundTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Throwing("the container died mid-round");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         host.Settle();
 

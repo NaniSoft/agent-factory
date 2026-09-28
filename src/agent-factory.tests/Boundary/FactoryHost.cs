@@ -2,7 +2,9 @@ namespace AgentFactory.Tests.Boundary;
 
 using AgentFactory;
 using AgentFactory.Clock;
+using AgentFactory.GitHub;
 using AgentFactory.Loop;
+using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
@@ -23,12 +25,13 @@ public sealed class FactoryHost : IAsyncDisposable
 {
     private readonly WebApplication _app;
 
-    private FactoryHost(WebApplication app, HttpClient board, TestClock clock, FakeNOpenCode agent)
+    private FactoryHost(WebApplication app, HttpClient board, TestClock clock, FakeNOpenCode agent, FakeGitHub github)
     {
         _app = app;
         Board = board;
         Clock = clock;
         Agent = agent;
+        GitHub = github;
     }
 
     /// <summary>HTTP client for the board, over a real socket and a real listener.</summary>
@@ -44,6 +47,13 @@ public sealed class FactoryHost : IAsyncDisposable
     public FakeNOpenCode Agent { get; }
 
     /// <summary>
+    /// The fake GitHub the running factory is wired to. Intake reads every repository's
+    /// open issues and default branch through this one seam; script a repository before
+    /// starting the factory, and read the turns back off it afterwards.
+    /// </summary>
+    public FakeGitHub GitHub { get; }
+
+    /// <summary>
     /// The real orchestrator, in the running process. A test starts the real factory,
     /// scripts the two seams it needs, and steps the real state machine rather than
     /// waiting on a background timer, so no test sleeps or polls. Stepping it directly
@@ -54,6 +64,16 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>Applies transitions until the machine has nothing left to apply.</summary>
     public void Settle() => _app.Services.GetRequiredService<Orchestrator>().Settle();
+
+    /// <summary>
+    /// The real poller, in the running process. One step is one project's turn at
+    /// intake, taken only when the poll interval has passed — so a test drives intake by
+    /// advancing the clock and stepping, never by waiting.
+    /// </summary>
+    public Task<bool> IntakeStepAsync() => _app.Services.GetRequiredService<Poller>().StepAsync();
+
+    /// <summary>A whole pass: every project's turn, in rotation order.</summary>
+    public Task PollAsync() => _app.Services.GetRequiredService<Poller>().PassAsync();
 
     /// <summary>The real store the running factory is wired to.</summary>
     public IWorkItemStore Store => _app.Services.GetRequiredService<IWorkItemStore>();
@@ -67,25 +87,29 @@ public sealed class FactoryHost : IAsyncDisposable
     public static Task<FactoryHost> StartAsync(
         FactoryRoot root,
         TestClock? clock = null,
-        FakeNOpenCode? agent = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")), clock, agent);
+        FakeNOpenCode? agent = null,
+        FakeGitHub? github = null) =>
+        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")), clock, agent, github);
 
     public static Task<FactoryHost> StartAsync(
         FactoryRoot root,
         Uri boardUrl,
         TestClock? clock = null,
-        FakeNOpenCode? agent = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl), clock, agent);
+        FakeNOpenCode? agent = null,
+        FakeGitHub? github = null) =>
+        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl), clock, agent, github);
 
     /// <summary>Starts the factory the way its own entry point does: options from configuration.</summary>
     public static async Task<FactoryHost> StartAsync(
         FactoryRoot root,
         FactoryOptions options,
         TestClock? clock = null,
-        FakeNOpenCode? agent = null)
+        FakeNOpenCode? agent = null,
+        FakeGitHub? github = null)
     {
         var testClock = clock ?? new TestClock();
         var fakeAgent = agent ?? new FakeNOpenCode();
+        var fakeGitHub = github ?? new FakeGitHub();
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -103,6 +127,11 @@ public sealed class FactoryHost : IAsyncDisposable
         // and never learns what is behind it.
         builder.Services.AddSingleton<INOpenCode>(fakeAgent);
 
+        // GitHub is the other such seam: one boundary covering both intake and merging,
+        // and no implementation behind it yet either. The poller takes it as a
+        // dependency and never learns what is behind it.
+        builder.Services.AddSingleton<IGitHub>(fakeGitHub);
+
         var app = FactoryApp.Create(builder, options);
         await app.StartAsync();
 
@@ -113,7 +142,7 @@ public sealed class FactoryHost : IAsyncDisposable
             .Addresses
             .First();
 
-        return new FactoryHost(app, new HttpClient { BaseAddress = new Uri(address) }, testClock, fakeAgent)
+        return new FactoryHost(app, new HttpClient { BaseAddress = new Uri(address) }, testClock, fakeAgent, fakeGitHub)
         {
             BoardAddress = address,
         };

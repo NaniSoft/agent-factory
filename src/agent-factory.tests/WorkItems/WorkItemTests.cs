@@ -2,7 +2,6 @@ namespace AgentFactory.Tests.WorkItems;
 
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
-using Microsoft.Data.Sqlite;
 
 /// <summary>
 /// Work items are the factory's own record of an issue, they are persisted, and the
@@ -12,13 +11,15 @@ public class WorkItemTests
 {
     private const string RepoUrl = "https://github.com/NaniSoft/nexus";
 
+    private const string IssueBody = "What the issue says, in the maintainer's words.";
+
     [Fact]
     public async Task A_work_item_carries_its_project_its_source_issue_its_base_branch_and_its_swimlane()
     {
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         await using var host = await FactoryHost.StartAsync(root);
 
-        var created = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var created = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         var board = await Board.ReadAsync(host.Board);
 
@@ -36,7 +37,7 @@ public class WorkItemTests
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         await using var host = await FactoryHost.StartAsync(root);
 
-        var created = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var created = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         var board = await Board.ReadAsync(host.Board);
 
@@ -84,7 +85,7 @@ public class WorkItemTests
         Guid id;
         await using (var first = await FactoryHost.StartAsync(root))
         {
-            id = first.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main").Id;
+            id = first.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem.Id;
         }
 
         Assert.True(File.Exists(root.DatabasePath), "the store is a SQLite file, not memory");
@@ -103,7 +104,7 @@ public class WorkItemTests
 
         await using (var first = await FactoryHost.StartAsync(root))
         {
-            first.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "release/2.0");
+            first.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "release/2.0");
         }
 
         await using var restarted = await FactoryHost.StartAsync(root);
@@ -119,12 +120,12 @@ public class WorkItemTests
         using var root = FactoryRoot.Create();
         await using var host = await FactoryHost.StartAsync(root, clock: clock);
 
-        var first = host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
         Assert.Equal(new DateTimeOffset(2026, 4, 1, 8, 30, 0, TimeSpan.Zero), first.CreatedUtc);
 
         clock.Advance(TimeSpan.FromMinutes(90));
-        var second = host.Store.Create("nexus", RepoUrl, 43, "A round, with the agent faked", "main");
+        var second = host.Store.Intake("nexus", RepoUrl, 43, "A round, with the agent faked", IssueBody, "main").WorkItem;
 
         Assert.Equal(new DateTimeOffset(2026, 4, 1, 10, 0, 0, TimeSpan.Zero), second.CreatedUtc);
     }
@@ -135,12 +136,17 @@ public class WorkItemTests
         using var root = FactoryRoot.Create();
         await using var host = await FactoryHost.StartAsync(root);
 
-        host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main");
+        var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main");
 
         // The store refuses the second record, which is what makes intake idempotent
-        // without the poller having to remember what it has already seen.
-        Assert.Throws<SqliteException>(
-            () => host.Store.Create("nexus", RepoUrl, 42, "A work item, end to end", "main"));
+        // without the poller having to remember what it has already seen. It answers
+        // with the work item that is already there rather than throwing the database's
+        // objection at the poller, so a re-poll is a no-op the poller can ignore.
+        var second = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main");
+
+        Assert.True(first.Created);
+        Assert.False(second.Created);
+        Assert.Equal(first.WorkItem.Id, second.WorkItem.Id);
         Assert.Single(host.Store.List());
     }
 }
