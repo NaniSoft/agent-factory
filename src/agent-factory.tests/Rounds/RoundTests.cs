@@ -97,13 +97,19 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        // A reviewer's request for changes puts the work item back in Frontier, which is
-        // the next round. The decisions themselves arrive with the decisions ticket; here
-        // the move is made directly so the store's retention can be observed.
+        // Three rounds, each one started by a reviewer asking for changes on the board:
+        // the decision is what puts the work item back in the build, so this is the same
+        // sequence a reviewer produces rather than a store call made for the test.
         host.Settle();
-        host.Store.Move(workItem.Id, Swimlane.Frontier);
+        using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "the first thing to change"))
+        {
+        }
+
         host.Settle();
-        host.Store.Move(workItem.Id, Swimlane.Frontier);
+        using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "and then the second"))
+        {
+        }
+
         host.Settle();
 
         var rounds = host.Store.Rounds(workItem.Id);

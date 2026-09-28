@@ -43,6 +43,11 @@
     </header>
 
     <main>
+        @if (Model.Refusal is { Length: > 0 })
+        {
+            <p class="refusal" data-refusal="the decision was refused">@Model.Refusal</p>
+        }
+
         @if (Model.Rejections.Count > 0)
         {
             <section class="refused-project-files">
@@ -71,13 +76,15 @@
                         @foreach (var workItem in items)
                         {
                             var rounds = Model.RoundsOf(workItem.Id);
+                            var decisions = Model.DecisionsOf(workItem.Id);
                             <li class="work-item"
                                 data-work-item="@workItem.Id"
                                 data-project="@workItem.Project"
                                 data-issue="@workItem.IssueNumber"
                                 data-base-branch="@workItem.BaseBranch"
                                 data-round-count="@workItem.RoundCount"
-                                data-rounds="@rounds.Count">
+                                data-rounds="@rounds.Count"
+                                data-decisions="@decisions.Count">
                                 <span class="project">@workItem.Project</span>
                                 <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
                                 <span class="base-branch">base @workItem.BaseBranch</span>
@@ -103,6 +110,49 @@
                                             </li>
                                         }
                                     </ol>
+                                }
+                                @if (decisions.Count > 0)
+                                {
+                                    @* What the reviewer did and what they said, in every lane. *@
+                                    <ol class="decided">
+                                        @foreach (var decision in decisions)
+                                        {
+                                            <li class="decision-made"
+                                                data-decision-made="@Decisions.Slug(decision.Decision)"
+                                                data-made-on="@workItem.Id"
+                                                data-feedback="@decision.Feedback"
+                                                data-applied-to="@decision.AppliedTo"
+                                                data-decided-utc="@decision.DecidedUtc.ToString("O")">
+                                                <span class="decision">@Decisions.Label(decision.Decision)</span>
+                                                @if (decision.Feedback is { Length: > 0 })
+                                                {
+                                                    <span class="reviewer-words">@decision.Feedback</span>
+                                                }
+                                            </li>
+                                        }
+                                    </ol>
+                                }
+                                @if (workItem.Swimlane == Swimlane.Review)
+                                {
+                                    @* The only form on the board, and the only write path there is. *@
+                                    <form class="decide"
+                                          data-decide="@workItem.Id"
+                                          method="post"
+                                          action="/?handler=Decision">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="workItem" value="@workItem.Id" />
+                                        <label class="feedback" for="feedback-@workItem.Id">Your reasons — the next round is handed them as its brief</label>
+                                        <textarea id="feedback-@workItem.Id" name="feedback" rows="4"></textarea>
+                                        <div class="decisions">
+                                            @foreach (var decision in Model.DecisionsOffered())
+                                            {
+                                                <button type="submit"
+                                                        name="decision"
+                                                        value="@Decisions.Slug(decision)"
+                                                        data-decision="@Decisions.Slug(decision)">@Decisions.Label(decision)</button>
+                                            }
+                                        </div>
+                                    </form>
                                 }
                             </li>
                         }

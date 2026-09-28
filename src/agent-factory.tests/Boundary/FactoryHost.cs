@@ -1,16 +1,19 @@
 namespace AgentFactory.Tests.Boundary;
 
+using System.Reflection;
 using AgentFactory;
 using AgentFactory.Clock;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
+using AgentFactory.Pages;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -80,6 +83,32 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>What the config loader served at start, and what it refused.</summary>
     public ProjectLoadReport Projects => _app.Services.GetRequiredService<ProjectLoadReport>();
+
+    /// <summary>
+    /// Every route the running process serves. Anything a request — and so anything a
+    /// human — can reach has to arrive through one of these, so the list is the whole of
+    /// what is addressable.
+    /// </summary>
+    public IReadOnlyList<string> Routes() => _app.Services
+        .GetRequiredService<EndpointDataSource>()
+        .Endpoints
+        .Select(endpoint => (endpoint as RouteEndpoint)?.RoutePattern.RawText is { Length: > 0 } raw
+            ? raw
+            : endpoint.DisplayName ?? "?")
+        .Distinct()
+        .OrderBy(route => route, StringComparer.Ordinal)
+        .ToList();
+
+    /// <summary>
+    /// The board's handlers, by name. A Razor page is dispatched inside one endpoint, so
+    /// the handlers are where a page's read path and its write path can be told apart.
+    /// </summary>
+    public IReadOnlyList<string> BoardHandlers() => typeof(IndexModel)
+        .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+        .Where(method => method.Name.StartsWith("On", StringComparison.Ordinal))
+        .Select(method => method.Name)
+        .OrderBy(name => name, StringComparer.Ordinal)
+        .ToList();
 
     /// <summary>The address the board is actually listening on.</summary>
     public string BoardAddress { get; private set; } = string.Empty;

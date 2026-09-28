@@ -39,11 +39,12 @@ public sealed class Orchestrator
     /// <summary>
     /// Applies at most one transition, and says whether it applied one. A round in flight
     /// is the only thing the machine waits on; a work item waiting in Frontier is not,
-    /// because starting it is a transition the next step can make.
+    /// because starting it is a transition the next step can make. A decision a reviewer
+    /// has made comes before everything else, because a reviewer is waiting on it.
     /// </summary>
     public bool Step() => _inFlight is { } run
         ? LandIfTheRoundIsOver(run)
-        : AcceptIntoFrontier() || StartARound();
+        : ApplyADecision() || AcceptIntoFrontier() || StartARound();
 
     /// <summary>
     /// Applies transitions until the machine has nothing left to apply. Stops at a round
@@ -56,6 +57,81 @@ public sealed class Orchestrator
         {
         }
     }
+
+    /// <summary>
+    /// Applies a decision a reviewer has made. The board records the decision — which of
+    /// the three, in the reviewer's own words — and this is what it means: which swimlane
+    /// a work item lands in is the whole of the factory's policy, so a page that moved
+    /// work items itself would be a second state machine that could disagree with this
+    /// one about the same work item.
+    /// </summary>
+    /// <remarks>
+    /// A decision is pending while the loop has not acted on it, and the record says so
+    /// rather than this process remembering: a restart finds the same pending decision
+    /// and applies it exactly once, because applying one marks it applied in the same
+    /// write that moves the work item. Reading "what has been applied" off the work
+    /// item's swimlane instead would be wrong the moment a request for changes came
+    /// back round and the work item was in Review again with the decision still on it.
+    /// </remarks>
+    private bool ApplyADecision()
+    {
+        foreach (var workItem in _store.List())
+        {
+            if (workItem.Swimlane != Swimlane.Review)
+            {
+                continue;
+            }
+
+            // Oldest first, because that is the order the reviewer made them in, and the
+            // loop works through them in that order rather than picking and choosing.
+            var pending = _store.Decisions(workItem.Id).FirstOrDefault(decision => decision.IsPending);
+            if (pending is null)
+            {
+                continue;
+            }
+
+            Apply(workItem, pending);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void Apply(WorkItem workItem, DecisionRecord decision)
+    {
+        var to = decision.Decision switch
+        {
+            Decision.Approve => Swimlane.Done,
+            // Straight back into the build, which is where the next step starts the next
+            // round with the reviewer's words as its brief. What eventually stops this
+            // happening for ever is the round ceiling, which is its own ticket: until it
+            // lands, a work item a reviewer keeps sending back keeps costing rounds.
+            Decision.RequestChanges => Swimlane.Frontier,
+            // Rejected is final, and this is the only edge that reaches it.
+            Decision.Reject => Swimlane.Rejected,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(decision), decision.Decision, "there are only three decisions"),
+        };
+
+        _store.ApplyDecision(decision.WorkItemId, decision.Sequence, to);
+
+        _logger.LogInformation(
+            "The reviewer {Decision} {Project}#{Issue}, which is now in {Swimlane}.",
+            decision.Decision,
+            workItem.Project,
+            workItem.IssueNumber,
+            Swimlanes.Label(to));
+    }
+
+    /// <summary>
+    /// The last thing a reviewer said about this work item, which is what the next round
+    /// is handed as its brief: the reviewer's words rather than a verdict. Empty when no
+    /// reviewer has asked for changes, which is what a first round gets.
+    /// </summary>
+    private string BriefFor(Guid workItemId) => _store
+        .Decisions(workItemId)
+        .LastOrDefault(decision => decision.Decision == Decision.RequestChanges)
+        ?.Feedback ?? string.Empty;
 
     /// <summary>
     /// A work item is accepted out of Backlog when a slot is free. A slot is free when no
@@ -96,15 +172,16 @@ public sealed class Orchestrator
             return false;
         }
 
-        // The round's number is the work item's rounds so far, plus this one. Feedback is
-        // empty on a first round; the reviewer's words are the decisions ticket's.
+        // The round's number is the work item's rounds so far, plus this one. The brief
+        // is the last thing a reviewer said about the work item, which is nothing at all
+        // on a first round and the reviewer's own words on every round after one.
         var round = new Round(
             next.Id,
             next.Project,
             next.RepoUrl,
             next.IssueNumber,
             next.BaseBranch,
-            Feedback: string.Empty);
+            BriefFor(next.Id));
 
         // The call is made and not awaited. The result is collected on a later step, which
         // is what keeps the loop from being blocked inside a container it knows nothing

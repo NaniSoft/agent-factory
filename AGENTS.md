@@ -85,9 +85,49 @@ receiving a result is all it knows, so the agent is faked in tests and no Docker
 One `Step()` applies at most one transition and never waits, which is what makes the
 90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
 timer. Like the poller it is stepped rather than driven, and like the poller nothing
-steps it in production: there is no real `INOpenCode` to step against, and a background
+drives it on a schedule: there is no real `INOpenCode` to step against, and a background
 loop that could never run a round is noise. Whoever adds the real agent owns the
 heartbeat that steps both.
+
+**The loop is currently unbounded, and that is a known gap rather than an oversight.** A
+reviewer's request for changes puts a work item back in the build, the next round it runs
+is another round counted against it, and nothing yet says when to stop. The round
+ceiling is the exhaustion and escalation ticket's (#6) and it is deliberately not here:
+no ceiling, no fudge factor, no incidental limit. So the round count on the board is
+what a work item has spent, **not** a bound, and a work item a reviewer keeps sending
+back will keep costing worker containers until that ticket lands.
+
+## The three decisions
+
+`WorkItems/Decision.cs` is the whole of what a work item leaves Review by: approve,
+request changes, reject. There is no fourth, and a value the board cannot read as one of
+the three is refused rather than guessed at. `Pages/Index.cshtml` renders the three as
+one form, in Review and nowhere else, and that form is the factory's only write path:
+the process serves one route, the board has one reading handler and one writing handler,
+and a test says all of it.
+
+The board does not move work items. It records what the reviewer decided, in their own
+words, and asks the loop for one step; which swimlane a decision means is the loop's
+policy (ADR-0005), so a page that decided lanes itself would be a second state machine
+that could disagree with the loop about the same work item. That one step is also the
+only thing that drives the loop in production today, and it is deliberate: a reviewer's
+click has to do something now, and nothing else is there to step the machine between
+decisions until the real agent's heartbeat lands.
+
+A decision record carries the swimlane it was applied to. What has been acted on is
+therefore read off the record rather than off the work item's swimlane, which is what
+makes applying a decision survive a restart and exactly once — the swimlane cannot say
+so, because a request for changes comes back round and the work item is in Review again
+with the same decision still on it.
+
+**Feedback** is the reviewer's reasons, kept whole, and the most recent request for
+changes on a work item is the brief its next round is handed. A request for changes with
+nothing to say is **refused**: the brief is the point of the decision, and a placeholder
+in the reviewer's mouth is worse than a refusal. Approve and Reject need no words,
+because neither of them briefs a round. The store refuses a decision about a work item
+that is not in Review, which is what keeps Rejected final without a later caller having
+to remember; an Escalated work item cannot be decided yet, and the parking ticket (#6)
+is what widens that.
 
 ## Project files
 

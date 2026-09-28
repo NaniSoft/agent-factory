@@ -61,8 +61,10 @@ public static class FactoryApp
         // both wired to it, and it is registered above refusing; the real client replaces
         // that when the merging ticket writes it.
 
-        // The board's only write path is the reviewer's three decisions, which arrive
-        // with the decisions ticket. Until then the board reads and nothing writes.
+        // The board's only write path is the reviewer's three decisions: the one form the
+        // page renders, in Review. It records the decision and asks the loop to apply it,
+        // so nothing else in the process can be moved by a human and the swimlane a work
+        // item lands in stays the loop's answer rather than the page's.
         builder.Services.AddRazorPages();
 
         var app = builder.Build();

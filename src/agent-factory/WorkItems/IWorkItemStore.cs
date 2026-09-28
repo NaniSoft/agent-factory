@@ -52,4 +52,40 @@ public interface IWorkItemStore
 
     /// <summary>Every round the work item has run, oldest first.</summary>
     IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId);
+
+    /// <summary>
+    /// Records a reviewer's decision about a work item: which of the three it was, and
+    /// the words they wrote. The only way a decision is made, and the only place the
+    /// reviewer's own reasons are kept.
+    /// </summary>
+    /// <remarks>
+    /// Recording a decision does not move the work item. Which swimlane a decision means
+    /// is the loop's policy, so the board records and the loop applies — and a decision
+    /// that turned out not to be applicable is still a decision that was made, and is
+    /// still what the reviewer said.
+    /// </remarks>
+    /// <exception cref="KeyNotFoundException">There is no such work item.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The work item is not in Review, so there is nothing to decide about it; or the
+    /// decision requests changes and carries no reasons, which would leave the next
+    /// round with no brief.
+    /// </exception>
+    DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback);
+
+    /// <summary>Every decision the work item has been given, oldest first.</summary>
+    IReadOnlyList<DecisionRecord> Decisions(Guid workItemId);
+
+    /// <summary>
+    /// The loop's answer to a decision: the work item moves, and the decision is marked
+    /// as the thing that moved it. Both happen or neither does, in one transaction,
+    /// because a work item that had moved with its decision still pending would be a
+    /// decision the loop applied a second time — and a second round of building that
+    /// nobody asked for.
+    /// </summary>
+    /// <param name="swimlane">Where the decision put the work item. The loop decides it;
+    /// the store only records it.</param>
+    /// <exception cref="KeyNotFoundException">
+    /// There is no such decision of that work item's, or the loop has already applied it.
+    /// </exception>
+    void ApplyDecision(Guid workItemId, int sequence, Swimlane swimlane);
 }

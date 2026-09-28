@@ -247,8 +247,147 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         return rounds;
     }
 
-    private IReadOnlyList<WorkItem> Query(string sql)
+    public DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback)
     {
+        // A decision is made about a work item in Review, and about one that is there.
+        // Anything else is a caller's mistake rather than a decision: the loop is what
+        // moves work items, and it moves them out of Review itself.
+        var workItem = Get(workItemId)
+            ?? throw new KeyNotFoundException($"no work item {workItemId} to decide about");
+
+        if (workItem.Swimlane != Swimlane.Review)
+        {
+            throw new InvalidOperationException(
+                $"{workItem.Project}#{workItem.IssueNumber} is in {Swimlanes.Label(workItem.Swimlane)}, "
+                    + "not in Review, so there is nothing to decide about it");
+        }
+
+        // Feedback is the reviewer's reasons, and a request for changes hands them to
+        // the next round as its brief. An empty brief is not a brief, and a placeholder
+        // would be the factory putting words in the reviewer's mouth — so a request for
+        // changes with nothing to say is refused rather than quietly sent round again
+        // with nothing. Approve and Reject carry no brief, so they need no words.
+        if (decision == Decision.RequestChanges && string.IsNullOrWhiteSpace(feedback))
+        {
+            throw new InvalidOperationException(
+                "requesting changes needs the reviewer's reasons: they are the next round's brief, "
+                    + "and there is nothing here to hand it");
+        }
+
+        var now = _clock.UtcNow;
+        var words = feedback ?? string.Empty;
+
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+
+        // The work item's decisions are numbered, and the number is where it sits in the
+        // order they were made — which is what the brief for a later round is read out
+        // of. Read inside the transaction, for the same reason round numbers are: two
+        // decisions must never come out as the same decision.
+        using var count = connection.CreateCommand();
+        count.Transaction = transaction;
+        count.CommandText = "SELECT COUNT(*) FROM decisions WHERE work_item_id = $workItemId;";
+        count.Parameters.AddWithValue("$workItemId", workItem.Id.ToString("D"));
+
+        if (count.ExecuteScalar() is not long before)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to decide about");
+        }
+
+        var sequence = checked((int)before) + 1;
+
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO decisions (work_item_id, sequence, decision, feedback, decided_utc)
+            VALUES ($workItemId, $sequence, $decision, $feedback, $decidedUtc);
+            """;
+        insert.Parameters.AddWithValue("$workItemId", workItem.Id.ToString("D"));
+        insert.Parameters.AddWithValue("$sequence", sequence);
+        insert.Parameters.AddWithValue("$decision", decision.ToString());
+        insert.Parameters.AddWithValue("$feedback", words);
+        insert.Parameters.AddWithValue("$decidedUtc", now.ToString("O"));
+        insert.ExecuteNonQuery();
+
+        transaction.Commit();
+
+        return new DecisionRecord(workItem.Id, sequence, decision, words, now, AppliedTo: null);
+    }
+
+    public void ApplyDecision(Guid workItemId, int sequence, Swimlane swimlane)
+    {
+        var now = _clock.UtcNow;
+
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+
+        // Marked only if it is still pending, so the decision itself refuses to be
+        // applied twice rather than the loop having to remember that it had.
+        using var apply = connection.CreateCommand();
+        apply.Transaction = transaction;
+        apply.CommandText = """
+            UPDATE decisions
+            SET applied_to = $appliedTo
+            WHERE work_item_id = $workItemId AND sequence = $sequence AND applied_to IS NULL;
+            """;
+        apply.Parameters.AddWithValue("$appliedTo", swimlane.ToString());
+        apply.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
+        apply.Parameters.AddWithValue("$sequence", sequence);
+
+        if (apply.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException(
+                $"no unapplied decision {sequence} on work item {workItemId} to apply to {swimlane}");
+        }
+
+        using var move = connection.CreateCommand();
+        move.Transaction = transaction;
+        move.CommandText = """
+            UPDATE work_items
+            SET swimlane = $swimlane, updated_utc = $updatedUtc
+            WHERE id = $id;
+            """;
+        move.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        move.Parameters.AddWithValue("$swimlane", swimlane.ToString());
+        move.Parameters.AddWithValue("$updatedUtc", now.ToString("O"));
+
+        if (move.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to move to {swimlane}");
+        }
+
+        transaction.Commit();
+    }
+
+    public IReadOnlyList<DecisionRecord> Decisions(Guid workItemId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT work_item_id, sequence, decision, feedback, decided_utc, applied_to
+            FROM decisions
+            WHERE work_item_id = $workItemId
+            ORDER BY sequence;
+            """;
+        command.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
+
+        var decisions = new List<DecisionRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            decisions.Add(new DecisionRecord(
+                Guid.Parse(reader.GetString(0)),
+                reader.GetInt32(1),
+                Enum.Parse<Decision>(reader.GetString(2)),
+                reader.GetString(3),
+                Timestamp(reader.GetString(4)),
+                reader.IsDBNull(5) ? null : Enum.Parse<Swimlane>(reader.GetString(5))));
+        }
+
+        return decisions;
+    }
+
+    private IReadOnlyList<WorkItem> Query(string sql)    {
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = sql;
@@ -309,6 +448,26 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 completed_utc  TEXT    NOT NULL,
                 PRIMARY KEY (work_item_id, round_number)
             );
+
+            -- A decision is the reviewer's own: which of the three it was, and the words
+            -- they wrote, kept whole and in the order they were made. The next round is
+            -- handed those words as its brief, and a later reader has to be able to see
+            -- what was asked for rather than only that something was. The sequence is
+            -- per work item, because it is that work item's order and nobody else's.
+            -- applied_to is null until the loop has acted on the decision, which is what
+            -- tells a decision already acted on from one still waiting to be.
+            CREATE TABLE IF NOT EXISTS decisions (
+                work_item_id TEXT    NOT NULL,
+                sequence     INTEGER NOT NULL,
+                decision     TEXT    NOT NULL,
+                feedback     TEXT    NOT NULL,
+                decided_utc  TEXT    NOT NULL,
+                applied_to   TEXT    NULL,
+                PRIMARY KEY (work_item_id, sequence)
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_decisions_work_item
+                ON decisions (work_item_id, sequence);
             """;
         command.ExecuteNonQuery();
     }
