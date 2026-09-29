@@ -6,6 +6,7 @@ using System.Text.Json;
 using AgentFactory.Containers;
 using AgentFactory.Credentials;
 using AgentFactory.Failures;
+using AgentFactory.Observability;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
@@ -265,6 +266,14 @@ public sealed class GitHubClient : IGitHub
         var tree = TreeFor(workItem);
         var commit = await CommitAt(tree, cancellationToken).ConfigureAwait(false);
         var branch = BranchName.For(issueNumber, workItem.IssueTitle);
+
+        // The merger is the one component that holds no work item until it has gone looking
+        // for one, and this is where it has it: from here on, every record this method
+        // writes — including the ones its private methods write — carries the work item the
+        // change belongs to. Shipping is the last thing that happens to a work item, and a
+        // record of a push or a merge that names only `project#13` is a record a reader has
+        // to join to a work item by hand, which is the join this scope removes.
+        using var trace = _logger.ForWorkItem(workItem.Id, workItem.Project, workItem.IssueNumber);
 
         _logger.LogInformation(
             "Shipping {Project}#{Issue}: the change is commit {Commit} on branch {Branch}, pushed from {Tree}.",

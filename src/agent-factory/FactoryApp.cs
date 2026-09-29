@@ -1,11 +1,13 @@
 namespace AgentFactory;
 
+using System.Diagnostics.Metrics;
 using AgentFactory.Clock;
 using AgentFactory.Containers;
 using AgentFactory.Credentials;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
+using AgentFactory.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.Results;
@@ -46,6 +48,20 @@ public static class FactoryApp
 
         // The real clock, unless a test has already put its own in the container.
         builder.Services.TryAddSingleton<IClock, SystemClock>();
+
+        // The counters, on the platform's own metrics API and with no exporter. That last
+        // half is the decision: this process publishes no port and binds its board to
+        // loopback, and a metrics endpoint would be a second surface with a second set of
+        // access rules to reach the same machine. `System.Diagnostics.Metrics` is a push
+        // API — a consumer attaches to the meter in whatever process it shares — so the
+        // factory can be measured without exposing anything, and *where* the numbers go is
+        // the deployment's business rather than this process's.
+        //
+        // TryAdd, so a test can put its own in and read the counters its own factory
+        // published rather than summing over the whole process.
+        builder.Services.AddMetrics();
+        builder.Services.TryAddSingleton(services => new FactoryMetrics(
+            services.GetRequiredService<IMeterFactory>()));
 
         // The container runtime, beneath the agent seam. The Docker CLI is a process and
         // not a package: ADR-0010 names `docker cp` and `docker logs` as the two ways

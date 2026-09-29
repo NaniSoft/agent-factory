@@ -3,6 +3,7 @@ namespace AgentFactory.Loop;
 using AgentFactory.Clock;
 using AgentFactory.Failures;
 using AgentFactory.GitHub;
+using AgentFactory.Observability;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
@@ -50,6 +51,7 @@ public sealed class Orchestrator
     private readonly IGitHub _github;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
+    private readonly FactoryMetrics _metrics;
 
     /// <summary>
     /// The rounds this process is inside, by the work item each is an attempt at. A set
@@ -105,13 +107,15 @@ public sealed class Orchestrator
         INOpenCode agent,
         IGitHub github,
         IClock clock,
-        ILogger<Orchestrator> logger)
+        ILogger<Orchestrator> logger,
+        FactoryMetrics metrics)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _github = github ?? throw new ArgumentNullException(nameof(github));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
     }
 
     /// <summary>
@@ -127,6 +131,14 @@ public sealed class Orchestrator
     /// <remarks>
     /// The order is the asymmetry, in the order it is read: a round that has finished, then
     /// a decision that was made, then a decision that was not, then the build.
+    /// <para>
+    /// Every record this class writes about a work item is written inside a
+    /// <see cref="WorkItemScope"/>, so a record carries the work item's id whether or not its
+    /// message names it — and a message written for a person to read says
+    /// <c>project#issue</c> and the round number, which is what a person can act on. Those are
+    /// two different jobs and they are two different fields: the scope is how a machine groups
+    /// concurrent runs apart, and the message is what an operator reads at two in the morning.
+    /// </para>
     /// </remarks>
     public async Task<StepResult> StepAsync()
     {
@@ -232,6 +244,12 @@ public sealed class Orchestrator
 
     private async Task<StepResult> Apply(WorkItem workItem, DecisionRecord decision)
     {
+        // Opened here rather than in each of the three branches, because the identity of
+        // the work item a decision is about is the same in all of them and the branches are
+        // the parts most likely to grow. Every record the branches write then carries it
+        // whether or not the branch's own message remembers to.
+        using var trace = _logger.ForWorkItem(workItem.Id, workItem.Project, workItem.IssueNumber);
+
         switch (decision.Decision)
         {
             case Decision.Approve:
@@ -358,6 +376,12 @@ public sealed class Orchestrator
     /// </remarks>
     private void ParkAMergeThatDidNotLand(WorkItem workItem, Exception refused, string how)
     {
+        // No scope of its own, and the reason is that all three of its callers open one: an
+        // approval inside <see cref="Apply"/>, and the two paths below. A fourth caller
+        // would have to open one too, which is the trade for a record that carries the
+        // work item once rather than twice — a nested scope repeating the same key with
+        // the same value is harmless to a sink and noise to a reader.
+        //
         // Read here and nowhere else, and read off what the seam declared rather than off
         // what it said: an exception that did not classify itself is not retried, which is
         // the same rule a round's classification follows and for the same reason. A
@@ -425,6 +449,8 @@ public sealed class Orchestrator
             return null;
         }
 
+        using var trace = _logger.ForWorkItem(parked.Id, parked.Project, parked.IssueNumber);
+
         try
         {
             await _github.MergeAsync(parked.RepoUrl, parked.IssueNumber, CancellationToken.None);
@@ -473,6 +499,12 @@ public sealed class Orchestrator
     {
         _store.ApplyDecision(decision.WorkItemId, decision.Sequence, to);
 
+        // The one record that answers "what was decided about this work item", and the
+        // swimlane is in it as well as in the scope's absence of one. A decision's *effect*
+        // is a lane, so it is a structured field rather than a word in a sentence — this is
+        // what lets a record alone say that an approval landed in Done and a request for
+        // changes landed in Frontier, without anyone reading the prose to tell which was
+        // which.
         _logger.LogInformation(
             "The reviewer {Decision} {Project}#{Issue}, which is now in {Swimlane}.",
             decision.Decision,
@@ -534,6 +566,8 @@ public sealed class Orchestrator
         {
             return null;
         }
+
+        using var trace = _logger.ForWorkItem(ignored.Id, ignored.Project, ignored.IssueNumber);
 
         _logger.LogWarning(
             "{Project}#{Issue} has been in Review since {Since} and nobody reviewed it in {Threshold}, "
@@ -675,11 +709,19 @@ public sealed class Orchestrator
         // first round and the reviewer's own words on every round after one.
         var round = RoundFor(next.Id);
 
+        // The round's number is the work item's rounds so far, plus this one. The scope
+        // carries the identity and the round number, and the call below is made *inside* it
+        // — so every record the round runner, the container runtime, the deriver and the
+        // Docker CLI write for the next ninety minutes arrives already stamped with which
+        // work item and which round it was, none of them having been told either.
+        using var trace = _logger.ForWorkItem(
+            next.Id, next.Project, next.IssueNumber, next.RoundCount + 1);
+
         // The call is made and not awaited. The result is collected on a later step, which
         // is what keeps the loop from being blocked inside a container it knows nothing
         // about, and what makes the timeout a comparison against the clock. The token is
         // the round's own: ending the round ends the call.
-        var inFlight = new InFlight(next.Id, next.Project, next.RoundCount + 1, _clock.UtcNow);
+        var inFlight = new InFlight(next.Id, next.Project, next.IssueNumber, next.RoundCount + 1, _clock.UtcNow);
         inFlight.Pending = AskForTheRound(round, inFlight.Token);
 
         _inFlight.Add(next.Id, inFlight);
@@ -759,6 +801,14 @@ public sealed class Orchestrator
             return TryTheRetry(run);
         }
 
+        // The scope is opened before the round is even asked whether it is over, so that
+        // every record from here on — the timeout, the "no result", the landing, the
+        // counters — names the work item. The loop is stepped rather than driven, so this
+        // runs on whichever tick noticed, and a tick that lands one work item's round while
+        // another's is still running must not blur the two together.
+        using var trace = _logger.ForWorkItem(
+            run.WorkItemId, run.Project, run.IssueNumber, run.RoundNumber);
+
         var timedOut = _clock.UtcNow - run.StartedUtc >= FactoryConstants.RoundTimeout;
 
         if (!run.Pending.IsCompleted && !timedOut)
@@ -817,12 +867,22 @@ public sealed class Orchestrator
             run.WorkItemId,
             result.Outcome == RoundOutcome.Produced ? Swimlane.Review : Swimlane.Escalated);
 
+        // The two counters, and the reason they are recorded here rather than anywhere
+        // else: this is the one place a round is both *over* and *on the record*. Counting
+        // it when it was asked for would count attempts, and counting it in the round runner
+        // would count rounds the loop never landed — a round the loop timed out is over from
+        // the loop's point of view whatever the runner thought.
+        _metrics.RoundCameBack(run.Project, result.Outcome);
+        _metrics.RoundsSpentOnThisWorkItem(run.Project, round.RoundNumber);
+
         _logger.LogInformation(
-            "Round {Round} of work item {WorkItem} returned {Outcome} after {Attempts} attempt(s).",
+            "Round {Round} of {Project}#{Issue} returned {Outcome} after {Attempts} attempt(s) and it is now in {Swimlane}.",
             round.RoundNumber,
-            round.WorkItemId,
+            run.Project,
+            run.IssueNumber,
             result.Outcome,
-            round.Attempts);
+            round.Attempts,
+            Swimlanes.Label(result.Outcome == RoundOutcome.Produced ? Swimlane.Review : Swimlane.Escalated));
 
         return true;
     }
@@ -852,10 +912,11 @@ public sealed class Orchestrator
         run.WaitForRetryUntil(_clock.UtcNow + backoff);
 
         _logger.LogWarning(
-            "Round {Round} of work item {WorkItem} failed transiently on attempt {Attempt} of {Ceiling}. "
+            "Round {Round} of {Project}#{Issue} failed transiently on attempt {Attempt} of {Ceiling}. "
                 + "It is asked for again after {Backoff}, and nothing waits here for it.",
             run.RoundNumber,
-            run.WorkItemId,
+            run.Project,
+            run.IssueNumber,
             run.Attempts,
             FactoryConstants.TransientRetryAttempts,
             backoff);
@@ -878,12 +939,21 @@ public sealed class Orchestrator
 
         run.Attempts++;
         run.TakeTheRetryGate();
+
+        // A retry is asked for inside the same shape of scope a first attempt is, so the
+        // second container's records are as attributable as the first's. Without it, an
+        // attempt that is being retried would be the one round in a work item's history
+        // whose records cannot be told apart from the attempt before it.
+        using var trace = _logger.ForWorkItem(
+            run.WorkItemId, run.Project, run.IssueNumber, run.RoundNumber);
+
         run.Pending = AskForTheRound(RoundFor(run.WorkItemId), run.Token);
 
         _logger.LogInformation(
-            "Round {Round} of work item {WorkItem} is being asked for again, on attempt {Attempt}.",
+            "Round {Round} of {Project}#{Issue} is being asked for again, on attempt {Attempt}.",
             run.RoundNumber,
-            run.WorkItemId,
+            run.Project,
+            run.IssueNumber,
             run.Attempts);
 
         return true;
@@ -936,11 +1006,12 @@ public sealed class Orchestrator
     private RoundResult TimedOut(InFlight run)
     {
         _logger.LogWarning(
-            "Round {Round} of work item {WorkItem} ran past the {Timeout} round timeout. "
+            "Round {Round} of {Project}#{Issue} ran past the {Timeout} round timeout. "
                 + "The spec's own state machine gives a timeout a row of its own: it is a failure, "
                 + "it is parked, and it is not retried.",
             run.RoundNumber,
-            run.WorkItemId,
+            run.Project,
+            run.IssueNumber,
             FactoryConstants.RoundTimeout);
 
         return RoundResult.TimedOut();
@@ -965,10 +1036,11 @@ public sealed class Orchestrator
 
         _logger.LogWarning(
             failure,
-            "Round {Round} of work item {WorkItem} came back without a result: {Reason}. "
+            "Round {Round} of {Project}#{Issue} came back without a result: {Reason}. "
                 + "The factory has read that as a {Classification} failure.",
             run.RoundNumber,
-            run.WorkItemId,
+            run.Project,
+            run.IssueNumber,
             failure.Message,
             Failures.Classify(failure));
 
@@ -982,7 +1054,12 @@ public sealed class Orchestrator
     /// waiting out a retry backoff is the same kind of thing as a round running: an attempt
     /// at one round that has not ended, and so has not given its slot back.
     /// </summary>
-    private sealed class InFlight(Guid workItemId, string project, int roundNumber, DateTimeOffset startedUtc) : IDisposable
+    private sealed class InFlight(
+        Guid workItemId,
+        string project,
+        int issueNumber,
+        int roundNumber,
+        DateTimeOffset startedUtc) : IDisposable
     {
         private readonly CancellationTokenSource _rounds = new();
 
@@ -995,6 +1072,14 @@ public sealed class Orchestrator
         /// projects, and it is made while the budget is being spent.
         /// </summary>
         public string Project { get; } = project;
+
+        /// <summary>
+        /// The issue, kept here beside the project for the same reason: every record the
+        /// loop writes about a running or just-ended round opens a scope carrying this
+        /// work item's identity, and reading it back out of the store on each of those
+        /// steps would be a read per step for a fact that was known when the round started.
+        /// </summary>
+        public int IssueNumber { get; } = issueNumber;
 
         public int RoundNumber { get; } = roundNumber;
 

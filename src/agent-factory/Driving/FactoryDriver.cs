@@ -105,6 +105,25 @@ public sealed class FactoryDriver : BackgroundService
             // is five seconds away, so stopping the factory for it would be the larger
             // failure. It is logged loudly rather than swallowed, because a driver failing
             // on every tick is a factory that has stopped and says nothing.
+            //
+            // **The severity was reconsidered for the observability work and stayed at
+            // Error, for a reason worth stating rather than asserting.** A tick failing *is*
+            // ordinary in one specific sense: a repository that is down, a merge that was
+            // refused and a round that failed are all contained below this method, and none
+            // of them reaches here. What is left is the store — a SQLite write that failed,
+            // a locked file, a full disk, a corrupt database — and a bug in the loop or the
+            // poller. Both are faults an operator has to act on rather than rhythms to
+            // watch, and `Error` is the level every log filter keys on, so downgrading it
+            // would leave the process with no level at all meaning "the machine is broken",
+            // which is the state this class exists to end.
+            //
+            // The severity rule the process now uses, in one place: `Information` is the
+            // machine moving — a transition, a round landing, a decision applied, intake;
+            // `Warning` is something the policy anticipated and contained — a transient
+            // failure, a backoff, a refused merge, a missing credential, a refused project
+            // file; `Error` is something no policy anticipated; and `Debug` is the round's
+            // own output, which is unbounded and belongs to a reader debugging it rather
+            // than to a deployment keeping logs.
             _logger.LogError(
                 failure,
                 "The heartbeat could not move the machine and will try again after {Interval}. "

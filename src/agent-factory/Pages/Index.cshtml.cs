@@ -1,9 +1,11 @@
 using AgentFactory.Loop;
+using AgentFactory.Observability;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Logging;
 
 namespace AgentFactory.Pages;
 
@@ -14,17 +16,31 @@ namespace AgentFactory.Pages;
 /// what a reviewer decided and asks the loop what that means, so the swimlane a work item
 /// ends up in is the loop's answer and not the page's.
 /// </summary>
+/// <remarks>
+/// It is also the one component with a human on the other end of it, which is why its
+/// records are about *what a person asked for* rather than about what the factory did with
+/// it. A decision refused here, and a decision the store refused, are the two cases a
+/// reviewer is holding a response for and no log line would otherwise name — and a form
+/// posted by hand with a fourth decision is a refusal that has to be findable later rather
+/// than only on the page it was refused on.
+/// </remarks>
 public class IndexModel : PageModel
 {
     private readonly IWorkItemStore _store;
     private readonly Orchestrator _loop;
     private readonly ProjectLoadReport _projects;
+    private readonly ILogger<IndexModel> _logger;
 
-    public IndexModel(IWorkItemStore store, Orchestrator loop, ProjectLoadReport projects)
+    public IndexModel(
+        IWorkItemStore store,
+        Orchestrator loop,
+        ProjectLoadReport projects,
+        ILogger<IndexModel> logger)
     {
         _store = store;
         _loop = loop;
         _projects = projects;
+        _logger = logger;
     }
 
     /// <summary>The set the factory is actually serving: exactly the files that validated.</summary>
@@ -138,6 +154,20 @@ public class IndexModel : PageModel
         // filter is (ADR-0005, ADR-0008). Nothing else on the board is a state, and a
         // filter that were one would be a fourth decision.
         Project = project?.Trim();
+
+        // Debug, and deliberately. The board refreshes itself every five seconds, so an
+        // Information record per render would be a hundred thousand lines a day saying
+        // that a page loaded — and a record that is always the same is a record nobody
+        // reads. What it is for is the moment a reviewer's click and the log have to be
+        // lined up: what was on the page, narrowed to what, at the time they pressed it.
+        _logger.LogDebug(
+            "The board was read, showing {Count} work item(s) across {Projects} project(s){Narrowed}, with {InUse} of "
+                + "{Budget} worker containers in use.",
+            WorkItems.Count,
+            ProjectsOnTheBoard.Count,
+            Project is { Length: > 0 } narrowed ? $", narrowed to {narrowed}" : string.Empty,
+            RoundsInFlight,
+            FactoryConstants.ContainerBudget);
     }
 
     /// <summary>
@@ -158,10 +188,25 @@ public class IndexModel : PageModel
         // parking that makes a fourth decision worth naming here.
         if (!Guid.TryParse(workItem, out var id) || !Decisions.TryParse(decision, out var made))
         {
+            // The reviewer's own words are not logged, and neither is what they posted in
+            // the decision field: this is a string that arrived from outside the process,
+            // and putting it in a log line is handing it to every sink that line reaches.
+            // What is logged is the shape of the refusal — that something that was not a
+            // decision was posted, and that a work item was named or not.
+            _logger.LogWarning(
+                "A decision was posted to the board that is not one of the three, naming {Named}. Nothing was recorded, "
+                    + "and the reviewer is being told so on the page.",
+                Guid.TryParse(workItem, out _) ? "a work item" : "no work item at all");
+
             Refusal = "That is not one of the three decisions. A work item in Review is "
                 + "approved, sent back for changes, or rejected, and there is nothing else to decide.";
             return Page();
         }
+
+        // Opened before the store is asked, so the refusal below is attributable: a decision
+        // the store turned away is one of the three cases a reviewer can be told "nothing
+        // happened" about, and the one place a person would look for why is the log.
+        using var trace = TraceFor(id);
 
         try
         {
@@ -173,9 +218,24 @@ public class IndexModel : PageModel
             // the component that knows which swimlane the work item is in and what it made
             // of the feedback. Anything else is a fault rather than a refusal, and is left
             // to fail rather than dressed up as a decision that was declined.
+            //
+            // The decision is a structured field and the reviewer's reasons are not logged:
+            // the feedback is the next round's brief and it is kept in the store, and
+            // putting a reviewer's words into every log sink is not what "the decision was
+            // recorded" needs to say.
+            _logger.LogWarning(
+                "The reviewer asked to {Decision} a work item the factory would not record it about, and said so: {Refusal}. "
+                    + "Nothing was recorded.",
+                made,
+                refused.Message);
+
             Refusal = refused.Message;
             return Page();
         }
+
+        _logger.LogInformation(
+            "The reviewer recorded {Decision} against a work item, which the loop has not applied yet.",
+            made);
 
         // The decision is recorded and the swimlane it means is the loop's, so the board
         // asks the loop rather than moving a work item itself. One step applies one
@@ -205,4 +265,16 @@ public class IndexModel : PageModel
             ? $"/?project={Uri.EscapeDataString(narrowed)}"
             : "/");
     }
+
+    /// <summary>
+    /// The work item's identity as a scope, from the store, or nothing when the store has
+    /// no such work item. A decision posted about an id this process has never seen is
+    /// refused by the store a line later, and there is nothing to put in a scope for it —
+    /// so the record carries the refusal and no identity, which is the honest shape of that
+    /// record rather than a missing field.
+    /// </summary>
+    private IDisposable? TraceFor(Guid workItemId) =>
+        _store.Get(workItemId) is { } workItem
+            ? _logger.ForWorkItem(workItem.Id, workItem.Project, workItem.IssueNumber)
+            : null;
 }

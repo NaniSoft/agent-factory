@@ -76,9 +76,54 @@ internal static class ProjectFileLoader
 
         // The rotation order comes from the directory, sorted by file name, so it is
         // reproducible without anyone maintaining an ordering.
-        return new ProjectLoadReport(
+        var report = new ProjectLoadReport(
             served.OrderBy(project => project.SourceFile, StringComparer.OrdinalIgnoreCase).ToList(),
             refused.OrderBy(rejection => rejection.FileName, StringComparer.OrdinalIgnoreCase).ToList());
+
+        Served(logger, factoriesDirectory, report);
+        return report;
+    }
+
+    /// <summary>
+    /// What this process is actually serving, said at start, once per project and once in
+    /// total (story 63). The board renders the same set, but the board is a surface a human
+    /// has to remember to open, and the question this answers — "did my change to
+    /// <c>factories/</c> take effect, and what is in the rotation" — is asked of the log
+    /// first and most often.
+    /// </summary>
+    /// <remarks>
+    /// Every field logged here is a field of <see cref="Project"/>, and that record holds
+    /// credential <em>names</em> and no values at all: the two key fields are environment
+    /// variable names the project file declared, and this loader never reads a value, so
+    /// there is nothing here that could be one. That is the reason logging a project's whole
+    /// configuration is safe here and would not be safe anywhere else in the process, and it
+    /// is a property of the type rather than of this method — there is nowhere on
+    /// <see cref="Project"/> for a secret to sit. The issue title is not logged and neither
+    /// is a reviewer's words, because this is configuration rather than work, and neither is
+    /// anything a project is going to be asked to keep in a telemetry store.
+    /// </remarks>
+    private static void Served(ILogger logger, string factoriesDirectory, ProjectLoadReport report)
+    {
+        logger.LogInformation(
+            "Serving {Served} project(s) from {Directory}, in rotation order, and refused {Refused} file(s).",
+            report.Projects.Count,
+            factoriesDirectory,
+            report.Rejections.Count);
+
+        foreach (var project in report.Projects)
+        {
+            logger.LogInformation(
+                "Serving project {Name} from {File}: repository {Repository}, worker image {Image}, LLM provider {Provider}, "
+                    + "GitHub credential named {GitHubKey}, LLM credential named {LlmKey}. Names, not values — this loader "
+                    + "never reads a credential.",
+                project.Name,
+                project.SourceFile,
+                project.RepoUrl,
+                project.WorkerImage,
+                project.LlmProvider,
+                project.GitHubKeyName,
+                project.LlmKeyName);
+        }
     }
 
     private static IEnumerable<string> ProjectFiles(string factoriesDirectory) =>

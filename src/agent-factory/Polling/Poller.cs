@@ -3,6 +3,7 @@ namespace AgentFactory.Polling;
 using AgentFactory.Clock;
 using AgentFactory.Failures;
 using AgentFactory.GitHub;
+using AgentFactory.Observability;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public sealed class Poller
     private readonly IGitHub _github;
     private readonly IClock _clock;
     private readonly ILogger<Poller> _logger;
+    private readonly FactoryMetrics _metrics;
 
     /// <summary>
     /// The projects in rotation order. Derived from the directory by file name rather
@@ -53,12 +55,19 @@ public sealed class Poller
     /// </summary>
     private readonly Dictionary<string, Backoff> _backoff = new(StringComparer.Ordinal);
 
-    public Poller(IWorkItemStore store, IGitHub github, IClock clock, ProjectLoadReport projects, ILogger<Poller> logger)
+    public Poller(
+        IWorkItemStore store,
+        IGitHub github,
+        IClock clock,
+        ProjectLoadReport projects,
+        ILogger<Poller> logger,
+        FactoryMetrics metrics)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _github = github ?? throw new ArgumentNullException(nameof(github));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         ArgumentNullException.ThrowIfNull(projects);
 
         _rotation = [.. projects.Projects.OrderBy(project => project.SourceFile, StringComparer.OrdinalIgnoreCase)];
@@ -285,6 +294,21 @@ public sealed class Poller
 
             if (recorded.Created)
             {
+                // Counted here and not in the loop: a work item exists from the moment
+                // intake makes it, and "issues processed" is a fact about the world arriving
+                // rather than about the machine starting on it. Counted on creation rather
+                // than on every read, because intake is idempotent (ADR-0007) and a counter
+                // that went up on every pass would be counting poll ticks.
+                _metrics.IssueProcessed(project.Name);
+
+                // The scope, opened after the record rather than before: the work item's id
+                // is what intake has just been given, and it is the id every later record
+                // about this work item is found by. So the first record of a work item's
+                // life is stamped with the life itself, rather than starting at the moment
+                // the loop first picked it up.
+                using var trace = _logger.ForWorkItem(
+                    recorded.WorkItem.Id, recorded.WorkItem.Project, recorded.WorkItem.IssueNumber);
+
                 _logger.LogInformation(
                     "Took {Project}#{Issue} into Backlog, to be built from {BaseBranch}.",
                     project.Name,

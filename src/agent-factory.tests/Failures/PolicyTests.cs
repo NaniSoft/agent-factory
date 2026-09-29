@@ -4,6 +4,7 @@ using System.Reflection;
 using AgentFactory.Credentials;
 using AgentFactory.Failures;
 using AgentFactory.Loop;
+using AgentFactory.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
@@ -539,22 +540,174 @@ public class PolicyTests
     }
 
     [Fact]
+    public void A_metric_tag_can_be_built_in_exactly_one_place_and_its_vocabulary_is_closed()
+    {
+        // The hazard a metric label carries is that a tag's *values* are the keys of a time
+        // series somebody will keep for ever. A tag on a work item, a branch, a file path or
+        // an issue title is therefore two failures at once: a series per instance that no
+        // dashboard can read, and a copy of a stranger's words in a telemetry store whose
+        // retention this repository does not control. The design asks for counters and says
+        // nothing about how they are labelled, so the labelling is this ticket's judgement
+        // and it has to be a property of the code rather than a convention.
+        //
+        // So it is closed in the strongest sense available: `FactoryMetrics.Tags` is the
+        // whole vocabulary, and *this* class is the only place a tag can be constructed at
+        // all. Checked by IL rather than by grep for the reason the rest of this file is —
+        // a call reached under another name is invisible to a grep, and a later edit that
+        // builds a `KeyValuePair<string, object?>` and hands it to a counter would
+        // otherwise pass every test in this file.
+        //
+        // Note what this does *not* claim: that the values passed in are right. A
+        // `FactoryMetrics` that labelled a round with its work item id would satisfy this
+        // and break the cardinality argument, because it would be a legal call to `Key`.
+        // The other half is `ObservabilityTests`, which drives the real components and
+        // asserts the *values* every published tag actually carries.
+        var built = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType?.FullName == "System.Collections.Generic.KeyValuePair`2"
+                && call.Called.Name == ".ctor"
+                && Owner(call.Caller)?.Name != "FactoryMetrics")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            built.Count == 0,
+            "a metric tag may only be built in FactoryMetrics, because the vocabulary is what keeps the cardinality "
+                + "and the privacy of this process's metrics a fact rather than a hope: " + string.Join(", ", built));
+
+        // And the vocabulary itself, written out rather than read from the set, so that
+        // widening it is a failing test rather than a silent addition of a dimension.
+        Assert.Equal(["outcome", "project"], FactoryMetrics.Tags.Order(StringComparer.Ordinal).ToList());
+    }
+
+    [Fact]
+    public void A_record_about_a_work_item_is_written_inside_a_scope_that_names_it()
+    {
+        // "Every log record carries the work item it belongs to" is not a property of any
+        // one message; it is a property of where the message is written. The components that
+        // write records about a work item are exactly the ones that are handed one, and this
+        // is the check that each of them opens a `WorkItemScope` rather than remembering to
+        // name the work item in a placeholder.
+        //
+        // The list is a closed one on purpose, and it is short because of the argument rather
+        // than for tidiness: the loop, the poller, the board, the round runner and the merger
+        // are the five components in the process that are ever handed a work item's identity.
+        // A sixth would be a new component taking one, and the point of the check is that it
+        // would have to be argued for here rather than added quietly.
+        //
+        // What this does *not* prove is that every record those components write is inside a
+        // scope — a component can open one and then log outside it, and this cannot see that.
+        // `TraceabilityTests` is the other half: it drives the real components and reads the
+        // identity off the records themselves.
+        var opened = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType?.Name == "WorkItemScope"
+                && call.Called.Name == "ForWorkItem")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            [
+                "GitHubClient.MergeAsync",
+                // One for the board rather than two, because the board reads the work item
+                // from the store first and scopes through a helper: a decision posted about
+                // an id this process has never seen has nothing to scope, and that is a
+                // shape rather than a gap.
+                "IndexModel.TraceFor",
+                "Orchestrator.Apply",
+                "Orchestrator.LandIfTheRoundIsOver",
+                "Orchestrator.MergeWhatNobodyReviewed",
+                "Orchestrator.RetryAParkedMerge",
+                "Orchestrator.StartARound",
+                "Orchestrator.TryTheRetry",
+                "Poller.IntakeFrom",
+                "WorkerRoundRunner.RunRoundAsync",
+            ],
+            opened);
+
+        // And the keys a scope can carry, written out rather than read from the constant, so
+        // that a fifth kind of ambient identity is a failing test rather than something a
+        // record silently grows. Four is the whole list because the work item is a thing with
+        // a project and an issue in it and a round number on it, and nothing else about it is
+        // something a record needs to be findable by.
+        Assert.Equal(
+            ["WorkItemId", "WorkItemProject", "WorkItemIssue", "WorkItemRound"],
+            WorkItemScope.Keys);
+    }
+
+    [Fact]
+    public void The_observability_component_can_reach_nothing_the_factory_does_not_already_reach()
+    {
+        // A new component in this process is a new thing that could be depended on, and the
+        // two claims this file makes about the shape of the factory — that the loop's world
+        // is its constructor, and that the process holds exactly one transport — are both
+        // about what components can reach. So the new one is checked against the same rule
+        // rather than trusted: it holds no clock, no transport, no credential reader, no
+        // store, no seam and no factory option, and it is the only component in the process
+        // that is allowed to be constructed without the host supplying anything.
+        //
+        // The clock is the one that matters. A metrics component with a clock could start
+        // emitting on a schedule, and a schedule is a wait, and there is exactly one wait in
+        // this process and `PolicyTests` names it. Nothing here observes time.
+        var held = typeof(FactoryApp).Assembly
+            .GetTypes()
+            .Where(type => type.Name == "FactoryMetrics")
+            .SelectMany(type => type.GetConstructors())
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType.Name)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(["IMeterFactory", "Meter"], held);
+
+        // And the reason it is safe for this component to be a dependency of the loop and
+        // the poller at all: `System.Diagnostics.Metrics` is a push API. A consumer attaches
+        // to the meter in whatever process it shares, and this assembly publishes no
+        // measurement over a socket of any kind — so the counters cannot have quietly become
+        // a second inbound surface on a process that binds its board to loopback on purpose
+        // (story 64, ADR-0012). An empty list is the whole assertion.
+        Assert.Empty(CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Net.HttpListener:..ctor"));
+        Assert.Empty(CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Net.Sockets.TcpListener:..ctor"));
+    }
+
+    [Fact]
     public void The_components_that_gained_a_retry_policy_gained_no_new_seams()
     {
         // The loop's whole knowledge of the outside world is still its constructor, and the
         // poller's is still the four they were. A retry policy is a change of what those
         // components do, never of what they can reach — and a sixth dependency on the
         // orchestrator is exactly how a sleep or a timer would get in.
+        //
+        // **This list changed, deliberately and visibly, for observability.** It used to end
+        // at the logger, five dependencies wide, and the sixth is now `FactoryMetrics`. The
+        // claim this test defends did not change, and it is worth being precise about why,
+        // because a list of parameter names is not a claim on its own: a container runtime
+        // could arrive as a package reference, an assembly reference or a shell-out, none of
+        // which appears in this list either, and the test says so in its own comment.
+        //
+        // A metrics sink is not any of those. It holds no clock, no transport, no credential
+        // reader, no store, no seam and no options — `The_observability_component_can_reach_
+        // nothing_the_factory_does_not_already_reach` asserts that list by hand — and it
+        // publishes over an in-process push API rather than opening anything. So the boundary
+        // this test is about, the one the loop may not grow, has not moved: there is still no
+        // way for the loop to start a container, read a credential or keep time from anything
+        // but the four things it was given. What it can now do is *count*, which is a
+        // narrower thing than any of the five it already could.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1"],
+            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics"],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()
                 .GetParameters()
                 .Select(parameter => parameter.ParameterType.Name));
 
+        // The poller gained the same one dependency, for the same reason and no other: the
+        // count of issues turned into work items is a fact only intake has, and it is a fact
+        // about the world arriving rather than about the machine starting on it.
         Assert.Equal(
-            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1"],
+            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
             typeof(Poller)
                 .GetConstructors()
                 .Single()

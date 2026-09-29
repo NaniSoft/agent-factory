@@ -7,6 +7,7 @@ using AgentFactory.Containers;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
+using AgentFactory.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Pages;
 using AgentFactory.Projects;
@@ -110,6 +111,9 @@ public sealed class FactoryHost : IAsyncDisposable
     /// </summary>
     public Task Tick() => _app.Services.GetRequiredService<FactoryDriver>().TickAsync();
 
+    /// <summary>The running factory's own service container, for a test that resolves something by hand.</summary>
+    public IServiceProvider Services => _app.Services;
+
     /// <summary>
     /// How many worker containers the factory is inside right now, read the same way the
     /// board reads it.
@@ -209,6 +213,25 @@ public sealed class FactoryHost : IAsyncDisposable
             new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl),
             new TestSubstitutions(clock, agent, github));
 
+    /// <summary>
+    /// Starts the factory with somewhere for its log records to go, and with the counters
+    /// that log records to go alongside them. The one thing the other hosts deliberately do
+    /// not do, because their assertions are about state rather than about records — and a
+    /// live five-second tick of an unrelated test's machine writing into this one would be a
+    /// race rather than a measurement.
+    /// </summary>
+    public static Task<FactoryHost> RecordingAsync(
+        FactoryRoot root,
+        RecordedLog log,
+        FactoryMetrics metrics,
+        TestClock? clock = null,
+        FakeNOpenCode? agent = null,
+        FakeGitHub? github = null) =>
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(clock, agent, github, Metrics: metrics, Log: log));
+
     /// <summary>Starts the factory the way its own entry point does: options from configuration.</summary>
     public static Task<FactoryHost> StartAsync(
         FactoryRoot root,
@@ -253,6 +276,24 @@ public sealed class FactoryHost : IAsyncDisposable
             new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
             new TestSubstitutions(clock, Agent: null, github, docker));
 
+    /// <summary>
+    /// The same factory — the real round runner, the real container runtime, the real
+    /// deriver, the real host diff reader — with somewhere for its records to go as well.
+    /// Only the Docker CLI is substituted, so what the test reads is what the components
+    /// beneath the loop actually wrote rather than what a fake decided they would.
+    /// </summary>
+    public static Task<FactoryHost> RecordingWithTheRealRoundAsync(
+        FactoryRoot root,
+        IDockerCli docker,
+        RecordedLog log,
+        FactoryMetrics metrics,
+        TestClock? clock = null,
+        IGitHub? github = null) =>
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(clock, Agent: null, github, docker, metrics, log));
+
     private static async Task<FactoryHost> StartAsync(
         FactoryRoot root,
         FactoryOptions options,
@@ -272,6 +313,31 @@ public sealed class FactoryHost : IAsyncDisposable
         });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddSingleton<IClock>(testClock);
+
+        // The counters, before the composition root runs, so its `TryAdd` finds one already
+        // there. A test that wanted its own meter has to get in first: the root's own
+        // registration would otherwise publish on the host's meter and the test would be
+        // reading a different instance's numbers than the one it incremented.
+        if (seams.Metrics is { } metrics)
+        {
+            builder.Services.AddSingleton(metrics);
+        }
+
+        // The log, on every category and at every level — and alone.
+        //
+        // `ClearProviders` is not tidiness. The scope provider is only handed to a provider
+        // that implements `ISupportExternalScope` when the host has exactly one, so with
+        // the console left in place a recorder would see every record and no scope, and the
+        // whole of "every record carries the work item it belongs to" would be untestable.
+        // One provider is also the honest shape for what this is standing in for: a
+        // deployment whose records go somewhere a machine reads them, which is the
+        // configuration where scopes matter.
+        if (seams.Log is { } recorded)
+        {
+            builder.Logging.ClearProviders();
+            builder.Logging.SetMinimumLevel(LogLevel.Trace);
+            builder.Logging.AddProvider(recorded);
+        }
 
         // GitHub is the other such seam: one boundary covering both intake and merging,
         // and no implementation behind it yet either. The poller takes it as a
@@ -320,7 +386,9 @@ public sealed class FactoryHost : IAsyncDisposable
         TestClock? Clock,
         FakeNOpenCode? Agent,
         IGitHub? GitHub,
-        IDockerCli? Docker = null);
+        IDockerCli? Docker = null,
+        FactoryMetrics? Metrics = null,
+        RecordedLog? Log = null);
 
     public async ValueTask DisposeAsync()
     {

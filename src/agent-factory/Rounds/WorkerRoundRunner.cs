@@ -3,6 +3,7 @@ namespace AgentFactory.Rounds;
 using AgentFactory.Containers;
 using AgentFactory.Credentials;
 using AgentFactory.Failures;
+using AgentFactory.Observability;
 using AgentFactory.Projects;
 using AgentFactory.Results;
 using Microsoft.Extensions.Logging;
@@ -44,6 +45,17 @@ using Microsoft.Extensions.Logging;
 /// still runs and still records — the round is not refused for a missing key, because a
 /// refusal would be the factory guessing whether the agent needs it, and a warning is
 /// said out loud rather than left to be discovered on a board.
+/// </para>
+/// <para>
+/// <strong>What this component logs and what it is given.</strong> It is handed a
+/// <see cref="Round"/>, which carries the work item's id, project and issue — so it opens a
+/// <see cref="WorkItemScope"/> with them, and every record the container runtime, the
+/// result deriver and the Docker CLI write for the next ninety minutes is stamped with the
+/// work item it was for. None of those three is handed any of it, which is the point: the
+/// deriver's constructor is still one logger, and a record it writes an hour into a round
+/// still says which work item it belongs to. The round <em>number</em> is not in the scope
+/// this opens, because the round it was handed does not carry one; it rides on the scope
+/// the loop opens around the call, so a record written deep in a round names both.
 /// </para>
 /// </remarks>
 public sealed class WorkerRoundRunner : INOpenCode
@@ -108,6 +120,20 @@ public sealed class WorkerRoundRunner : INOpenCode
     {
         ArgumentNullException.ThrowIfNull(round);
 
+        // Opened first, before anything can go wrong, so that even a round that cannot
+        // start is attributable. A refusal with no work item on it is the one kind of record
+        // that cannot be grouped with the rest of a work item's history, and this is the
+        // cheapest possible place to make sure there isn't one.
+        // Opened first, before anything can go wrong, so that even a round that cannot
+        // start is attributable. A refusal with no work item on it is the one kind of record
+        // that cannot be grouped with the rest of a work item's history, and this is the
+        // cheapest possible place to make sure there isn't one.
+        // Opened first, before anything can go wrong, so that even a round that cannot
+        // start is attributable. A refusal with no work item on it is the one kind of record
+        // that cannot be grouped with the rest of a work item's history, and this is the
+        // cheapest possible place to make sure there isn't one.
+        using var trace = _logger.ForWorkItem(round.WorkItemId, round.Project, round.IssueNumber);
+
         var project = _projects.Projects.FirstOrDefault(candidate => candidate.Name == round.Project);
         if (project is null)
         {
@@ -117,9 +143,8 @@ public sealed class WorkerRoundRunner : INOpenCode
             // hot reload, so nothing about the second attempt would differ from the first.
             // Retrying it would spend two more containers to be told the same thing.
             _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} cannot run: no project file is being served for {Project}, "
+                "A round of {Project}#{Issue} cannot run: no project file is being served for {Project}, "
                     + "so there is no worker image to start from. Nothing about a second attempt would be different.",
-                round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
                 round.Project);
@@ -147,7 +172,7 @@ public sealed class WorkerRoundRunner : INOpenCode
             run = await _containers.RunAsync(
                 request,
                 landing,
-                new RoundLog(_logger, round.WorkItemId),
+                new RoundLog(_logger),
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -157,8 +182,7 @@ public sealed class WorkerRoundRunner : INOpenCode
             // the call ending, not a failure to report. Rethrown because a cancelled
             // operation says so, and because the loop asked for the round to stop.
             _logger.LogInformation(
-                "Round {Round} of {Project}#{Issue} was ended by the factory, and its container removed with it.",
-                round.WorkItemId,
+                "A round of {Project}#{Issue} was ended by the factory, and its container removed with it.",
                 round.Project,
                 round.IssueNumber);
 
@@ -174,9 +198,8 @@ public sealed class WorkerRoundRunner : INOpenCode
             // The loop reads it and decides whether to ask for the round again.
             _logger.LogWarning(
                 broken,
-                "Round {Round} of {Project}#{Issue} had no container to run in: {Reason}. "
+                "A round of {Project}#{Issue} had no container to run in: {Reason}. "
                     + "The factory has read that as a {Classification} failure.",
-                round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
                 broken.Message,
@@ -186,8 +209,7 @@ public sealed class WorkerRoundRunner : INOpenCode
         }
 
         _logger.LogInformation(
-            "Round {Round} of {Project}#{Issue} finished; its result, its tree and its log are in {Landing}.",
-            round.WorkItemId,
+            "A round of {Project}#{Issue} finished; its result, its tree and its log are in {Landing}.",
             round.Project,
             round.IssueNumber,
             landing);
@@ -222,8 +244,7 @@ public sealed class WorkerRoundRunner : INOpenCode
         if (diff.UnavailableBecause is { } noDiff)
         {
             _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} leaves no diff on the board: {Reason}",
-                round.WorkItemId,
+                "A round of {Project}#{Issue} leaves no diff on the board: {Reason}",
                 round.Project,
                 round.IssueNumber,
                 noDiff);
@@ -240,9 +261,8 @@ public sealed class WorkerRoundRunner : INOpenCode
             // *not*: the container failing to start, which is the transient shape of the
             // same-looking failure and is classified above.
             _logger.LogWarning(
-                "Round {Round} of {Project}#{Issue} came back without a result: it ran and produced nothing, "
+                "A round of {Project}#{Issue} came back without a result: it ran and produced nothing, "
                     + "so another attempt would only be told the same thing. Its log ends: {Log}",
-                round.WorkItemId,
                 round.Project,
                 round.IssueNumber,
                 run.LogTail);
@@ -250,11 +270,17 @@ public sealed class WorkerRoundRunner : INOpenCode
             return RoundResult.Failed(FailureClass.Permanent, run.LogTail, diff);
         }
 
+        // The counts are structured fields rather than words in a sentence, and this is the
+        // record that answers "what did this round produce" for a work item whose reviewer
+        // wants the shape of the change rather than its prose: how many files, how many
+        // commands, how big the host's own diff is. The result file's text is on the
+        // record in the store and the log tail is bounded, and neither belongs in a log
+        // line — a ninety-minute build's output does not go in a log record any more than it
+        // goes in a database row.
         _logger.LogInformation(
-            "Round {Round} of {Project}#{Issue} derived {Files} changed file(s) and {Commands} recorded command(s) "
+            "A round of {Project}#{Issue} derived {Files} changed file(s) and {Commands} recorded command(s) "
                 + "from what its container observed, and the host generated a diff of {DiffFiles} file(s) from the "
                     + "tree it left.{Reading}",
-            round.WorkItemId,
             round.Project,
             round.IssueNumber,
             derived.FilesChanged.Count,
@@ -303,8 +329,7 @@ public sealed class WorkerRoundRunner : INOpenCode
             environment[project.LlmKeyName] = key;
 
             _logger.LogInformation(
-                "Round {Round} of {Project} is being handed {Key} for the life of its container.",
-                round.WorkItemId,
+                "A round of {Project} is being handed {Key} for the life of its container. The name, never the value.",
                 project.Name,
                 project.LlmKeyName);
         }
@@ -316,10 +341,9 @@ public sealed class WorkerRoundRunner : INOpenCode
             // round does about it is in the round's own log, and the result records
             // which credentials it was actually handed.
             _logger.LogWarning(
-                "Round {Round} of {Project} is being handed no LLM credential: the project names {Key} and this "
+                "A round of {Project} is being handed no LLM credential: the project names {Key} and this "
                     + "process's environment does not have it. The round runs anyway and whatever the agent says "
                     + "about that is in the round's own log.",
-                round.WorkItemId,
                 project.Name,
                 project.LlmKeyName);
         }
@@ -334,9 +358,18 @@ public sealed class WorkerRoundRunner : INOpenCode
     /// round's result, so a round that produced nothing usable is still readable by a
     /// reviewer (story 29).
     /// </summary>
-    private sealed class RoundLog(ILogger logger, Guid workItemId) : IProgress<string>
+    /// <remarks>
+    /// Debug, and there is a great deal of it — every line a build prints, for ninety
+    /// minutes, across two containers. At Information this would be unreadable and
+    /// undiagnosable; at Debug it is what an operator turns on when they want to watch a
+    /// round, and it is where the live progress channel was always meant to land. The line
+    /// is the container's own and is bounded by nothing here, which is the other reason it
+    /// cannot be higher than Debug: an unbounded line at a level every deployment enables
+    /// is a log a deployment cannot keep.
+    /// </remarks>
+    private sealed class RoundLog(ILogger logger) : IProgress<string>
     {
         public void Report(string value) =>
-            logger.LogDebug("Round {Round} says: {Line}", workItemId, value);
+            logger.LogDebug("The round says: {Line}", value);
     }
 }

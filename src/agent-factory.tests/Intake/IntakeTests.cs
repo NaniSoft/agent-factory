@@ -353,13 +353,18 @@ public class IntakeTests
         // A structural check, and the only kind available for a claim about what code
         // does not reference. Intake's whole knowledge of the outside world is its
         // constructor: the store it records into, the one GitHub seam, the clock the
-        // interval is measured against, the set of projects being served, a logger. A
-        // second boundary — a container runtime, a clock of its own, an HTTP client that
-        // is not the seam — would have to arrive as an extra dependency, so the list is
-        // the check. It is also what a timer would have to bypass to be one, since the
-        // interval is a comparison against the clock the poller was handed.
+        // interval is measured against, the set of projects being served, a logger, and the
+        // counters. A second boundary — a container runtime, a clock of its own, an HTTP
+        // client that is not the seam — would have to arrive as an extra dependency, so the
+        // list is the check. It is also what a timer would have to bypass to be one, since
+        // the interval is a comparison against the clock the poller was handed.
+        //
+        // The sixth dependency is `FactoryMetrics` and it is not a sixth boundary: it holds
+        // no clock, no transport, no credential reader, no store and no seam, and it
+        // publishes over an in-process API rather than reaching anything. `PolicyTests`
+        // asserts that list by hand and names this as the change it made.
         Assert.Equal(
-            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1"],
+            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
             typeof(Poller)
                 .GetConstructors()
                 .Single()

@@ -264,12 +264,18 @@ public class RoundTests
         // A structural check, and the only kind available for a claim about what code does
         // not reference. The whole of the orchestrator's knowledge of the outside world is
         // its constructor: the store, the two seams — one call is one round, one call is
-        // one merge — the clock, a logger. A container runtime would have to arrive as a
-        // sixth dependency, as a package reference, or as an assembly reference, so all
-        // three are checked. It would not catch a runtime reached by shelling out, which
-        // is the gap a reader should know about.
+        // one merge — the clock, a logger, and the counters. A container runtime would have
+        // to arrive as an extra dependency, as a package reference, or as an assembly
+        // reference, so all three are checked. It would not catch a runtime reached by
+        // shelling out, which is the gap a reader should know about.
+        //
+        // The sixth dependency is `FactoryMetrics` and it is not a sixth boundary: it holds
+        // no clock, no transport, no credential reader, no store, no seam and no options,
+        // and it counts over an in-process API. `PolicyTests` asserts that list by hand and
+        // names it as the change this assertion made, so a reader is not left wondering what
+        // arrived and why.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1"],
+            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics"],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()
