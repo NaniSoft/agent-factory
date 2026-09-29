@@ -12,9 +12,23 @@ using Microsoft.Extensions.Logging;
 /// other class.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The seam is <see cref="HttpMessageHandler"/> and not the client, so the client, its
 /// classification, its git invocations and its own ordering all run for real. Only the
 /// network is gone, and the network is not what any of this ticket's arguments are about.
+/// </para>
+/// <para>
+/// <strong>One thing about GitHub is reproduced rather than recorded, and it is the
+/// <c>User-Agent</c>.</strong> Everything else here is a fake that agrees with the client by
+/// construction, which is fine for shape and ordering and useless for a requirement of the
+/// service: a fake will happily answer a request github.com refuses outright. This client
+/// had no <c>User-Agent</c> for its whole first life, every request it made was refused,
+/// and 317 tests passed — because nothing here had ever refused anything. So a request with
+/// no <c>User-Agent</c> is now refused with GitHub's own 403 and message, which turns every
+/// test in this layer into one that could have caught it. The refusal is real rather than
+/// decorative — <c>UserAgentTests</c> asserts that a bare request is turned away and one
+/// with the header is answered, so the guard cannot rot into a check that never fires.
+/// </para>
 /// </remarks>
 public sealed class GitHubApi : HttpMessageHandler
 {
@@ -153,6 +167,14 @@ public sealed class GitHubApi : HttpMessageHandler
         return PullRequestListFor(state ?? "open", pulls);
     }
 
+    /// <summary>
+    /// GitHub's own answer to a request with no <c>User-Agent</c>, in its own words. Kept
+    /// as the service's message rather than one written here, so a test asserting on it is
+    /// asserting on what the real service says and not on what this file thought it says.
+    /// </summary>
+    public const string NoUserAgentMessage =
+        """{"message": "Request forbidden by administrative rules. Please make sure your request has a User-Agent header."}""";
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -169,9 +191,20 @@ public sealed class GitHubApi : HttpMessageHandler
                 header => header.Key,
                 header => string.Join(", ", header.Value),
                 StringComparer.OrdinalIgnoreCase),
-            request.Headers.Authorization?.ToString() ?? string.Empty);
+            request.Headers.Authorization?.ToString() ?? string.Empty,
+            request.Headers.UserAgent.ToString());
 
         Requests.Add(recorded);
+
+        // Before the routes, and unconditionally: a request GitHub would refuse is refused
+        // whatever the fake has been scripted to say, because that is the point of it.
+        if (string.IsNullOrWhiteSpace(recorded.UserAgent))
+        {
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent(NoUserAgentMessage, Encoding.UTF8, "application/json"),
+            };
+        }
 
         var answer = _routes
             .Where(route => route.Method is null || route.Method == recorded.Method)
@@ -204,7 +237,8 @@ public sealed class GitHubApi : HttpMessageHandler
         string PathAndQuery,
         string Body,
         IReadOnlyDictionary<string, string> Headers,
-        string Authorization)
+        string Authorization,
+        string UserAgent)
     {
         /// <summary>"METHOD /path?query", which is the shape a test asserts on.</summary>
         public string Shape => $"{Method} {PathAndQuery}";

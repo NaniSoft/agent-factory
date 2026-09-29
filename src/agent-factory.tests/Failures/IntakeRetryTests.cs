@@ -3,11 +3,14 @@ namespace AgentFactory.Tests.Failures;
 using AgentFactory;
 using AgentFactory.Failures;
 using AgentFactory.GitHub;
+using AgentFactory.Observability;
+using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// A repository that cannot be read, and the backoff that follows. #4 left this as a note:
+/// A repository that cannot be read, and the schedule that follows. #4 left this as a note:
 /// a failing project was retried at most once per sixty-second pass, and "adding backoff
 /// will interact with the poller's fixed pass cadence in a way nothing currently asserts."
 ///
@@ -17,14 +20,21 @@ using AgentFactory.WorkItems;
 /// later than the pass would have gone anyway, so a project that has been failing for a
 /// while is asked less and less often. That is what an exponential backoff is for, and it
 /// is why the two constants compose the way they do rather than fighting.
+///
+/// <strong>And a permanent failure has no schedule at all, which is the change #16 asked
+/// for.</strong> It used to be given no wait of its own, which meant the pass cadence read
+/// it anyway — a full warning every sixty seconds, for ever, for a repository that is gone
+/// or a credential that was never set. Two of the tests below changed with it, and their
+/// names say what they now hold.
 /// </summary>
 /// <remarks>
 /// Nothing here escalates, and that is a decision rather than an omission. Escalation is a
 /// work item's state, and a project that cannot be read has produced no work item to
 /// escalate; there is nothing on the board to park and nothing for a human to finish from
-/// a card. What the poller does instead is stop asking as often, and say so in the log. A
-/// repository that comes back is picked up, because the next pass is intake's own cadence
-/// and not a retry of anything.
+/// a card. What the poller does instead is stop asking — for ever, in the permanent case —
+/// and say so once in the log and on the board, which is a project-level fault rather than a
+/// lane. A repository that comes back is picked up, after a restart in the permanent case
+/// and on the next pass in the transient one.
 /// </remarks>
 public class IntakeRetryTests
 {
@@ -69,48 +79,69 @@ public class IntakeRetryTests
     }
 
     [Fact]
-    public async Task A_permanently_failing_repository_is_read_once_per_pass_and_never_sooner()
+    public async Task A_permanently_failing_repository_is_read_once_and_never_again()
     {
+        // **This test used to assert the opposite**, and the change is the ticket's: a
+        // permanent failure was "given no wait of its own", which meant the pass cadence
+        // read it again sixty times an hour, for ever, with a full warning each time — an
+        // unbounded log generator pointed at a misconfiguration that cannot fix itself.
+        // A permanent failure is permanent, so it is read once and then not again.
         var clock = new TestClock();
+        var log = new RecordedLog();
+        var counters = new FactoryMetrics();
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         var github = new FakeGitHub()
             .Failing(RepoUrl, FailureClass.Permanent, "the repository does not exist");
-        await using var host = await FactoryHost.StartAsync(root, clock, github: github);
+        await using var host = await FactoryHost.RecordingAsync(
+            root, log, counters, clock: clock, agent: new FakeNOpenCode(), github: github);
 
-        for (var pass = 0; pass < 3; pass++)
+        // A day of passes, one every sixty seconds.
+        for (var pass = 0; pass < 1440; pass++)
         {
-            await host.PollAsync();
             clock.Advance(FactoryConstants.PollInterval);
+            await host.PollAsync();
         }
 
-        // One turn per pass, however the turn failed, and never three calls in a row inside
-        // one turn. A permanent failure is not given a wait of its own because a repository
-        // that is gone says the same thing in ten seconds: the pass cadence is already the
-        // slowest this factory asks anything, and a second schedule on top of it would be
-        // the retry policy asking twice where it promised not to.
-        Assert.Equal(3, github.TimesPolled(RepoUrl));
+        Assert.Equal(1, github.TimesPolled(RepoUrl));
         Assert.Empty(host.Store.List());
 
-        // A day of passes, and every one of them is read. A transient failure would be
-        // paced away by now; this one never is, which is the whole difference between the
-        // two classes at the poller.
-        for (var pass = 0; pass < 2000; pass++)
-        {
-            clock.Advance(FactoryConstants.PollInterval);
-            await host.PollAsync();
-        }
+        // And it said so once rather than 1440 times, which is the other half of the same
+        // fix: a warning per pass is a per-minute account of a fault that will not change.
+        var warned = Assert.Single(log.AtLeast(LogLevel.Warning));
+        Assert.Equal(RepoUrl, warned.Field("Repository"));
+        Assert.Equal(FailureClass.Permanent, warned.Field("Classification"));
+        Assert.Contains("will not read this project again", warned.Message, StringComparison.Ordinal);
 
-        Assert.Equal(2003, github.TimesPolled(RepoUrl));
+        // The state it is left in is the one the board renders: a project that failed, as
+        // what, and with no moment at which it will be asked again.
+        var state = Assert.Single(host.Poller.Intake);
 
-        // And it is not written off either. A project that comes back is read on the next
-        // pass it is due for, with no human involved and no state to reset.
-        github.WithRepository(
-            RepoUrl, defaultBranch: "main", OpenIssue.Plain(1, "An issue", "A body."));
+        Assert.Equal("nexus", state.Project);
+        Assert.Equal(IntakeStatus.Failing, state.Status);
+        Assert.Equal(FailureClass.Permanent, state.Failure);
+        Assert.Null(state.AgainAfterUtc);
+
+        // **The cost, stated rather than hidden.** A project that has come back is not read
+        // in this process either — a permanent failure is not something waiting to be
+        // retried, it is something an operator has to go and fix, and everything it is
+        // about (a project file, the set being served, an environment variable) is read at
+        // start. A restart is what asks again, which is what the board says.
+        github.WithRepository(RepoUrl, defaultBranch: "main", OpenIssue.Plain(1, "An issue", "A body."));
         clock.Advance(FactoryConstants.PollInterval);
         await host.PollAsync();
 
-        Assert.Equal(2004, github.TimesPolled(RepoUrl));
-        Assert.Equal(1, Assert.Single(host.Store.List()).IssueNumber);
+        Assert.Equal(1, github.TimesPolled(RepoUrl));
+        Assert.Empty(host.Store.List());
+
+        // And after a restart it is read, and its issue becomes a work item, with no human
+        // pressing anything.
+        using var restarted = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        await using var second = await FactoryHost.StartAsync(restarted, clock, agent: new FakeNOpenCode(), github: github);
+
+        await second.PollAsync();
+
+        Assert.Equal(2, github.TimesPolled(RepoUrl));
+        Assert.Equal(1, Assert.Single(second.Store.List()).IssueNumber);
     }
 
     [Fact]
@@ -206,13 +237,14 @@ public class IntakeRetryTests
     }
 
     [Fact]
-    public async Task A_permanently_failing_project_is_read_on_every_pass_and_a_transient_one_is_not()
+    public async Task A_permanently_failing_project_is_read_once_and_a_transient_one_is_still_being_read()
     {
-        // The distinction as a number, and over a long enough run that the two schedules
-        // have actually parted company — because they are identical for the first four
-        // passes, and a test that stopped there would pass against an implementation that
-        // treated a permanent failure and a transient one the same. This is the test that
-        // mutation M11 has to fail.
+        // The two schedules over a long enough run that they have parted company for good.
+        // A transient failure is read a handful of times across a day; a permanent one is
+        // read once and never again. Before this ticket they were the other way round — the
+        // permanent one was read on every one of 1440 passes and the transient one a
+        // handful of times — which is what made the pair so nearly indistinguishable on a
+        // board that rendered neither.
         var clock = new TestClock();
         var permanent = new FakeGitHub()
             .Failing(RepoUrl, FailureClass.Permanent, "the repository does not exist");
@@ -245,9 +277,9 @@ public class IntakeRetryTests
 
         Assert.Equal(1440, passes);
 
-        // Every pass, for the one that is gone: the pass cadence is the whole of its
-        // schedule, and a permanent failure is not given a wait of its own.
-        Assert.Equal(passes, permanent.TimesPolled(RepoUrl));
+        // Once, for the one that is gone. It is not "asked less often" — it is not asked
+        // again, and the difference is the whole of what a permanent failure means.
+        Assert.Equal(1, permanent.TimesPolled(RepoUrl));
 
         // A handful, for the one that is merely down: the backoff grows past the interval
         // and then keeps growing, and the reads decay to a few a day.

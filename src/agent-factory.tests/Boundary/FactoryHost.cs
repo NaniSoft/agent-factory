@@ -157,6 +157,14 @@ public sealed class FactoryHost : IAsyncDisposable
     /// <summary>A whole pass: every project's turn, in rotation order.</summary>
     public Task PollAsync() => _app.Services.GetRequiredService<Poller>().PassAsync();
 
+    /// <summary>
+    /// The real poller, in the running process, so that a test can read what intake has
+    /// last done with each project rather than inferring it from the log. It is the same
+    /// component the board asks, and a test that kept its own copy would be a second
+    /// answer to "is that project failing".
+    /// </summary>
+    public Poller Poller => _app.Services.GetRequiredService<Poller>();
+
     /// <summary>The real store the running factory is wired to.</summary>
     public IWorkItemStore Store => _app.Services.GetRequiredService<IWorkItemStore>();
 

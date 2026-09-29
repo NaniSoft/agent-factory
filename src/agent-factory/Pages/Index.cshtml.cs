@@ -1,5 +1,6 @@
 using AgentFactory.Loop;
 using AgentFactory.Observability;
+using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
@@ -28,17 +29,20 @@ public class IndexModel : PageModel
 {
     private readonly IWorkItemStore _store;
     private readonly Orchestrator _loop;
+    private readonly Poller _intake;
     private readonly ProjectLoadReport _projects;
     private readonly ILogger<IndexModel> _logger;
 
     public IndexModel(
         IWorkItemStore store,
         Orchestrator loop,
+        Poller intake,
         ProjectLoadReport projects,
         ILogger<IndexModel> logger)
     {
         _store = store;
         _loop = loop;
+        _intake = intake;
         _projects = projects;
         _logger = logger;
     }
@@ -48,6 +52,25 @@ public class IndexModel : PageModel
 
     /// <summary>The files that were refused, and why. A refusal is reported, not swallowed.</summary>
     public IReadOnlyList<ProjectFileRejection> Rejections => _projects.Rejections;
+
+    /// <summary>
+    /// What intake has last done with every project the factory serves, in the three states
+    /// that have to be told apart: never polled, polled, and failing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Asked of the poller rather than held here, because intake's state is intake's own: a
+    /// page that kept its own copy would be a second thing free to disagree with the poller
+    /// about whether a repository is failing, and this board already has one such problem
+    /// in the filter and one in the loop's policy.
+    /// </para>
+    /// <para>
+    /// It is a read and nothing else — the board's only write path is a reviewer's
+    /// decision, and this is not one. Rendering it adds no way for a human to change a
+    /// work item or a project (ADR-0005, ADR-0008).
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<IntakeOnTheBoard> Intake => HowToReadIntake.Each(_intake.Intake);
 
     /// <summary>
     /// The work items on the board, narrowed to one project when the reviewer has asked
@@ -160,14 +183,21 @@ public class IndexModel : PageModel
         // that a page loaded — and a record that is always the same is a record nobody
         // reads. What it is for is the moment a reviewer's click and the log have to be
         // lined up: what was on the page, narrowed to what, at the time they pressed it.
+        //
+        // Intake's state is in it for the same reason, and because it is the one thing on
+        // the page a reviewer cannot have caused: "why was that project not on the board"
+        // is answerable from here without re-reading the poller's own records.
+        var intake = Intake;
+
         _logger.LogDebug(
             "The board was read, showing {Count} work item(s) across {Projects} project(s){Narrowed}, with {InUse} of "
-                + "{Budget} worker containers in use.",
+                + "{Budget} worker containers in use and intake {Intake}.",
             WorkItems.Count,
             ProjectsOnTheBoard.Count,
             Project is { Length: > 0 } narrowed ? $", narrowed to {narrowed}" : string.Empty,
             RoundsInFlight,
-            FactoryConstants.ContainerBudget);
+            FactoryConstants.ContainerBudget,
+            HowToReadIntake.Slug(HowToReadIntake.WorstOf(intake)));
     }
 
     /// <summary>

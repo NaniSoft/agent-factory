@@ -72,8 +72,11 @@ public sealed class FakeGitHub : IGitHub
     /// <summary>
     /// The repository cannot be read and reading it again will not help: a repository that
     /// has gone away, a credential with nothing to read it with, a name that is not a
-    /// repository. The poller asks on its next pass all the same — intake has no work item
-    /// to escalate — but it does not sit on this one any longer than the pass cadence says.
+    /// repository. The poller reads it once and then does not ask again in this process:
+    /// a permanent failure is permanent, and the pass cadence asking sixty times an hour is
+    /// how #16's run produced an unbounded log for a fault nothing would fix. It is asked
+    /// again after a restart, because a restart is what re-reads a project file and an
+    /// environment.
     /// </summary>
     public FakeGitHub Failing(
         string repoUrl,

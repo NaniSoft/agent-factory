@@ -20,6 +20,15 @@ using Microsoft.Extensions.Logging;
 /// The one process. It serves the board, it holds the store, and it is the whole
 /// application boundary the rest of the suite drives.
 /// </summary>
+/// <remarks>
+/// In the same collection as <c>CredentialFreeObservabilityTests</c>, and for one reason:
+/// that class sets a process-wide environment variable to a real token and clears it again,
+/// and xUnit runs classes in parallel. Left alone, the seam test below would sometimes
+/// find <c>NEXUS_GITHUB_TOKEN</c> set by its neighbour, go to github.com instead of being
+/// refused locally, and fail on a 403 — which is a green suite failing for a reason that
+/// has nothing to do with the code under test.
+/// </remarks>
+[Collection("the process environment")]
 public class TheProcessTests
 {
     [Fact]

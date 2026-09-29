@@ -315,6 +315,16 @@ directory is not cleaned up after a round.
 it. One `MergeAsync(repoUrl, issueNumber, ct)` is the only way a change ships — push, open,
 merge — and the order it does them in is the whole of this section's argument:
 
+**Every request carries a `User-Agent`, and that is a requirement of the service rather than
+politeness.** GitHub *refuses* a request without one — a 403 whose body says so — so a
+client that omits it cannot read a repository, cannot open a pull request and cannot merge
+anything. It is set on each request in `AskAsync`, the one place a request is built, rather
+than on a configured client's default headers, so "every request carries one" is a property
+of the code path rather than of a setting somebody can drop. #16 is what it cost to find
+out: the client had no `User-Agent` for its whole first life, every call it made was
+refused, and **the entire external surface of this factory had never worked** — no intake,
+no merge, ever.
+
 1. Resolve everything that can be refused without leaving the building — the project, its
    credential, the work item behind the issue number, the round's tree on this host, and
    the commit that tree is on.
@@ -429,6 +439,29 @@ so the assertions are about requests and about repository state rather than abou
 class called which. **It filters `state` on the pull request list the way GitHub does**,
 because a fake that answered every state the same way would let a client that asked for
 `state=open` pass — and a client that cannot see a merged pull request ships a change twice.
+
+**One thing about GitHub is now reproduced rather than recorded, and it is the
+`User-Agent`. #16 is why.** Everything else in that fake is a fake that agrees with the
+client by construction, which is exactly right for shape and ordering and exactly wrong for a
+requirement of the service: a fake will cheerfully answer a request github.com refuses
+outright. So 317 tests passed against a client whose every request carried no `User-Agent`
+and would have been refused by all of them — the seam was tested against something that
+agreed with it because it was written to. A fake cannot catch what the real service
+requires, and the next adapter in this process should take that as the reason to read the
+real API's own list rather than to write another transport that only records. Two things
+hold the header, and both are worth knowing about:
+
+- **`GitHubApi` refuses a request with no `User-Agent`**, with GitHub's own 403 and its own
+  message, before any scripted route is consulted. That is what turned 23 tests red when the
+  header was removed rather than the two that name it, and it makes every test in this
+  layer one that could have caught the defect.
+- **`UserAgentTests.Every_request_the_client_makes_carries_a_user_agent`** asserts the claim
+  at the transport boundary, over every shape of request the client can send — intake's two
+  reads and the merger's four calls — so it is about what goes on the wire rather than about
+  what the client was configured with.
+  `A_request_with_no_user_agent_is_refused_exactly_as_github_refuses_it` is the guard's own
+  test: a check that never fires looks exactly like a check that is not there, so a bare
+  request has to be turned away and the same request with the header answered.
 
 `GitHub/GitHubResponseTests.cs` is the classification table as a table, so every row is
 checked as a decision about whether a work item is ever tried again.
@@ -557,6 +590,32 @@ A round recorded **before** the diff column existed is not retrofitted with an e
 tree it would have been read out of was not kept per round, and a fabricated empty diff would
 claim a round changed nothing when in fact nobody looked.
 
+## What a record carries
+
+A record's identity is ambient rather than passed down: `Observability/WorkItemScope.cs`
+puts the work item, its project, its issue and (inside a round) the round number on every
+record written within the scope the loop opened, so the result deriver, the container
+runtime and the Docker CLI can say which work item they are about while taking nothing but
+a logger. `Keys` is the whole vocabulary and `A_record_about_a_work_item_is_written_inside_
+a_scope_that_names_it` pins both the four keys and the ten components that open one.
+
+**A project-level record has no work item, so it cannot use that vocabulary, and #21 added
+a second one rather than a fifth key in the first.** A project whose intake failed has
+produced no work item, so there is no id, no issue number and no round to name; the only
+identity such a record has is the project, and putting a project's name on it under
+`WorkItemProject` would mean a field called "the work item's project" carrying a project
+with no work item, while filling the other three keys would mean inventing a work item id,
+an issue number and a round number for something that does not exist. So
+`Observability/ProjectScope.cs` is its own class with one key — `FactoryProject`, prefixed
+for the reason the work item's are, since a record's own message usually names the project
+too and a sink that merged the two would emit the field twice — and
+`A_record_about_a_project_is_written_inside_a_scope_that_names_it` pins it at its two call
+sites, both in the poller. **No existing pin was weakened**: the work item's four keys and
+its ten call sites are asserted exactly as before, and the metric tag vocabulary is still
+closed at `project` and `outcome`, which this change did not widen — a project-level fault
+is on the board and in the log, not in a counter, because a counter would need a tag value
+that is a class of intake rather than of a round.
+
 ## Intake
 
 `Polling/Poller.cs` is intake: it reads the open issues of every project the factory
@@ -600,9 +659,48 @@ asserts over a simulated day.
 
 Intake is idempotent against the store's unique index on `(repo_url, issue_number)`, and
 a re-poll of an open issue leaves the work item it finds exactly as it is — same lane,
-same base, same rounds. One repository erroring is contained to its own turn; the rest
-of the pass still runs, and the next pass tries it again. Nothing polls yet, because
-there is no GitHub behind the seam to poll.
+same base, same rounds. One repository erroring is contained to its own turn and the rest
+of the pass still runs; whether it is asked again, and when, is its classification's
+answer, below.
+
+### What intake says on the board
+
+**A project whose intake failed has no work item, so the board's intake section is the
+only place its fault can live — and it is rendered in three states rather than as the
+presence or absence of work items.** An empty Backlog lane is three different facts: the
+repository was read and had nothing open, the factory has never read it, or the factory
+tried and was refused. One rendered absence standing for three of them is what #16 found:
+the board said "Serving 2 projects" above an empty Backlog and not one poll had ever
+succeeded, because the client was refused every request it made. It is the same conflation
+the board refuses for a round's diff, and it is fixed the same way — `Pages/HowToReadIntake.cs`
+is the whole of the judgement and the view renders what it says:
+
+| On the row (`data-intake-state`) | Means | Not |
+| --- | --- | --- |
+| `never-polled` | the rotation has not reached this project yet | a project with nothing open |
+| `polled` | the read succeeded — with `data-open-issues` saying what it found | a poll that never happened |
+| `failing` | the last read was refused, with `data-classification` and `data-again` | either of the above |
+
+Everything a reviewer needs to act on is a field rather than a sentence: the repository,
+the classification, the run of failures, and `data-again` — `never` for a permanent
+failure, a moment for a transient one, `next-pass` for a project that is fine. **The
+section is rendered whenever the factory serves a project, healthy or not**, and its
+summary line says out loud that "an empty Backlog does not mean there is nothing to do"
+whenever it is not — because a section that only appears when something is wrong is a
+section whose absence carries no information, which is the same argument the container
+budget makes by always stating its bound. It is above the lanes rather than inside one,
+because a project is not a work item, and it is **not narrowed by the project filter**:
+a filter is a way of looking at work items, and one that could hide the reason there is
+nothing on the board is a filter that can make a broken factory look like a working one.
+`IntakeBoardTests.An_empty_backlog_while_intake_is_broken_cannot_be_read_as_nothing_to_do`
+is the test that would have caught #16, and it reads the page rather than the poller.
+
+The board asks the poller for this on every render (`IndexModel.Intake` →
+`Poller.Intake` → `IntakeRecord`, in `Polling/`) rather than keeping a copy: intake's
+state is intake's own, and a second copy would be a second thing free to disagree with
+the poller about whether a project is failing. It is in memory and gone on a restart,
+for the same reason the backoff was: a poll is a read, and nothing about it is a fact a
+reviewer needs to survive a restart (ADR-0009).
 
 ## The loop
 
@@ -797,6 +895,10 @@ factory is working on their project or somebody else's.
   knows that project. Every project is always on offer, including the one in force, so a
   reviewer can get back to the whole board without a browser's back button, and a decision's
   redirect keeps them on the project they were looking at.
+- **A filter does not narrow intake.** It is a way of looking at work items, so every served
+  project's row is on the board whatever is in force — see **What intake says on the board**.
+  A filter that hid a failing project could hide the reason there is nothing on the board,
+  which is the one thing a filter must not be able to do.
 - **The budget is rendered** — "2 of 2 worker containers in use" — because a bounded machine
   that says nothing about its bound is indistinguishable from a wedged one. A work item in
   Frontier behind a full budget is queued; one behind an empty one would be a fault worth
@@ -962,12 +1064,32 @@ board's decision set has not grown by one, which is the check `PolicyTests` make
 only lengthen the wait, so the 60s pass is a floor and the backoff is a ceiling on how
 often the factory asks. The first few waits (10s, 20s, 40s, 80s) are *shorter* than the
 interval, so the interval paces a project for its first few failures and the backoff takes
-over only once it has grown past it. A permanent poll failure is given no wait of its own —
-the pass cadence is already the slowest this factory asks anything. Nothing is escalated,
-because escalation is a work item's state and a repository that cannot be read has produced
-no work item to park. `PollBackoffCeiling` (16 minutes) is where the growth stops: a project
-down for a day is read a handful of times rather than 1440, and one that recovers is picked
-up within sixteen minutes.
+over only once it has grown past it. Nothing is escalated, because escalation is a work
+item's state and a repository that cannot be read has produced no work item to park — a
+project-level fault is rendered on the board instead, under **What intake says on the
+board**. `PollBackoffCeiling` (16 minutes) is where the growth stops: a project down for a
+day is read a handful of times rather than 1440, and one that recovers is picked up within
+sixteen minutes.
+
+**A permanent intake failure is not asked again at all, and that changed with #16.** It
+used to be "given no wait of its own", which meant the pass cadence read it anyway: a full
+warning every sixty seconds, for ever, for a repository that is gone or a credential that
+was never set — an unbounded log generator pointed at a fault no amount of asking touches.
+`Poller.Pace` now records the failure with `AgainAfterUtc` null, and `StepAsync` reads that
+null as **never** rather than as **no wait**, so the project is read once, says so once, and
+is left alone. The two are the same sentence read two ways, and the difference is a
+permanent failure against a permanent misconfiguration; it is spelled out in `StepAsync`
+because that is where it is easy to get wrong again.
+
+The cost is stated rather than hidden: a permanent failure is cleared by a **restart**,
+because everything it is about — a project file, the set being served, an environment
+variable — is read at start and does not hot reload. The board says so on the row
+(`data-again="never"` plus the sentence), so the operator is told what to do rather than
+left watching a board that has stopped asking.
+`IntakeRetryTests.A_permanently_failing_repository_is_read_once_and_never_again` holds the
+count, the single warning, the state and the restart, and
+`A_permanently_failing_project_is_read_once_and_a_transient_one_is_still_being_read` holds
+the two schedules apart over a day of passes.
 
 Nothing here sleeps, defers or times out. A backoff is a `TimeSpan` compared against
 `IClock`, and a step asked before the wait has passed does nothing at all. `PolicyTests`

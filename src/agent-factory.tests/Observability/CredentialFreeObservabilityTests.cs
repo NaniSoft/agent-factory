@@ -29,7 +29,19 @@ using Microsoft.Extensions.Logging;
 /// a tag or a message parameter would be caught here too, because a record's state and its
 /// scopes are both read.
 /// </para>
+/// <para>
+/// <strong>This class shares a collection with <c>TheProcessTests</c>, and that is not
+/// tidiness.</strong> It sets a process-wide environment variable and clears it again, and
+/// xUnit runs classes in parallel — so while this test is running, a test that asks the
+/// real GitHub client for a repository whose credential this class has just set finds a
+/// credential where it expects none, goes to the network, and fails on an answer it never
+/// expected. That happened: <c>The_github_seam_is_a_real_client_and_a_call_it_cannot_make_
+/// says_which_one</c> failed on a run whose only cause was this class running beside it.
+/// The collection makes the two run in sequence, which is what the environment this
+/// factory reads from requires.
+/// </para>
 /// </remarks>
+[Collection("the process environment")]
 public class CredentialFreeObservabilityTests
 {
     /// <summary>

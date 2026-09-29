@@ -48,12 +48,18 @@ public sealed class Poller
     private DateTimeOffset? _passBeganAt;
 
     /// <summary>
-    /// What each project has failed at, and until when it should be left alone. Keyed by
-    /// the project's name because that is what a work item carries, and kept here rather
-    /// than in the store because a poll is a read: nothing about it is a fact a reviewer
-    /// needs to survive a restart, and the next pass asks again either way.
+    /// What intake has last done with each project it has taken a turn at, keyed by the
+    /// project's name. Kept here rather than in the store because a poll is a read:
+    /// nothing about it is a fact a reviewer needs to survive a restart, and the next pass
+    /// asks again either way.
     /// </summary>
-    private readonly Dictionary<string, Backoff> _backoff = new(StringComparer.Ordinal);
+    /// <remarks>
+    /// It is both the schedule and the account — one record per project rather than a
+    /// schedule here and a separate account there — because two dictionaries free to
+    /// disagree are two answers to "why has this project not been read", and the one the
+    /// board renders would be whichever one nothing had to reconcile.
+    /// </remarks>
+    private readonly Dictionary<string, IntakeRecord> _intake = new(StringComparer.Ordinal);
 
     public Poller(
         IWorkItemStore store,
@@ -80,10 +86,12 @@ public sealed class Poller
     /// rest waiting.
     /// </summary>
     /// <remarks>
-    /// A project waiting out a backoff is a turn taken and nothing read, and the step
-    /// still says it took one. The rotation moved, which is what the caller is being told,
-    /// and the pass is not over until the rotation has come round to the first project
-    /// again — so a paced project costs its own turn and nobody else's.
+    /// A project that is not read is a turn taken and nothing read, and the step still
+    /// says it took one. The rotation moved, which is what the caller is being told, and
+    /// the pass is not over until the rotation has come round to the first project again —
+    /// so a project left alone costs its own turn and nobody else's. A project that failed
+    /// permanently is left alone in the same way and for the rest of this process's life:
+    /// see <see cref="Pace"/>.
     /// </remarks>
     public async Task<bool> StepAsync()
     {
@@ -110,18 +118,45 @@ public sealed class Poller
         var project = _rotation[_next];
         _next = (_next + 1) % _rotation.Count;
 
-        if (TurnIsDue(project))
+        var state = StateOf(project);
+
+        // A project's turn is one of three things, and the difference between the second
+        // and the third is a null. `AgainAfterUtc` is the wait a failure earned: it is set
+        // for a transient failure, which will be asked again when it has passed, and null
+        // for a permanent one, which will not be asked again at all.
+        //
+        // Reading that null as "no wait" is what #16 found: a permanent failure was read on
+        // every pass for ever, with a full warning each time, because the pass cadence is
+        // the fastest thing this factory asks anything and a project with no wait of its
+        // own was simply read by it. So the null is spelled out here rather than left to be
+        // inferred — and a project whose backoff has passed falls through to a read, which
+        // is the case the old condition got wrong.
+        if (state is { Status: IntakeStatus.Failing, AgainAfterUtc: { } again } && _clock.UtcNow < again)
         {
-            await TakeATurnAt(project);
+            // Waiting out a backoff. Said, because a project that is being asked less often
+            // is a project's own turn being skipped and a reader of the log is owed that
+            // much — and paced this way the record comes at most once a backoff, which is
+            // the slowest this factory asks anything.
+            using var trace = _logger.ForProject(project.Name);
+            _logger.LogInformation(
+                "{Project} has failed {Failures} time(s) in a row and is not due another turn until {Due}, "
+                    + "so this pass leaves it alone rather than reading it sooner than that.",
+                project.Name,
+                state.Failures,
+                again);
+        }
+        else if (state is { Status: IntakeStatus.Failing, AgainAfterUtc: null })
+        {
+            // A permanent failure, and nothing at all. It has already said so, once, in
+            // `Pace`, and a line every pass for ever would be exactly the unbounded log
+            // that refusing to retry it exists to stop. The board carries the state from
+            // here, and the board is what a reviewer reads.
         }
         else
         {
-            _logger.LogInformation(
-                "{Project} failed {Failures} time(s) in a row and is not due another turn until {Due}, "
-                    + "so this pass leaves it alone rather than reading it sooner than that.",
-                project.Name,
-                _backoff[project.Name].Failures,
-                _backoff[project.Name].DueUtc);
+            // Read. Which includes a project whose backoff has passed — a transient failure
+            // with nothing owed to it is an ordinary project's turn, not a special case.
+            await TakeATurnAt(project);
         }
 
         // The rotation has come back to the first project, so the pass is over and the
@@ -145,39 +180,36 @@ public sealed class Poller
         }
     }
 
+    /// <summary>
+    /// What intake has last done with each project the factory serves, in rotation order —
+    /// one record per project whether or not the rotation has reached it yet.
+    /// </summary>
+    /// <remarks>
+    /// This is the whole of what the board knows about intake, and it is asked for on
+    /// every render rather than pushed: intake's state is intake's own, and a component
+    /// that kept a copy of it would be a second thing free to disagree with the poller
+    /// about whether a project is failing.
+    /// </remarks>
+    public IReadOnlyList<IntakeRecord> Intake =>
+        [.. _rotation.Select(StateOf)];
+
+    /// <summary>
+    /// What is known about one project, which before its turn comes round is nothing at
+    /// all. Answered with an explicit "never polled" rather than an absent entry, because
+    /// a project with no record is a project the board says nothing about and a reviewer
+    /// reads that as a project with nothing open.
+    /// </summary>
+    private IntakeRecord StateOf(Project project) =>
+        _intake.TryGetValue(project.Name, out var state) ? state : IntakeRecord.NeverRead(project);
+
     private bool PassIsDue() =>
         _passBeganAt is not { } began || _clock.UtcNow - began >= FactoryConstants.PollInterval;
 
     /// <summary>
-    /// Whether this project may be read now. It may be, unless it failed recently enough
-    /// that the longer of the two waits — the pass interval and its own backoff — has not
-    /// elapsed.
-    /// </summary>
-    /// <remarks>
-    /// The pass interval and the backoff compose rather than compete, and the composition
-    /// is the point. A backoff can only ever make the wait longer, so the interval is a
-    /// floor and the backoff is a ceiling on how often the factory asks — and because the
-    /// first few backoffs are shorter than the interval, it is the interval that paces a
-    /// project for its first few failures and the backoff only once it has grown past it.
-    /// That is the interaction the poll interval and a retry policy have, and it is
-    /// asserted rather than assumed.
-    /// </remarks>
-    /// <remarks>
-    /// A project with no wait — one that has never failed, or one whose last failure was
-    /// permanent — is always due, and the pass interval is the only thing pacing it. The
-    /// comparison is written so that a null wait is "no wait" rather than "never", which is
-    /// the difference between a repository that is gone being read once a minute and being
-    /// read once and then never again.
-    /// </remarks>
-    private bool TurnIsDue(Project project) =>
-        !_backoff.TryGetValue(project.Name, out var waiting)
-        || waiting.DueUtc is not { } due
-        || _clock.UtcNow >= due;
-    /// <summary>
     /// One project's turn: read the open issues, resolve the branch they are built
     /// against, and record the ones the store has not already got. A turn that fails is
-    /// contained to itself, and what it failed as decides how long this project is left
-    /// alone afterwards.
+    /// contained to itself, and what it failed as decides whether this project will be
+    /// read again at all.
     /// </summary>
     private async Task TakeATurnAt(Project project)
     {
@@ -190,67 +222,107 @@ public sealed class Poller
             // One repository erroring must not take the pass down with it, or a single
             // unreachable project would stop every other project being read — which is
             // the starvation this rotation exists to prevent. The turn is over, the
-            // rotation carries on, and this project's next turn is paced by the failure.
+            // rotation carries on, and this project's next turn is decided by the
+            // classification of what it failed as.
             //
-            // The classification is the exception's own, read here and nowhere else. A
-            // transient failure doubles the wait before the next read, so a repository
-            // that was down for an afternoon is asked less and less often rather than
-            // every minute; a permanent one does not, because a repository that is gone
-            // or a credential that cannot read it will say exactly the same thing in ten
-            // seconds and the shorter wait is the pass cadence either way. Neither is
-            // escalated, because escalation is a work item's state and a repository that
-            // cannot be read has produced no work item to park.
-            //
-            // A success clears it: the backoff counts consecutive failures, not failures
-            // ever, so a project that answers again is not paced for ever on the strength
-            // of a failure from this morning.
+            // Scoped by project rather than by work item, because there is no work item:
+            // this is a record about a repository that could not be read, and it is
+            // findable by which project it is about and by nothing else. See
+            // `ProjectScope` for why that is a second vocabulary rather than a fifth key
+            // in the work item's.
+            using var trace = _logger.ForProject(project.Name);
+
             Pace(project, failure);
         }
     }
 
     /// <summary>
-    /// Sets how long this project is left alone, or forgets that it was ever failing.
+    /// Records how this project failed, and decides whether it will be read again.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A transient failure is paced.</strong> The wait doubles for each failure in
+    /// a row, so a repository that was down for an afternoon is read less and less often
+    /// rather than every minute, and the pass interval is a floor under it rather than a
+    /// competitor: a backoff can only lengthen a wait, never shorten one.
+    /// </para>
+    /// <para>
+    /// <strong>A permanent one is not asked again at all, by this process, ever.</strong>
+    /// That is the change #16 asked for and the reason is the classification itself: a
+    /// repository that is gone, a credential that cannot read it and a name that is not a
+    /// repository will say exactly the same thing in ten seconds, in ten minutes and
+    /// tomorrow. The old answer was "no wait of its own", which meant the pass cadence
+    /// asked anyway — sixty times an hour, for ever, for a fault no amount of asking
+    /// touches. A permanent failure is permanent, so it is read once, it says so once, and
+    /// from then on the board is where it lives.
+    /// </para>
+    /// <para>
+    /// The cost is stated rather than hidden: a permanent failure is only cleared by a
+    /// restart, because everything a permanent intake failure is about — a project file,
+    /// the set being served, an environment variable that was not set when the factory
+    /// started — is read at start and does not hot reload. The board says that, so the
+    /// operator is told what to do rather than left watching a board that has stopped
+    /// asking.
+    /// </para>
+    /// <para>
+    /// A success clears the run of failures — see <see cref="IntakeFrom"/> — because the
+    /// wait is owed to consecutive failures and not to a project's whole life.
+    /// </para>
+    /// </remarks>
     private void Pace(Project project, Exception failure)
     {
         var classification = Failures.Classify(failure);
-        var failures = (_backoff.TryGetValue(project.Name, out var previous) ? previous.Failures : 0) + 1;
-
-        // A transient failure is paced: the wait doubles for each failure in a row, so a
-        // repository that was down for an afternoon is read less and less often rather
-        // than every minute. A permanent one is given no wait of its own, because a
-        // repository that is gone or a credential that cannot read it says exactly the
-        // same thing in ten seconds, and the pass cadence is already the slowest this
-        // factory asks anything — inventing a second schedule there would be the retry
-        // policy asking twice in the one place it promised not to.
-        //
-        // Neither is escalated, because escalation is a work item's state and a repository
-        // that cannot be read has produced no work item to park. And neither is a reason to
-        // stop serving the project: the wait is a schedule, not a verdict, and a project
-        // that answers again is read on the next pass it is due for.
-        //
-        // A success clears the count — see <see cref="IntakeFrom"/> — because the wait is
-        // owed to a run of failures, not to a project's whole life.
-        var due = classification == FailureClass.Transient
+        var failures = StateOf(project).Failures + 1;
+        var again = classification == FailureClass.Transient
             ? _clock.UtcNow + FactoryConstants.PollBackoff(failures)
             : (DateTimeOffset?)null;
 
-        _backoff[project.Name] = new Backoff(failures, due);
+        _intake[project.Name] = new IntakeRecord(
+            project.Name,
+            project.RepoUrl,
+            IntakeStatus.Failing,
+            OpenIssues: 0,
+            Failure: classification,
+            Because: failure.Message,
+            AtUtc: _clock.UtcNow,
+            Failures: failures,
+            AgainAfterUtc: again);
+
+        if (classification == FailureClass.Permanent)
+        {
+            // Once. This is the only record this failure will ever produce, which is the
+            // point of refusing to retry it: the log does not become a per-minute account
+            // of a fault that will not change, and the board carries it from here.
+            _logger.LogWarning(
+                failure,
+                "Could not poll {Project} at {Repository}: {Reason}. The factory has read that as a {Classification} "
+                    + "failure, and it will not read this project again: nothing that has happened here changes on its "
+                    + "own. Project files and the environment are read at start, so fixing it and restarting the factory "
+                    + "is what asks again.",
+                project.Name,
+                project.RepoUrl,
+                failure.Message,
+                classification);
+
+            return;
+        }
 
         _logger.LogWarning(
             failure,
-            "Could not poll {Project} at {Repository}: {Reason}. The factory has read that as a {Classification} failure, "
-                + "the {Count} in a row, and its next turn is {Due}.",
+            "Could not poll {Project} at {Repository}: {Reason}. The factory has read that as a {Classification} "
+                + "failure, the {Count} in a row, and this project is not read again before {Due}.",
             project.Name,
             project.RepoUrl,
             failure.Message,
             classification,
             failures,
-            due is { } after ? $"not before {after}" : "on the next pass, as any other");
-    }
+            again);
 
-    /// <summary>What a project has failed at, and until when it should be left alone.</summary>
-    private sealed record Backoff(int Failures, DateTimeOffset? DueUtc);
+        // Nothing is escalated here and nothing is parked, and that is a decision rather
+        // than an omission: escalation is a work item's state (ADR-0008), and a repository
+        // that cannot be read has produced no work item to escalate. The project-level
+        // fault is rendered on the board instead — see `HowToReadIntake`.
+    }
 
     private async Task IntakeFrom(Project project)
     {
@@ -260,10 +332,25 @@ public sealed class Poller
         var issues = await _github.ListOpenIssuesAsync(project.RepoUrl, CancellationToken.None);
 
         // The turn was taken and read. Whatever the rest of it does, this project is not
-        // failing any more, so its backoff is over — otherwise a repository that answered
-        // the first read and then failed the second would keep a wait earned by a
-        // different failure.
-        _backoff.Remove(project.Name);
+        // failing any more, so its wait is over — otherwise a repository that answered the
+        // first read and then failed the second would keep a wait earned by a different
+        // failure. Recorded rather than merely forgotten, because "polled" is one of the
+        // three things the board has to be able to tell a reviewer apart, and forgetting
+        // would leave this project indistinguishable from one the rotation has not reached.
+        //
+        // The count of open issues is recorded with it, so "polled and there is nothing
+        // open" is a stated answer rather than an empty lane. That is the whole difference
+        // #16 was about.
+        _intake[project.Name] = new IntakeRecord(
+            project.Name,
+            project.RepoUrl,
+            IntakeStatus.Polled,
+            OpenIssues: issues.Count,
+            Failure: null,
+            Because: null,
+            AtUtc: _clock.UtcNow,
+            Failures: 0,
+            AgainAfterUtc: null);
 
         // Nothing open means nothing to build against, so the branch is not asked for.
         if (issues.Count == 0)

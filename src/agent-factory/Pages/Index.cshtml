@@ -89,6 +89,64 @@
             <p class="refusal" data-refusal="the decision was refused">@Model.Refusal</p>
         }
 
+        @* Intake, always, and first. *@
+
+        @* Intake is the one thing on this board a reviewer trusts before anything else:
+            every lane below it was filled by it. So it is rendered in three states rather
+            than as the presence or absence of work items, because an empty Backlog is
+            three different facts — the repository was read and had nothing open, the
+            factory has never read it, or the factory tried and was refused — and the
+            third is a fault the reviewer has to see before they read anything else as
+            "there is nothing to do".
+
+            Rendered when the factory serves a project, healthy or not. A section that only
+            appears when something is wrong is a section whose absence carries no
+            information, which is the same argument the container budget makes by always
+            stating its bound.
+
+            Every served project is on it whatever the filter is, and that is deliberate
+            the other way round from the lanes: a filter narrows what a reviewer is looking
+            at, and a fault in the machine is not a view of it. Hiding a failing project
+            behind a filter would be a filter that could hide the reason there is nothing
+            on the board. *@
+        @{
+            var intake = Model.Intake;
+            var intakePolled = intake.Count(project => project.Status == IntakeStatus.Polled);
+            var intakeNeverPolled = intake.Count(project => project.Status == IntakeStatus.NeverPolled);
+            var intakeFailing = intake.Count(project => project.Status == IntakeStatus.Failing);
+        }
+        @if (intake.Count > 0)
+        {
+            <section class="intake"
+                     data-intake="intake"
+                     data-intake-state="@HowToReadIntake.Slug(HowToReadIntake.WorstOf(intake))"
+                     data-projects="@intake.Count"
+                     data-polled="@intakePolled"
+                     data-never-polled="@intakeNeverPolled"
+                     data-failing="@intakeFailing">
+                <h2>Intake</h2>
+                <p class="intake-summary" data-intake-summary="intake">@HowToReadIntake.Summarise(intake)</p>
+                <ul>
+                    @foreach (var project in intake)
+                    {
+                        <li class="intake-project"
+                            data-intake-project="@project.Project"
+                            data-intake-state="@HowToReadIntake.Slug(project.Status)"
+                            data-repo-url="@project.RepoUrl"
+                            data-open-issues="@(project.OpenIssues?.ToString() ?? string.Empty)"
+                            data-classification="@(project.Failure?.ToString() ?? string.Empty)"
+                            data-failures="@project.Failures"
+                            data-polled-at="@(project.AtUtc?.ToString("O") ?? string.Empty)"
+                            data-again="@project.Again">
+                            <strong>@project.Project</strong>
+                            <span class="repository">@project.RepoUrl</span>
+                            <span class="state">@project.Says</span>
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+
         @if (Model.Rejections.Count > 0)
         {
             <section class="refused-project-files">

@@ -638,6 +638,49 @@ public class PolicyTests
     }
 
     [Fact]
+    public void A_record_about_a_project_is_written_inside_a_scope_that_names_it()
+    {
+        // The companion to the work item's scope, and it exists because of a hole the work
+        // item's scope cannot fill: **a project whose intake failed has no work item.** It
+        // has no id, no issue number and no round, so the only identity such a record has
+        // is the project it is about, and a fault that is not attributable to a project is
+        // a fault an operator has to find by reading lines of prose.
+        //
+        // It is a second vocabulary rather than a fifth key in the first one, and that is
+        // the decision worth stating. `WorkItemScope`'s four keys are work-item-shaped —
+        // the work item, its project, its issue, its round — and a project-level record
+        // belongs to none of those except the project. Putting the project's name on such a
+        // record under `WorkItemProject` would mean a field called "the work item's
+        // project" carrying a project with no work item; filling the other three would mean
+        // inventing a work item id, an issue number and a round number for a work item that
+        // does not exist. So the work item's vocabulary is **unchanged** — the four keys and
+        // the ten call sites above are exactly what they were — and this is its own class
+        // with its own key and its own pinned list.
+        //
+        // Nothing was weakened to accommodate it. The claim above is still asserted in full
+        // and a new claim is asserted beside it, so widening either vocabulary is still a
+        // failing test rather than a silent addition.
+        var opened = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType?.Name == "ProjectScope"
+                && call.Called.Name == "ForProject")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        // Intake's two records about a project: the one that says a turn was skipped, and
+        // the one that says the turn failed. Both are records about a project and neither
+        // is about a work item, because neither has one.
+        Assert.Equal(["Poller.StepAsync", "Poller.TakeATurnAt"], opened);
+
+        // And the key, written out rather than read from the constant, so that a second kind
+        // of ambient identity is a failing test rather than something a record grows. It is
+        // prefixed for the reason the work item's are: a record's own message usually names
+        // the project too, and a sink that merged the two would emit the same field twice.
+        Assert.Equal(["FactoryProject"], ProjectScope.Keys);
+    }
+
+    [Fact]
     public void The_observability_component_can_reach_nothing_the_factory_does_not_already_reach()
     {
         // A new component in this process is a new thing that could be depended on, and the

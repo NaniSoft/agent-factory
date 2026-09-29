@@ -49,6 +49,18 @@ using Microsoft.Extensions.Logging;
 /// named in <see cref="GitHubResponse.Unclassifiable"/> rather than guessed at.
 /// </para>
 /// <para>
+/// <strong>Every request carries a <c>User-Agent</c>, and that is not politeness.</strong>
+/// GitHub <em>refuses</em> a request that does not carry one — a 403 whose body says so —
+/// so a client without it cannot read a repository, cannot open a pull request and cannot
+/// merge anything. That is not a hypothetical: this client had no <c>User-Agent</c> for its
+/// whole first life, every call it made was refused, and the entire external surface of the
+/// factory — intake and the merger both — had never worked. It is set on each request in
+/// <see cref="AskAsync"/>, which is the one place a request is built, so "every request
+/// carries one" is a property of the code path rather than a configuration somebody can
+/// drop; and a faked transport cannot catch a header the real service requires, so the test
+/// that holds this reads the header off the request the transport was actually handed.
+/// </para>
+/// <para>
 /// <strong>The credential.</strong> Read here, on the host, and used in exactly two places:
 /// an <c>Authorization</c> header on each request, and the environment of the one git child
 /// that pushes. It is never put in a URL, never put on a command line, and never logged —
@@ -73,6 +85,31 @@ public sealed class GitHubClient : IGitHub
     /// changed underneath itself.
     /// </summary>
     public const string ApiVersion = "2022-11-28";
+
+    /// <summary>
+    /// What this factory calls itself to GitHub, on every request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>GitHub refuses every request that does not carry a <c>User-Agent</c></strong>
+    /// — a 403 with a body that says so — so this is a requirement of the service rather
+    /// than good manners, and a client that omits it has no external surface at all: no
+    /// intake and no merge, with every request refused and the refusal looking like any
+    /// other 403. That is how this factory's first run against the real API went, and it
+    /// is why the header is set on the request in <see cref="AskAsync"/> rather than left to
+    /// a configured client's defaults: one place builds a request, so one place can be held
+    /// to putting it there.
+    /// </para>
+    /// <para>
+    /// The next person to add a client in this process should read that as the rule rather
+    /// than the exception. A faked transport cannot catch a header the real service
+    /// requires — it will happily answer a request GitHub would refuse — so the check that
+    /// matters reads the header off the request the transport was handed, and a fake that
+    /// reproduces one thing the real service refuses is worth more than a test that
+    /// asserts the client was configured correctly.
+    /// </para>
+    /// </remarks>
+    public const string UserAgent = "agent-factory";
 
     /// <summary>How many issues one page of the list asks for — GitHub's own maximum.</summary>
     public const int IssuePageSize = 100;
@@ -796,6 +833,16 @@ public sealed class GitHubClient : IGitHub
         using var request = new HttpRequestMessage(method, path);
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(Accept));
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", ApiVersion);
+
+        // Required by GitHub, which refuses a request without one. Every request this
+        // process makes to GitHub goes through here, so putting it here rather than on a
+        // configured client's default headers is what makes "every request carries one"
+        // true of the code rather than of a setting somebody can drop. See `UserAgent`.
+        //
+        // Added without validation, like the API version above: the value is a product
+        // token this class owns and there is nothing in it for the header parser to object
+        // to, and a parse is one more thing between a request being built and being sent.
+        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
 
         // The one place the credential is used for anything, and it is used as a header
         // rather than in the URL: a token in a URL is a token in a log line, in a proxy's
