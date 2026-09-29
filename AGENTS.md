@@ -70,12 +70,16 @@ Three seams are the only things that leave the building; everything else runs fo
 
 `INOpenCode` is implemented: `Rounds/WorkerRoundRunner.cs` runs one round in a real
 container, and `Containers/` is the runtime beneath it that owns the container's life.
-`IGitHub` still has no implementation, so the process registers a **refusal** in its place
-— `GitHub/GitHubNotBuiltYet.cs` — rather than failing to start. A registered component
-whose dependency cannot be resolved stops the process starting in development, and the
-board is worth having before that adapter exists. The test host's fakes are registered
-first and win, so the refusal is never reached under test. It is deleted, not left behind,
-when the merger lands (#10).
+`IGitHub` is implemented too: `GitHub/GitHubClient.cs` is the real GitHub API, and it is
+the process's **first and only `HttpClient`**. That is deliberate and it is checked —
+`The_process_holds_exactly_one_http_client_and_the_merger_is_it` names it, so a second
+component reaching for the network is a failing test rather than something a reader has to
+notice. The registration is `TryAdd` as the others are, so the test host's fake still
+wins. The `GitHubNotBuiltYet` refusal that stood in its place is gone rather than left
+behind, and `A_seam_with_nothing_behind_it_refuses_rather_than_doing_nothing` went with it
+— replaced, visibly, by `The_github_seam_is_a_real_client_and_a_call_it_cannot_make_says_which_one`,
+which keeps the guard it was (a seam that quietly did nothing must fail) aimed at the
+failure it can still have (a call that cannot be made must say which).
 
 ## The worker container
 
@@ -148,20 +152,39 @@ the reason this design is safe: **ADR-0011's guarantee is carried by `git status
 `git diff`, not by the command log.** A build tool that bypassed `run` still shows up in the
 files changed.
 
-### Credentials: one goes in, one does not
+### Credentials: one goes into a container, one does not
 
 `Credentials/ICredentialReader` is the **only** thing in the process that can turn a
-credential *name* into a credential *value*, and `WorkerRoundRunner.EnvironmentFor` is the
-**only** caller of it. `PolicyTests` asserts both by IL scan, so ADR-0006 is structural
-rather than a matter of care:
+credential *name* into a credential *value*, and it now has **two** callers.
+`PolicyTests` asserts both by IL scan, and **this claim changed deliberately and visibly
+for the merger** — it used to be "one caller", and it stopped being true the moment a
+merger existed. It was not weakened to accommodate the client. The shape of the design is
+what changed, and in ADR-0006's own words: the host "retrieves the commit, pushes the
+branch, and opens the pull request under the factory's own token", so a factory that ships
+changes and never resolves its own GitHub token would be a factory that cannot ship
+anything. Two readers is what that decision asks for. What did **not** change is the
+direction, and that is what the two halves of the test assert:
 
+- **The container boundary is one method.** A worker's environment is built in exactly one
+  place — `WorkerRoundRunner.RunRoundAsync` — and the only credential read on that path is
+  `EnvironmentFor`'s, which is the LLM key. So a credential value can only reach a worker
+  by going through the component whose one read is the LLM key's.
 - **The LLM key goes in.** The agent cannot reach a provider without it. It is scoped to
   one project, lives for one container, and is never logged. When the environment does not
   have it the round **still runs** and a warning says so — refusing there would be the
   factory deciding for itself that the agent needs one, and a round handed nothing that
   says nothing reads on a board as a round that needed nothing.
-- **The GitHub write token never does.** Its name is never passed to the reader, so the
-  value is never in the runner's hands and cannot be handed over even by accident.
+- **The GitHub write token never does.** The round runner never passes that name to the
+  reader, so the value is never in the runner's hands and cannot be handed over even by
+  accident. The merger resolves it on the **host**, after the container is gone, where
+  there is no container to hand it to.
+- **The merger uses it in two places and logs it in neither**: an `Authorization` header on
+  each request (never a query parameter, never a URL, because a token in a URL is a token in
+  a proxy's access log) and the environment of the one `git push` child. The *name* is
+  logged, because a name is not a secret and it is what an operator has to go and fix.
+  `The_credential_is_asked_for_by_name_and_never_appears_in_anything_the_factory_says`
+  checks the value against the formatted log lines, the exception a reviewer reads on the
+  board, and every request's path and body.
 
 ### The deriver
 
@@ -278,12 +301,151 @@ right and the restore is written against it; it does not prove a browser reopene
 `FactoryOptions.RoundsDirectory` is where a round's lifted-out result file and tree land,
 one directory per work item, beside the store. It is **kept** after the round: the host
 has to be able to reach the round's commit once the container that made it is gone, because
-the host pushes and not the container (ADR-0006). Turning that tree into a pull request is
-the merger's ticket (`#10`).
+the host pushes and not the container (ADR-0006). `GitHubClient` now turns that tree into a
+pull request, and **it is still not cleaned up** — see **The merger's files** below for why,
+and for the read-only pack files that a cleanup would have to clear first.
 
 It is kept for a second reason now, which is the review surface — see **The diff in
 Review** below. The board's diff is `git diff` against that directory, which is why the
 directory is not cleaned up after a round.
+
+## The merger
+
+`GitHub/GitHubClient.cs` is the real GitHub API and the whole of the factory's knowledge of
+it. One `MergeAsync(repoUrl, issueNumber, ct)` is the only way a change ships — push, open,
+merge — and the order it does them in is the whole of this section's argument:
+
+1. Resolve everything that can be refused without leaving the building — the project, its
+   credential, the work item behind the issue number, the round's tree on this host, and
+   the commit that tree is on.
+2. **Look for a pull request on this branch. Before anything is created and before the
+   branch is pushed.**
+3. Push the commit, unless the branch is already on the remote at exactly that commit.
+4. Open the pull request, or use the one that is already there.
+5. Merge it, and only if the branch still carries the commit the reviewer judged.
+
+**The read at step 2 is the idempotency, and nothing else in the method is.** Every attempt
+for one work item derives the *same* branch, because the branch is named deterministically
+from the issue number and the work item's title
+(`agent-factory/<issue-number>-<slug>`). So "the pull request for this branch" is a question
+with one answer, and a retry after a push that landed and a merge that did not finds the
+pull request the first attempt opened and goes straight to merging it. A branch named after
+a commit or a timestamp would make every attempt a new branch and every one a new pull
+request. `A_push_that_lands_and_a_merge_that_then_fails_does_not_leave_a_second_pull_request`
+is the test, and it asserts against a real bare repository on the machine that there is one
+branch and one pull request after two `MergeAsync` calls.
+
+Four other things make the same call safe to make twice, and each is a refusal rather than
+a convenience:
+
+- **An already-merged pull request is a success, not a second merge.** `Done` means merged,
+  the change is merged, and there is nothing left to do. A second approve or a retried
+  parked merge says so and creates nothing.
+- **A closed, unmerged pull request is refused permanently.** A human closing it is a
+  decline, and the asymmetry the whole loop is built on applies: a decline is conclusive
+  and the factory does not go around it. Re-opening and merging would be shipping a change
+  somebody closed, unattended.
+- **A branch that moved on is refused permanently** — at the push (there is no `--force`
+  anywhere in this factory, so a branch somebody else owns is not overwritten) and at the
+  merge (if the pull request's head is not the round's commit, the commits on it are not
+  the ones the board showed anybody).
+- **GitHub's own 422 closes the read-before-write race.** Two things asking at once both
+  find nothing; the second create is refused, and the client closes that window by asking
+  again rather than by reading the 422's message.
+
+**The pull request carries the work item's identity both ways.** The title is the issue's
+own title, unchanged, so the two things a reader compares are the same string. The body's
+first line is `Refs #42`, and **the issue is linked rather than closed** — that is a
+decision, and `A_pull_request_body_can_never_close_the_issue_it_answers` holds the rendered
+body against GitHub's own closing-keyword list. Merging a pull request whose body says
+`Closes #42` closes the issue, and this factory can merge a change *nobody reviewed* (at
+the 48-hour threshold, or on a retry of a merge that failed), so closing somebody's issue on
+the strength of that is a second claim the merge has not earned. Nothing is lost by leaving
+it open: intake is idempotent on `(repo_url, issue_number)`, so a still-open issue is found
+again and changes nothing about a work item that is already Done.
+
+**The branch is a git refspec, an HTTP path segment and a pull request body**, and an
+issue's title is a stranger's words, so the slug is reduced to `[a-z0-9-]` and nothing else
+can survive into it. A title with nothing sluggable in it gets a fixed word rather than an
+empty ref component.
+
+**The work item is the source of the title, base branch and tree path, not GitHub.**
+Reading the issue back from the API would be a second source of truth about the same thing,
+free to disagree with the board the reviewer read — and since the branch name is derived
+from the title, a title edited on GitHub between the round and the merge would move the
+branch out from under a push that had already happened. So `GitHubClient` reads
+`IWorkItemStore`, which is the one piece of factory state the adapter holds and is stated
+here because it is a real coupling.
+
+**A round that left changes uncommitted is not shipped at all.** The board's diff is `git
+diff` against the base of the *working tree*, so it shows a round's uncommitted files along
+with its commits; a push sends only what was committed. Shipping the committed part and
+calling it the reviewed change would make `Done` mean something the reviewer never saw, and
+committing the difference on the host would make the host the author of work nobody
+reviewed (ADR-0006). So the two are refused against each other, permanently, and a human
+finishes it from the board.
+
+**The merge is a merge commit** (`merge_method: "merge"`), not a squash. A squash would
+rewrite the round's commit, so the change on the base branch would not be the commit the
+reviewer judged, and reverting would not be one action against one commit. The spec asks
+for every merge to be a real pull request that can be reverted, and this is the shape where
+that is literally true.
+
+### The merger's files
+
+**Lifted trees are not cleaned up, and the decision is #11's to revisit rather than this
+ticket's.** Three reasons, and the first is the one that binds: the review surface reads
+`diff_tree` off the round record and the card prints that path, so a tree is still evidence
+a reviewer is being pointed at days later — including for a work item that was **rejected**,
+which never reaches a pull request and so has no other copy of its change anywhere. The
+board stores the diff rather than re-running git, so nothing regenerates it. And there is
+no retention policy in this factory at all; a delete is irreversible and unreviewable, and
+one process's disk is not yet a problem worth solving by losing data.
+
+If a tree is ever cleaned up, it has to clear **read-only object files** first: a tree
+lifted out of a Linux container arrives on Windows with read-only pack files and a recursive
+delete refuses to remove one. `LiftedTree.WithReadOnlyObjects` makes that the normal case in
+the tests rather than an edge one, and its `Dispose` and `BareRemote.Dispose` both do the
+walk. **The merger itself never writes to the tree at all** — the push is a read of its
+objects and a write to the remote, and `GIT_OPTIONAL_LOCKS=0` is set so git's index refresh
+cannot be the thing that fails — which is why the merger needs no such handling.
+
+### Testing the merger
+
+Three layers, and the honest split.
+
+`GitHub/MergeTests.cs` is the load-bearing one: the real client, real git, a real tree with
+read-only object files, and a real **bare repository on this machine** as the push target.
+That last part is what makes the idempotency test worth anything — a push that half-succeeded
+is a property of a remote, and asserting it against a stub would be asserting the stub. A
+directory git accepts as a remote is a remote; what this cannot exercise is HTTPS
+authentication, which is why the credential is covered where it is actually decided (the
+header and the child's environment) rather than there.
+
+`GitHub/GitHubApi.cs` is the faked transport. The seam is `HttpMessageHandler`, so the
+client, its classification, its git invocations and its own ordering all run for real and
+only the network is gone. It records every request's method, path, query, body and headers,
+so the assertions are about requests and about repository state rather than about which
+class called which. **It filters `state` on the pull request list the way GitHub does**,
+because a fake that answered every state the same way would let a client that asked for
+`state=open` pass — and a client that cannot see a merged pull request ships a change twice.
+
+`GitHub/GitHubResponseTests.cs` is the classification table as a table, so every row is
+checked as a decision about whether a work item is ever tried again.
+
+**What is not covered, and cannot be without a token.** There is no GitHub credential in
+this environment, so nothing here runs against github.com. The real API's shape — the exact
+field names, whether a 405 really does arrive for a conflict and for a raced base both, what
+GitHub actually sends in a `Link` header — is taken from its documentation and is not
+verified here. What *is* verified is everything the factory decides: what it asks for, in
+what order, what it does with each answer, and what it does when the same call is made
+twice.
+
+**One test does not prove what a reader might assume.** The classifier's `Unclassifiable`
+list is asserted to have four entries by name, which is a check that the documentation has
+not shrunk — not a proof that those four are the only cases. A fifth thing GitHub does that
+no status code decides would arrive as a permanent failure, which is the safe direction and
+not the right one.
 
 ## The diff in Review
 
@@ -375,6 +537,14 @@ one would be the first thing in the factory to have one. `PolicyTests` asserts i
 structurally — only `Poller` and `Orchestrator` call `IGitHub` at all, and the diff reader's
 constructor takes no client, no agent, no credential reader and no `HttpClient`.
 
+**The process now holds an `HttpClient`, and these assertions are stronger for it.** The
+merger is the one component that has one — `The_process_holds_exactly_one_http_client_and_the_merger_is_it`
+names it — and a check that "the diff reader takes no `HttpClient`" only means something
+while a `HttpClient` is something a component *could* have. The property being defended is
+availability: a reviewer can judge a change when GitHub is unreachable, and a diff fetched
+from the same service that produced the change would be a second opinion from the thing
+under review rather than evidence about it.
+
 Three further honesty cases the board distinguishes rather than collapsing, each with a test:
 
 | On the card | Means | Not |
@@ -447,8 +617,8 @@ One `StepAsync()` applies at most one transition, which is what makes the
 timer. A step **does** await the merge an approve asks for, because merging is the transition
 that approve *is* rather than something asked for earlier and collected later — a reviewer's
 click has to do something now. Nothing sleeps, defers or times out in the loop. A merge that
-hangs rather than fails is bounded by the seam's own client when it exists (#10), not by
-anything here.
+hangs rather than fails is bounded by the seam's own client — which now exists, and whose
+bound is `HttpClient.Timeout` rather than a timer here.
 
 **The step order changed with the budget, and that is the generalisation.** A round that has
 come back is landed first, then a decision a reviewer made, then a work item nobody reviewed,
@@ -521,7 +691,8 @@ second, and the count that is supposed to bound concurrency would bound nothing.
 another caller and not a wait for anything: no timeout, held only for the length of a step,
 and the only one in the process, which `PolicyTests` asserts so that it cannot quietly become
 a queue with a deadline. It is held across the merge an approve asks for, which is a merge
-that hangs rather than fails — bounded by the seam's own client (#10), not by anything here.
+that hangs rather than fails — bounded by the seam's own client, whose bound is
+`HttpClient.Timeout`, not by anything here.
 
 ### The heartbeat
 
@@ -656,8 +827,8 @@ remainder of the last one. The comparison is against `IClock`, so the suite has 
 and a restart does not forget the wait.
 
 **That merge is a merge.** It goes through the same `IGitHub.MergeAsync` an approve does
-and obeys the same rule, so there is no second path to `Done`: with no merger behind the
-seam, an ignored work item cannot complete either, and it does not report a change shipped
+and obeys the same rule, so there is no second path to `Done`: an ignored work item that
+the client cannot ship does not complete either, and it does not report a change shipped
 that was not. It is exactly one attempt, because the work item leaves Review the moment
 it lands or parks.
 
@@ -685,12 +856,14 @@ separate cause column would be a second copy of what the record already says, fr
 disagree with it. The merge failure's own message is *not* persisted — that is the log
 and the response the reviewer was holding.
 
-Still not here, and deliberately: the merger (`#10`) and the diff view (`#11`). The agent and
-the result deriver are here — see **The worker container**. The container budget and the
-driver are here too — see **The loop**. Retry classification and backoff are here too: see
-**Failure paths and retry** below. Nothing
-sleeps, defers or times out in any of this: the ceiling is a count and the threshold is a
-comparison against `IClock`.
+Everything this section described is here: the agent and the result deriver — see **The
+worker container**; the merger and the diff in Review — see **The merger** and **The diff
+in Review**; the container budget and the driver — see **The loop**; retry classification
+and backoff — see **Failure paths and retry** below. What is deliberately *not* here is
+anything that widens the loop's policy: still no fourth decision, no board write path beyond
+the reviewer's form, and no way to reopen a parked work item. Nothing sleeps, defers or
+times out in any of this: the ceiling is a count and the threshold is a comparison against
+`IClock`.
 
 ## Failure paths and retry
 
@@ -722,8 +895,33 @@ unclassified unattended retry is what parking a failed merge exists to prevent.
   `In Progress | round timed out | Escalated`. Not retried, because a round that hung for
   ninety minutes is the most expensive thing the factory has and would very likely hang
   again. It is still ended and its token still cancelled.
-- `IGitHub` — #10's to declare. Until it does, every merge refusal is permanent, which is
-  the honest reading of "we do not know why this failed".
+- `GitHubClient` — the whole table is `GitHub/GitHubResponse.cs`, and it is read off the
+  status code and two headers rather than out of GitHub's prose. Permanent: 401, 404, 409,
+  422, a 405 on a merge whose `mergeable_state` does not explain it, a 403 with no
+  rate-limit header (wrong scope, SSO, branch protection), a body this client cannot read as
+  the API's shape. Transient: any 5xx, 429, a 403 carrying `Retry-After` or
+  `X-RateLimit-Remaining: 0`, and anything that never got an answer at all — DNS, a refused
+  connection, a dropped socket, the client's own timeout.
+
+  Four things reach this client that **no status code decides**, and they are named in
+  `GitHubResponse.Unclassifiable` rather than guessed at, because a factory that reads
+  answers for substrings is guessing in exactly the way the rest of this codebase refuses
+  to: a 405 whose mergeable state does not say why (read back the pull request and use
+  `mergeable_state`, which is a field); a push git refused (ask the remote — is the branch
+  at this commit, and can the repository be reached at all); a merge that answered 200
+  without saying it merged (read the pull request back); and an answer that was not the
+  shape the API documents.
+
+  Two of those are worth spelling out because they are the judgements rather than the
+  mechanics. **A 405 is two facts in one status code** — the change conflicts with the base
+  (permanent; only another round or a human settles that) and the base moved while the merge
+  was being made (transient; the next attempt is against the new base) — and the retry
+  policy needs them told apart, so `mergeable_state` is read rather than the message. **A
+  push git refused is classified by asking the remote two questions**, never by reading
+  git's output, because git has no status code and its prose is not a contract: if the
+  branch is now at the commit that was pushed the push landed, if it is at another commit
+  the branch is not ours, and if it is not there then whether the repository can be reached
+  at all decides between a connection that was not there and the remote declining.
 
 **A build that fails its tests is structurally unretriable, not merely un-retried.** A
 round that ran and whose change failed comes back `Produced` with the failing exit code in
@@ -776,8 +974,10 @@ Nothing here sleeps, defers or times out. A backoff is a `TimeSpan` compared aga
 scans the application IL for `Task.Delay`, `Thread.Sleep`, `Timer` and
 `CancellationTokenSource.CancelAfter` and requires none of them **in the policy** — the one
 exception is the heartbeat's own tick, named and counted, under **The heartbeat** above —
-which is also why a bounded GitHub read is left to the seam's own client (#10) rather than
-given a timer here, the same answer the merge call already has.
+which is also why a bounded GitHub read is left to the seam's own client rather than given
+a timer here, the same answer the merge call already has. That client exists now and holds
+`HttpClient.Timeout`; `PolicyTests` still finds exactly one `Task.Delay` in the assembly
+after it landed, which is the check that says the arrangement cost nothing.
 
 **A retry now waits for a heartbeat rather than for a reviewer.** That is the whole of what
 the driver changed for this policy, and it is worth saying precisely because a retry is
@@ -802,12 +1002,16 @@ So the loop applies an approve by asking the one `IGitHub` seam to merge, and on
 merge that came back moves the work item to Done. The merge is **one** call
 (`IGitHub.MergeAsync`) and the loop passes only what it knows: the repository and the issue
 the change answers. Which pull request the change ships as, what it is called, and how the
-branch is pushed are the merger's business behind the seam (#10). The loop has no concept
+branch is pushed are the merger's business behind the seam. The loop has no concept
 of a pull request, the way it has no concept of a container.
 
-**Today no merger exists, so an approve cannot complete.** The seam refuses, the reviewer's
-decision is recorded and not lost, and the work item is parked. That is the honest
-outcome rather than a failure to handle.
+**A merge can still fail**, because the client is now real and a real repository can say
+no: a branch that moved on, a change that conflicts, a credential with the wrong scope, a
+refused push. Those are the client's failures and the loop parks them, and the three
+properties below apply to every one of them. What changed is only that a *healthy* merge
+now lands. **The merger's own failures are the ones the retry policy reads**, and they are
+declared in `GitHubResponse` rather than guessed at from a message — see **Failure paths and
+retry** below.
 
 **A failed merge leaves the work item in Escalated**, with its approval on the record and
 the loop's answer to that approval recorded as Escalated — the reviewer approved, it was

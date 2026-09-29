@@ -71,6 +71,39 @@ public class PolicyTests
     }
 
     [Fact]
+    public void The_merger_is_the_first_component_with_a_timeout_and_it_bought_none()
+    {
+        // The GitHub client is the first component in the process that talks to something
+        // with a clock of its own, so it is the first thing that could have introduced a
+        // second place the factory keeps time. The loop and the poller both hand the seam
+        // `CancellationToken.None` and leave the bound to the client, deliberately — so this
+        // is the assertion that says the arrangement cost nothing, and it is here rather
+        // than in the client's own tests because the claim is about the *assembly*.
+        //
+        // It is the two assertions above, unchanged, plus the observation that they now have
+        // more code to be right about. Both still pass with a client in the process, and
+        // both would fail if the client had bounded a request with a cancellation that
+        // fires on a delay rather than with the transport's own refusal to hang.
+        Assert.Equal(
+            ["FactoryDriver.ExecuteAsync"],
+            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.Tasks.Task:Delay"));
+
+        var timed = CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.CancellationTokenSource:CancelAfter");
+        Assert.True(
+            timed.Count == 0,
+            "a cancellation that fires on a delay is a clock, and the seam's own bound is a client timeout: "
+                + string.Join(", ", timed));
+
+        // And the bound is a named one rather than a default nobody chose. A request with no
+        // bound is a merge that can hold a reviewer's click open for ever, which is the one
+        // thing the loop's own gate cannot fix: it holds the machine, and the machine is
+        // held until the client comes back.
+        Assert.True(
+            AgentFactory.GitHub.GitHubClient.RequestTimeout > TimeSpan.Zero,
+            "a GitHub request with no bound is a merge that can hang for ever");
+    }
+
+    [Fact]
     public void The_one_gate_in_the_factory_is_the_loops_step_and_it_waits_for_no_one()
     {
         // With a heartbeat there are two things that can ask the machine for a step at once
@@ -225,17 +258,29 @@ public class PolicyTests
         }
     }
     [Fact]
-    public void Only_the_round_runner_can_put_a_credential_value_into_a_worker_container()
+    public void Only_the_round_runner_puts_a_credential_into_a_container_and_only_the_merger_resolves_one()
     {
-        // ADR-0006 as a structural property rather than a matter of care. One component in
-        // the process may turn a credential *name* into a credential *value*, and it is the
-        // one that hands a round to a container. Every other component that touches a
-        // credential holds the name and nothing else, so a GitHub token cannot reach a
-        // worker container by a route nobody re-checked.
+        // ADR-0006 as a structural property rather than a matter of care, and **this test
+        // changed deliberately and visibly for the merger**, because the fact it asserted
+        // was "one component in the process may turn a credential name into a value" and
+        // that stopped being true the moment a merger existed. It was not weakened to
+        // accommodate the client: the boundary it guards is still exactly two places, and
+        // both are named.
         //
-        // It is checked by who calls the reader rather than by what the runner does with
-        // what it reads, because the caller is the boundary: one caller is a line that can
-        // be read and argued with, and a second is a second way in.
+        // The shape of the claim has changed because the *design* has. ADR-0006 says the
+        // host holds every write credential — "the host retrieves the commit, pushes the
+        // branch, and opens the pull request under the factory's own token" — so a factory
+        // that ships a change and never resolves its own GitHub token would be a factory
+        // that cannot ship anything. Two readers is what the decision asks for, not a
+        // slip in it: the round, which puts a value into a container, and the merger, which
+        // puts a value into a header.
+        //
+        // What has not changed is the direction, and that is what the two halves assert.
+        // The *container* boundary is still one method, and no third component can widen
+        // it: a component that could read any credential could hand the GitHub one to a
+        // worker, and ADR-0006's whole claim is that it cannot. The merger's read is on the
+        // other side of the boundary entirely — it is the host, it is after the container is
+        // gone, and there is no container for it to hand anything to.
         var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
             .Where(call => call.Called.DeclaringType?.Name == "ICredentialReader"
                 && call.Called.Name == "Read"
@@ -245,19 +290,24 @@ public class PolicyTests
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(["WorkerRoundRunner.EnvironmentFor"], readers);
+        // Two, and both are the ones the design names: the round that is starting, and the
+        // host that ships what it produced.
+        Assert.Equal(["GitHubClient.TokenFor", "WorkerRoundRunner.EnvironmentFor"], readers);
 
-        // And the same check the other way round: the GitHub key name is never an argument
-        // to anything that could resolve it. The project's record holds the name, the
-        // runner holds the reader, and nothing connects them outside EnvironmentFor.
-        var uses = CallsMadeBy(typeof(FactoryApp).Assembly)
-            .Where(call => call.Called.DeclaringType == typeof(ICredentialReader))
-            .Select(call => call.Caller?.DeclaringType?.Name)
-            .Distinct()
-            .Order(StringComparer.Ordinal)
-            .ToList();
-
-        Assert.Equal(["WorkerRoundRunner"], uses);
+        // The container half, and it is the half that has not moved. A worker's environment
+        // is built in exactly one place in the process, and that place is inside the round
+        // runner: so a credential value can only reach a worker container by going through
+        // the component whose one credential read is the LLM key's, and ADR-0006's claim
+        // holds by shape rather than by care. The merger is not on that path and cannot get
+        // onto it, because it is not the thing that builds containers.
+        //
+        // Checked as *the one construction site* rather than as a name in a list of readers,
+        // because the readers list says who asked and this says who can put. A third reader
+        // somewhere harmless is caught by the list above; a second way to build a container's
+        // environment is caught here, and it is the one that would undo ADR-0006.
+        Assert.Equal(
+            ["WorkerRoundRunner.RunRoundAsync"],
+            ConstructorsOf<AgentFactory.Containers.WorkerContainerRequest>());
     }
 
     [Fact]
@@ -549,15 +599,9 @@ public class PolicyTests
                     continue;
                 }
 
-                for (var at = 0; at < il.Length;)
+                foreach (var at in Instructions(il))
                 {
-                    var (consumed, token) = ReadCall(il, at);
-                    at += consumed;
-
-                    if (token is not { } or 0)
-                    {
-                        continue;
-                    }
+                    var token = BitConverter.ToInt32(il, at + 1);
 
                     MethodBase? called = null;
                     try
@@ -597,23 +641,128 @@ public class PolicyTests
     }
 
     /// <summary>
-    /// The length of the instruction at <paramref name="at"/>, and the metadata token it
-    /// carries if it is a <c>call</c>, a <c>callvirt</c> or a <c>newobj</c>.
+    /// The offset of every <c>call</c>, <c>callvirt</c> and <c>newobj</c> in a method body.
     /// </summary>
-    private static (int Length, int Token) ReadCall(byte[] il, int at)
+    /// <remarks>
+    /// <para>
+    /// <strong>This used to be a scan that advanced one byte at a time and only read a
+    /// token when it happened to be standing on one of the three call opcodes.</strong> That
+    /// works only while the reader's position happens to land on an opcode boundary, and
+    /// that is luck rather than a property: <c>ldarg.s</c> is two bytes, <c>ldc.i4</c> is
+    /// five, and a scan that steps over them lands inside operands. It then reads a byte of
+    /// somebody's constant as if it were an opcode, skips a length that has nothing to do
+    /// with the instruction it is actually in, and can end up stepping over a real call
+    /// without ever seeing it.
+    /// </para>
+    /// <para>
+    /// It went wrong the moment the GitHub client landed, and it went wrong silently: the
+    /// host diff reader stopped appearing as a caller of <c>Process.Start</c>, which made
+    /// <c>A_rounds_diff_is_generated_from_git_and_from_nothing_else</c> fail on a
+    /// <em>missing</em> entry rather than on a wrong one — a reader that misses calls
+    /// makes every claim in this file weaker, because "no second caller" and "this caller
+    /// was not seen" are indistinguishable. Nothing else in the suite would have caught
+    /// it: a check that only ever passes on an empty result is not a check.
+    /// </para>
+    /// <para>
+    /// So the instruction lengths come from the runtime's own opcode table rather than from
+    /// a guess. Every opcode is asked how many bytes it occupies, which is a table the
+    /// runtime already has and cannot get wrong; the fallback for an opcode the table does
+    /// not know is one byte, which is the shortest any instruction can be, so a future
+    /// opcode can only make the scan re-read an operand rather than skip past a call.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<int> Instructions(byte[] il)
     {
-        var op = il[at];
-
-        // A two-byte opcode has 0xFE as its first byte, which is not itself an opcode.
-        if (op == 0xFE)
+        for (var at = 0; at < il.Length;)
         {
-            return (2, 0);
+            var op = il[at];
+            var size = 1;
+            int token;
+
+            if (op == 0xFE)
+            {
+                // A two-byte opcode: 0xFE is a prefix, never an instruction of its own.
+                if (at + 1 >= il.Length)
+                {
+                    yield break;
+                }
+
+                size = 2;
+                token = 0xFE00 | il[at + 1];
+            }
+            else
+            {
+                token = op;
+            }
+
+            if (token == 0x45)
+            {
+                // `switch`, whose case table is a run of int32 offsets the length of which
+                // is the operand itself. Decoded here because no fixed operand length is
+                // right for it, and getting it wrong steps over everything after the jump.
+                var cases = BitConverter.ToInt32(il, at + 1);
+                at += size + 4 + (4 * cases);
+                continue;
+            }
+
+            if (token is 0x28 or 0x6F or 0x73 && at + 4 < il.Length)
+            {
+                yield return at;
+            }
+
+            at += size + OperandBytes(token);
+        }
+    }
+
+    /// <summary>
+    /// How many bytes of operand each instruction carries, read off the runtime's own
+    /// opcode table once. A switch's case table is variable-length and is handled where it
+    /// is decoded rather than here, because no fixed answer is right for it.
+    /// </summary>
+    private static readonly Dictionary<int, int> OperandSizes = Build();
+
+    private static Dictionary<int, int> Build()
+    {
+        var sizes = new Dictionary<int, int>();
+
+        foreach (var field in typeof(System.Reflection.Emit.OpCodes).GetFields())
+        {
+            if (field.GetValue(null) is System.Reflection.Emit.OpCode op)
+            {
+                sizes[op.Value & 0xFFFF] = OperandLength(op.OperandType);
+            }
         }
 
-        var isCall = op is 0x28 or 0x6F or 0x73;
-
-        return isCall && at + 4 < il.Length
-            ? (5, BitConverter.ToInt32(il, at + 1))
-            : (1, 0);
+        return sizes;
     }
+
+    /// <summary>
+    /// How many bytes of operand an instruction of this shape carries. A token is four and
+    /// a switch is four plus its case table; everything else is fixed, and the sizes come
+    /// from the enum rather than from a table written out here.
+    /// </summary>
+    private static int OperandLength(System.Reflection.Emit.OperandType operand) => operand switch
+    {
+        System.Reflection.Emit.OperandType.InlineNone => 0,
+        System.Reflection.Emit.OperandType.ShortInlineBrTarget or
+        System.Reflection.Emit.OperandType.ShortInlineI or
+        System.Reflection.Emit.OperandType.ShortInlineVar => 1,
+        System.Reflection.Emit.OperandType.InlineVar => 2,
+        System.Reflection.Emit.OperandType.InlineBrTarget or
+        System.Reflection.Emit.OperandType.InlineField or
+        System.Reflection.Emit.OperandType.InlineI or
+        System.Reflection.Emit.OperandType.InlineMethod or
+        System.Reflection.Emit.OperandType.InlineSig or
+        System.Reflection.Emit.OperandType.InlineString or
+        System.Reflection.Emit.OperandType.InlineTok or
+        System.Reflection.Emit.OperandType.InlineType or
+        System.Reflection.Emit.OperandType.ShortInlineR => 4,
+        System.Reflection.Emit.OperandType.InlineI8 or
+        System.Reflection.Emit.OperandType.InlineR => 8,
+        System.Reflection.Emit.OperandType.InlineSwitch => 0,
+        _ => 0,
+    };
+
+    private static int OperandBytes(int token) =>
+        OperandSizes.TryGetValue((ushort)token, out var size) ? size : 0;
 }

@@ -9,19 +9,31 @@ using AgentFactory.WorkItems;
 /// Approve means merged. The design says so — Done is "approved and merged", and approve
 /// "triggers the auto-merge" — so an approval is not complete until a merge has actually
 /// landed through the GitHub seam. Driven over the board's own HTTP surface, the way a
-/// reviewer approves, with only the agent, the clock and GitHub faked. There is no merger
-/// behind the seam, so the default here is an approval that cannot be carried out: which
-/// is what a factory without a merger must do rather than report a merge that did not
-/// happen.
+/// reviewer approves, with only the agent, the clock and GitHub faked.
 /// </summary>
+/// <remarks>
+/// The seam is faked rather than real here because what is under test is the *loop's*
+/// contract with it: that `Done` is reachable only through one call, and that a refusal
+/// parks and says so. The client's own behaviour — the push, the pull request, the merge,
+/// and the idempotency of all three — is tested in <c>AgentFactory.Tests.GitHub</c>,
+/// against real git and a real repository, because testing the client through the board
+/// would have proved the board works.
+/// </remarks>
 public class ApproveTests
 {
     private const string RepoUrl = "https://github.com/NaniSoft/nexus";
 
     private const string IssueBody = "What the issue says, in the maintainer's words.";
 
+    // **The refusal text changed when the real merger landed, and the test that carries it
+    // changed with it.** It used to name a missing merger, which is no longer the reason a
+    // merge does not happen; the fake refuses until a test says otherwise, which is. The
+    // assertion is unchanged in what it checks — a refusal the reviewer is holding, saying
+    // the change did not ship and where the work item went — and the reviewer's own
+    // decision is still recorded whether or not it could be carried out.
     private const string Merged = "nexus#42 was approved, but the change was not merged: "
-        + "there is no merger behind this seam yet: merging is the merger's business, and the merger is not built. "
+        + "nothing is configured to land this merge: the fake GitHub refuses every merge until a test asks for one, "
+        + "so that a test which wants Done has to say so. "
         + "It is parked in Escalated, where a human can merge it, and nothing shipped.";
 
     [Fact]

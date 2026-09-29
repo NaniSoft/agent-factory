@@ -71,11 +71,31 @@ public static class FactoryApp
         // still has no concept of a container. TryAdd, so the fake in the test host wins.
         builder.Services.TryAddSingleton<INOpenCode, WorkerRoundRunner>();
 
-        // The GitHub seam is still the other one with no implementation behind it, and it
-        // stays a refusal: the process has to be able to start and serve the board, and a
-        // call that would leave the building has to say which ticket brings the adapter
-        // rather than fail on a null or, worse, quietly do nothing.
-        builder.Services.TryAddSingleton<IGitHub, GitHubNotBuiltYet>();
+        // The GitHub seam now has an implementation, and it is the first `HttpClient` in the
+        // process — deliberately, and only here. Intake reads through this client and the
+        // loop merges through it, so it is the one place the factory talks to GitHub, and
+        // the review surface still cannot: `PolicyTests` names this type as the single
+        // component allowed to hold a transport, for the same reason it names the driver's
+        // single `Task.Delay` (ADR-0003, one process, one boundary).
+        //
+        // The token is never on a command line and never in a URL: it goes into one
+        // `Authorization` header per request and into the environment of the one git child
+        // that pushes, and the loop is handed `CancellationToken.None` so that the bound on
+        // a request is the client's own timeout rather than a timer the policy is forbidden
+        // to have. TryAdd, so the fake in the test host wins.
+        builder.Services.AddHttpClient(GitHubClient.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.Timeout = GitHubClient.RequestTimeout;
+        });
+
+        builder.Services.TryAddSingleton<IGitHub>(services => new GitHubClient(
+            services.GetRequiredService<IHttpClientFactory>().CreateClient(GitHubClient.HttpClientName),
+            services.GetRequiredService<ProjectLoadReport>(),
+            options,
+            services.GetRequiredService<IWorkItemStore>(),
+            services.GetRequiredService<ICredentialReader>(),
+            services.GetRequiredService<ILogger<GitHubClient>>()));
 
         builder.Services.AddSingleton<IWorkItemStore>(services =>
             new SqliteWorkItemStore(options.DatabasePath, services.GetRequiredService<IClock>()));
@@ -119,9 +139,9 @@ public static class FactoryApp
         // IGitHub is one seam covering both polling and merging — one boundary rather than
         // two that can disagree about what a repository is, and now both halves of the
         // factory are wired to it: intake reads through it and the loop merges through it.
-        // What is registered above is the refusal, so an approve cannot complete until the
-        // real client replaces it. That is the honest outcome: the reviewer's decision is
-        // recorded and the work item does not report a merge that did not happen.
+        // One `MergeAsync` is the whole of what "shipped" means to the loop: the client
+        // pushes the branch, opens the pull request if there is not already one, and merges
+        // it, from the host, under a credential no worker container ever held (ADR-0006).
 
         // The board's only write path is the reviewer's three decisions: the one form the
         // page renders, in Review. It records the decision and asks the loop to apply it,

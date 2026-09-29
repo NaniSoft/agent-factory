@@ -19,17 +19,24 @@ public sealed class FakeGitHub : IGitHub
 
     /// <summary>
     /// What a merge refuses with, and how the factory has read it, or null when merges
-    /// land. It starts as a permanent refusal because that is what the seam has behind it
-    /// today: there is no merger, and a fake that merged things on its own would let a test
-    /// pass on a success the factory would not have in production. A test that wants Done
-    /// asks for a merge that lands.
+    /// land. It starts as a permanent refusal, and that has not changed as the real merger
+    /// landed: a fake that merged things on its own would let a test pass on a success the
+    /// factory would only have in production, and every test of the loop's merge policy
+    /// wants to see the refusal first. A test that wants Done asks for a merge that lands.
     /// </summary>
+    /// <remarks>
+    /// The wording changed when the real client landed, because the old one said the merger
+    /// was not built and that stopped being true. The behaviour is identical and the reason
+    /// is the same one: a seam that quietly landed everything would hide the loop's own
+    /// decisions behind a fake's good intentions.
+    /// </remarks>
     private Refusal? _mergeRefusal = new(
         FailureClass.Permanent,
         NoMergerBehindTheSeam);
 
     private const string NoMergerBehindTheSeam =
-        "there is no merger behind this seam yet: merging is the merger's business, and the merger is not built";
+        "nothing is configured to land this merge: the fake GitHub refuses every merge until a test asks for one, "
+            + "so that a test which wants Done has to say so";
 
     /// <summary>Every repository the poller took a turn at, in the order it took them.</summary>
     public IReadOnlyList<string> Polled => _polled;
@@ -135,8 +142,15 @@ public sealed class FakeGitHub : IGitHub
     }
 
     public Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken) =>
+        // The loop never calls this, and never will: `MergeAsync` is one call and opening a
+        // pull request is a step inside it (ADR-0006). A fake that implemented it anyway
+        // would let a test exercise a path the factory does not have, and would be a second
+        // answer to "how does a change get shipped" — the disagreement this seam exists to
+        // prevent. Recorded here so that its absence is a decision rather than a gap.
         throw new NotSupportedException(
-            "opening a pull request is the merger's business, and the merger is not built yet");
+            "the loop asks for a merge and never for a pull request: one MergeAsync call pushes the branch, opens "
+                + "the pull request if there is not already one, and merges it, and nothing above the seam decides "
+                + "which pull request a change ships as");
 
     public Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken)
     {

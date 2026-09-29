@@ -36,6 +36,14 @@ public sealed class ContainerRuntime
     /// <summary>Where the image puts the repository the round fetched.</summary>
     public const string WorkPathInContainer = "/work";
 
+    /// <summary>
+    /// The folder inside a round's landing directory that the round's tree is lifted into.
+    /// Named here rather than written out at each end, because two components now have to
+    /// agree on it: this runtime, which puts the tree there, and the merger, which reads
+    /// the commit out of it and pushes it (ADR-0006).
+    /// </summary>
+    public const string RoundTreeFolder = "tree";
+
     /// <summary>How much of a finished round's log is kept for the log line that follows it.</summary>
     private const int LogTailBytes = 8192;
 
@@ -100,7 +108,7 @@ public sealed class ContainerRuntime
             var tree = await LiftAsync(
                 request.Name,
                 WorkPathInContainer,
-                Path.Combine(landing, "tree"),
+                Path.Combine(landing, RoundTreeFolder),
                 cancellationToken);
 
             return new WorkerContainerRun(result, tree, tail.Text);

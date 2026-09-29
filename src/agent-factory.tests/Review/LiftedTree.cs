@@ -41,9 +41,16 @@ public sealed class LiftedTree : IDisposable
     /// the shape a fresh clone of a project's base has: the base is in the history, and
     /// the round is about to add to it.
     /// </summary>
-    public static LiftedTree WithACommitOn(string branch = "main")
+    /// <param name="branch">The branch the round was given, and the base its diff is against.</param>
+    /// <param name="at">
+    /// Where to build it. A merger test needs the tree to be where the round runner would
+    /// have lifted it — inside the factory's own rounds directory, under the work item's
+    /// own id — because that path is what the merger computes and nothing else tells it
+    /// where a round's commit is (ADR-0006).
+    /// </param>
+    public static LiftedTree WithACommitOn(string branch = "main", string? at = null)
     {
-        var path = System.IO.Path.Combine(
+        var path = at ?? System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             "agent-factory-tests",
             Guid.NewGuid().ToString("n"));
@@ -149,6 +156,13 @@ public sealed class LiftedTree : IDisposable
 
         return this;
     }
+
+    /// <summary>
+    /// The commit the tree is on right now, which is the one the host would push (ADR-0006).
+    /// Read from git rather than remembered, so a test that commits something after building
+    /// the tree still names the commit the change actually ended up on.
+    /// </summary>
+    public string Head() => Git(this, "rev-parse", "HEAD").Trim();
 
     private static string Git(LiftedTree tree, params string[] arguments)
     {
