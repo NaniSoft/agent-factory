@@ -569,7 +569,9 @@ public class ContainerBudgetTests
         "An issue",
         IssueBody,
         "main",
-        string.Empty);
+        string.Empty,
+        1,
+        1);
 
     /// <summary>
     /// The container name a round's work item gets. Written out here rather than read from

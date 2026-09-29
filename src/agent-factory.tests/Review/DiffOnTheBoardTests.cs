@@ -111,6 +111,227 @@ public class DiffOnTheBoardTests
     }
 
     [Fact]
+    public async Task Round_twos_diff_is_round_twos_change_and_not_round_ones()
+    {
+        // **The decisive test for #22, and the one that was impossible to write before it.**
+        //
+        // Two real rounds of one work item, each in its own real git repository with a
+        // different change committed, run through the real round runner and the real
+        // container runtime and rendered by the real board. The fake Docker CLI hands out a
+        // different tree per round — which it can only do because it now behaves like the
+        // real `docker cp`, which copies a directory *into* a destination that already
+        // exists rather than replacing it.
+        //
+        // What the first real run found is that round 2's tree landed at `tree/work/`
+        // inside round 1's, so round 2's card showed round 1's diff. The trees here are
+        // deliberately different, so a nested copy is not a copy that happens to look
+        // identical: the assertion below is about which *change* is on round 2's card, and
+        // against the old code it fails on the file, not on a path.
+        using var first = LiftedTree.WithACommitOn();
+        first.Committed("round one answers the question", ("src/First.cs", "public sealed class First { }\n"));
+        first.WithReadOnlyObjects();
+
+        using var second = LiftedTree.WithACommitOn();
+        second.Committed("round two answers it differently", ("src/Second.cs", "public sealed class Second { }\n"));
+        second.WithReadOnlyObjects();
+
+        using var root = FactoryRoot.Create()
+            .WithProjectFile("nexus.yaml", ProjectFile.Valid);
+
+        var docker = new FakeDockerCli();
+
+        // One tree per round, handed over in the order the rounds ask for them. This is a
+        // queue rather than a dictionary because two rounds of one work item lift the same
+        // container path and have to come away with different trees — which is exactly the
+        // situation the old one-directory-per-work-item layout made impossible to see.
+        var perRound = new Queue<string>([first.Path, second.Path]);
+        var perRoundStarts = new Queue<string>([first.StartHead, second.StartHead]);
+
+        docker.Handler = call =>
+        {
+            if (call.Arguments.FirstOrDefault() == "create")
+            {
+                docker.ContainerTrees[ContainerRuntime.WorkPathInContainer] = perRound.Dequeue();
+                docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = ResultFile(perRoundStarts.Dequeue());
+            }
+
+            return Task.FromResult(new DockerInvocation(0, string.Empty));
+        };
+
+        await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, docker);
+        var workItem = host.Store
+            .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+
+        await host.RunTheMachineAsync();
+        using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Try it differently."))
+        {
+        }
+
+        await host.RunTheMachineAsync();
+
+        var board = await Board.ReadAsync(host.Board);
+        var roundOne = board.DiffOn(1);
+        var roundTwo = board.DiffOn(2);
+
+        // Each round's card carries its own change, which is the whole claim. Before this
+        // ticket round 2's card carried `src/First.cs` — round 1's file — because round
+        // 2's tree had been copied inside round 1's.
+        Assert.Equal(["src/First.cs"], roundOne.Files.Select(file => file.Path));
+        Assert.Equal(["src/Second.cs"], roundTwo.Files.Select(file => file.Path));
+
+        // Each card carries its own file's git text and not the other's, so this is a claim
+        // about the bytes a reviewer reads rather than about a list of names.
+        Assert.Contains("+public sealed class First", roundOne.Files.Single().Text, StringComparison.Ordinal);
+        Assert.Contains("+public sealed class Second", roundTwo.Files.Single().Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("First.cs", roundTwo.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Second.cs", roundOne.Text, StringComparison.Ordinal);
+
+        // And the two trees are two directories, not one directory with something in it.
+        // A nested copy also leaves `git status` reporting `?? work/`, which is the
+        // merger's "left changes uncommitted" refusal — so a nesting makes every later
+        // round permanently unshippable for a reason unrelated to its work.
+        Assert.NotEqual(roundOne.Tree, roundTwo.Tree);
+        Assert.All(
+            new[] { roundOne.Tree, roundTwo.Tree },
+            tree => Assert.True(Directory.Exists(Path.Combine(tree, ".git")), $"{tree} is not a tree of its own"));
+        Assert.Empty(Directory
+            .EnumerateDirectories(Path.GetDirectoryName(roundOne.Tree)!, "work", SearchOption.AllDirectories));
+
+        // The two rounds' trees are both still on the host, which is what makes the merger
+        // able to ship either of them: the host pushes, and the container that made each one
+        // is long gone (ADR-0006).
+        Assert.Equal(2, host.Store.Rounds(workItem.Id).Count);
+    }
+
+    [Fact]
+    public async Task A_round_whose_own_command_did_not_succeed_is_not_reported_as_a_round_that_changed_nothing()
+    {
+        // The review surface's half of #22, over the real board.
+        //
+        // The run found `data-outcome="Produced" data-diff-state="empty"` and the sentence
+        // "Empty. Nothing on disk differs from the commit the round started at" over a
+        // round whose `opencode run` had exited 1 on a provider rate limit in two and a half
+        // seconds, having written nothing. Every one of those attributes was defensible on
+        // its own and the sentence together was a confident false claim about a round that
+        // never started, which is what a reviewer's first two decisions were made against.
+        // The outcome and classification here are the ones a reviewer's card would carry for
+        // a rate limit the retry policy has spent. `Permanent` rather than `Transient` only
+        // because this test is about what the card *says*, and a transient one is asked for
+        // again three times first — the classification itself is asserted where it is
+        // decided, in `WorkerRoundRunnerTests`.
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode().Yielding(RoundResult.Failed(
+            FailureClass.Permanent,
+            "worker-round: result=/out/result.json roundExitCode=1\n"
+                + "Error: Error from provider (Console): Rate limit exceeded. Please try again later.",
+            AChangeTo(),
+            "outcome THE ROUND'S OWN COMMAND EXITED 1: the round did not run to completion, and nothing below is a "
+                + "finished result\ncommands run, and what each returned\n  exit 1    2.5s   the agent, building and "
+                + "testing the change\n            opencode run --standalone --auto\n            │ Error: Error from provider "
+                + "(Console): Rate limit exceeded. Please try again later."));
+
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        var workItem = host.Store
+            .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+
+        await host.Settle();
+
+        var board = await Board.ReadAsync(host.Board);
+        var diff = board.DiffOn(1);
+
+        // Not `empty`. A fourth state, and its name is about the round rather than the
+        // disk — because the disk really is unchanged, and saying so as `empty` is what
+        // made the claim a lie.
+        Assert.Equal("unfinished", diff.State);
+
+        // And it says why, in a sentence a reviewer can act on, rather than asserting that
+        // a decision was made.
+        Assert.Contains("Unfinished", diff.Text, StringComparison.Ordinal);
+        Assert.Contains("did not run to completion", diff.Text, StringComparison.Ordinal);
+        Assert.Contains("not because the round chose to leave it alone", diff.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Empty. Nothing on disk differs", diff.Text, StringComparison.Ordinal);
+
+        // The round is `Failed` and carries the payload, so the exit code and the provider's
+        // own words are both on the card rather than only in the log.
+        Assert.Equal("Failed", board.Rendered("data-round", "1", "data-outcome"));
+        Assert.Equal("Permanent", board.Rendered("data-round", "1", "data-failure"));
+        Assert.Equal("true", board.Rendered("data-round", "1", "data-has-result"));
+        Assert.Contains("Rate limit exceeded", board.ResultOn(1)!, StringComparison.Ordinal);
+
+        // Escalated, where a human can still merge or decline it — a round that produced
+        // nothing is not something to send a reviewer to Review for.
+        Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);
+    }
+
+    [Fact]
+    public async Task A_round_that_ran_and_changed_nothing_is_still_empty()
+    {
+        // The other half, and the one that must not have moved. A round whose own last
+        // command returned zero and which left the tree exactly as it found it *is* "the
+        // round ran and decided there was nothing to do", and a reviewer is entitled to be
+        // told that. The fourth state is for the round that did not run to completion, and
+        // only for that.
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode().Yielding(RoundResult.Produced(
+            ResultPayload.Of(Derived(diff: string.Empty), "the round read the tree and stopped"),
+            "Nothing needed changing.",
+            "the round said it read the tree and stopped",
+            AChangeTo()));
+
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+
+        await host.Settle();
+
+        var diff = (await Board.ReadAsync(host.Board)).DiffOn(1);
+
+        Assert.Equal("empty", diff.State);
+        Assert.Contains("Empty", diff.Text, StringComparison.Ordinal);
+        Assert.Contains("the round ran to completion and changed nothing", diff.Text, StringComparison.Ordinal);
+        Assert.Equal("Produced", (await Board.ReadAsync(host.Board)).Rendered("data-round", "1", "data-outcome"));
+    }
+
+    [Fact]
+    public async Task A_round_that_changed_nothing_but_did_not_finish_says_so_rather_than_being_empty()
+    {
+        // The two states are told apart on a real board, from the two facts that tell them
+        // apart, rather than asserted once each in isolation. The diffs are byte-identical —
+        // an unchanged disk — and the outcomes are not, so anything reading the diff alone
+        // would render the same sentence for both.
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode()
+            .Yielding(RoundResult.Produced(
+                ResultPayload.Of(Derived(diff: string.Empty), "read the tree"),
+                "Read the tree and stopped.",
+                "the round read the tree and stopped",
+                AChangeTo()))
+            .Yielding(RoundResult.Failed(
+                FailureClass.Permanent,
+                "worker-round: roundExitCode=1",
+                AChangeTo(),
+                "outcome THE ROUND'S OWN COMMAND EXITED 1"));
+
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        var workItem = host.Store
+            .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+
+        await host.Settle();
+        using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Again."))
+        {
+        }
+
+        await host.Settle();
+
+        var board = await Board.ReadAsync(host.Board);
+
+        // The same empty diff, two different claims.
+        Assert.Equal("empty", board.DiffOn(1).State);
+        Assert.Equal("unfinished", board.DiffOn(2).State);
+        Assert.DoesNotContain("Unfinished", board.DiffOn(1).Text, StringComparison.Ordinal);
+        Assert.Contains("Unfinished", board.DiffOn(2).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_rounds_diff_survives_a_restart_so_a_reviewer_can_still_read_the_change()
     {
         // The store is the store of record (ADR-0009), and a diff the board had to

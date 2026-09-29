@@ -704,11 +704,6 @@ public sealed class Orchestrator
             return false;
         }
 
-        // The round's number is the work item's rounds so far, plus this one. The brief is
-        // the last thing a reviewer said about the work item, which is nothing at all on a
-        // first round and the reviewer's own words on every round after one.
-        var round = RoundFor(next.Id);
-
         // The round's number is the work item's rounds so far, plus this one. The scope
         // carries the identity and the round number, and the call below is made *inside* it
         // — so every record the round runner, the container runtime, the deriver and the
@@ -722,7 +717,7 @@ public sealed class Orchestrator
         // about, and what makes the timeout a comparison against the clock. The token is
         // the round's own: ending the round ends the call.
         var inFlight = new InFlight(next.Id, next.Project, next.IssueNumber, next.RoundCount + 1, _clock.UtcNow);
-        inFlight.Pending = AskForTheRound(round, inFlight.Token);
+        inFlight.Pending = AskForTheRound(RoundFor(inFlight), inFlight.Token);
 
         _inFlight.Add(next.Id, inFlight);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
@@ -947,7 +942,7 @@ public sealed class Orchestrator
         using var trace = _logger.ForWorkItem(
             run.WorkItemId, run.Project, run.IssueNumber, run.RoundNumber);
 
-        run.Pending = AskForTheRound(RoundFor(run.WorkItemId), run.Token);
+        run.Pending = AskForTheRound(RoundFor(run), run.Token);
 
         _logger.LogInformation(
             "Round {Round} of {Project}#{Issue} is being asked for again, on attempt {Attempt}.",
@@ -965,10 +960,16 @@ public sealed class Orchestrator
     /// which is nothing at all on a first round and the reviewer's own words on every
     /// round after one.
     /// </summary>
-    private Round RoundFor(Guid workItemId)
+    /// <remarks>
+    /// The round carries its own number and attempt and the loop is the only thing that
+    /// knows either, because the round runner has to name a directory the round's files
+    /// land in — and one directory per work item put round 2's tree inside round 1's, so
+    /// the board and the merger then read round 1's change for round 2 (#22).
+    /// </remarks>
+    private Round RoundFor(InFlight run)
     {
-        var workItem = _store.Get(workItemId)
-            ?? throw new KeyNotFoundException($"no work item {workItemId} to run a round for");
+        var workItem = _store.Get(run.WorkItemId)
+            ?? throw new KeyNotFoundException($"no work item {run.WorkItemId} to run a round for");
 
         // The issue's own words travel with the round rather than being left behind as a
         // number the agent would have to go and look up (Round, RoundBrief). Reconstructing
@@ -982,7 +983,9 @@ public sealed class Orchestrator
             workItem.IssueTitle,
             workItem.IssueBody,
             workItem.BaseBranch,
-            BriefFor(workItemId));
+            BriefFor(run.WorkItemId),
+            run.RoundNumber,
+            run.Attempts);
     }
 
     /// <summary>

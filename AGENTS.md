@@ -213,10 +213,80 @@ reviewer's order: the facts first, the agent's note last, under a heading that s
 above it is derived from. A result with no files and no commands still renders as a result,
 because an empty `<pre>` on a card reads as a round the factory failed to record.
 
-A round whose own commands failed is still `Produced`, and the failing exit codes are data
-inside the payload. The deriver has **no field saying which commands were tests** and none
-may be added: the repository's own scripts decide what tested means, and a factory that
-guessed would be imposing a test convention (ADR-0011).
+### When a round's own command failing is a result, and when it is a failure
+
+**This is the whole of #22, and it is the one place the design's own sentence needed
+correcting rather than extending.** That sentence — *a round whose own commands failed is
+still `Produced`* — is right for a failing test and wrong for an agent that was refused
+before it began, and for a long time the two were the same signal. The second real run hit a
+provider rate limit three times: `opencode run` exited 1 in about two and a half seconds,
+wrote nothing, and the card said `data-outcome="Produced" data-diff-state="empty"` over the
+sentence *"Empty. Nothing on disk differs from the commit the round started at."* The
+reviewer's first two decisions were made against that.
+
+**There are two exit codes in a result file and they are not the same thing.**
+
+| | Where it is | What it says |
+| --- | --- | --- |
+| The round's **own** exit code | `roundExitCode`, in the result file's header | whether the round ran to completion |
+| A **command's** exit code | `exitCode`, on each `CommandOutcome` | what the work did |
+
+`RoundResultDeriver` reads the first into `RoundEnvironment.RoundExitCode`, which for the
+whole first life of this factory was written into every result file and read by **nothing** —
+a grep across the application returned no matches at all. That is fixed, and
+`PolicyTests.A_rounds_own_exit_code_is_read_in_exactly_one_place_and_no_command_exit_code_is`
+now holds the shape: the field is read by the deriver's header reader, put in front of a
+reviewer by the payload, and **decided on in exactly one place**, `WorkerRoundRunner`.
+
+**The boundary is the round's own exit code, and it works because of the round script.**
+`WorkerRoundRunner.RoundScript` is fixed, and its last statement is the `opencode run`
+invocation with nothing after it. A shell's exit status is its last command's, so
+`roundExitCode` **is** the agent's exit code — a structural fact about the script the factory
+wrote, not an inference. Adding a line after the agent would silently move the boundary, and
+`WorkerRoundRunnerTests` says so at the constant.
+
+- **`roundExitCode == 0`** — the round finished. Whatever the commands inside it returned is
+  **data**: a build whose tests failed is `Produced`, in Review, with the failing exit codes
+  in the payload for a reviewer to read. This is ADR-0001 and it has not moved.
+- **`roundExitCode != 0`** — the round did not run to completion. A rate limit, a refused
+  provider, a missing model, a brief the agent would not accept. Nothing on disk is a finished
+  result, so the round is `Failed`, **transient**, and worth another attempt.
+- **`roundExitCode` absent or `null`** — the round has not said how it ended, and nothing is
+  claimed. Reading a missing field as a failure would be the guessing the whole classification
+  policy refuses, in the one place where guessing parks a work item that was about to work.
+
+**The two cases never meet, and that is the point.** They are told apart by *which number* was
+non-zero, not by a flag both could set, and a boundary written as "did anything come back
+non-zero" would make every failing test retryable. The `PolicyTests` pin above is written as
+the negative form — *no reader of a command's exit code may live in the loop or the round
+runner* — because a list of reader names would have to name the compiler's own artefact for a
+lambda, and because a list is a statement about today while the negative form is a statement
+about the rule.
+
+**Nothing in `worker/` was edited to achieve any of this**, and nothing needed to be: the
+image already wrote the number, and the image's own README says from the other side that
+`docker run`'s exit code "is about the container, not the round" and that "a round whose last
+command failed still exits 0 with `roundExitCode` inside the file". Two other causes named in
+#22 are deliberately *not* fixed here, and the reason is the same: they are consequences of
+that one.
+
+- **`docker logs -f` exits 0 whatever the container did.** So the runtime's transient
+  container-failure classification never fired for a dead agent. It is left alone because it
+  is not the channel that carries the answer: the result file is, and the runtime's own
+  failure paths — a `create`, a `start` or a `logs` that the daemon refuses — still classify
+  and still retry correctly.
+- **`worker-round` exits 0 whenever it wrote a result file.** Also a consequence, and also
+  already documented in the image.
+
+**A failed round carries its payload.** `RoundResult.Failed` grew an optional `payload`
+argument for this, and the round runner passes one. A rate-limited round's payload is the
+only account of what stopped it — the exit code and the provider's own words — and dropping it
+would replace a false claim with an empty card. It does not change `IsRetryable`, which is
+still `Failed && Transient` and is still read in exactly one method.
+
+The deriver has **no field saying which commands were tests** and none may be added: the
+repository's own scripts decide what tested means, and a factory that guessed would be
+imposing a test convention (ADR-0011).
 
 ### The round's log
 
@@ -299,15 +369,63 @@ right and the restore is written against it; it does not prove a browser reopene
 ## The round's files
 
 `FactoryOptions.RoundsDirectory` is where a round's lifted-out result file and tree land,
-one directory per work item, beside the store. It is **kept** after the round: the host
-has to be able to reach the round's commit once the container that made it is gone, because
-the host pushes and not the container (ADR-0006). `GitHubClient` now turns that tree into a
-pull request, and **it is still not cleaned up** — see **The merger's files** below for why,
-and for the read-only pack files that a cleanup would have to clear first.
+beside the store. It is **kept** after the round: the host has to be able to reach the round's
+commit once the container that made it is gone, because the host pushes and not the container
+(ADR-0006). `GitHubClient` now turns that tree into a pull request, and **it is still not
+cleaned up** — see **The merger's files** below for why, and for the read-only pack files that
+a cleanup would have to clear first.
 
 It is kept for a second reason now, which is the review surface — see **The diff in
 Review** below. The board's diff is `git diff` against that directory, which is why the
 directory is not cleaned up after a round.
+
+### One directory per round, and per attempt, and never per work item
+
+**This is the other half of #22, and it is a filesystem fact rather than a modelling
+choice.** `docker cp` does not replace a destination directory: it copies the source *into*
+it, under the source's own name. Verified against the real daemon, and reproduced in
+`FakeDockerCli` and asserted by
+`ContainerRuntimeTests.Lifting_the_same_path_twice_nests_it_rather_than_replacing_it`:
+
+```
+cp into a destination that does not exist:  tree/top.txt, tree/sub/file.txt
+cp into a destination that already exists:  tree/top.txt, tree/sub/file.txt,
+                                           tree/work/top.txt, tree/work/sub/file.txt
+```
+
+The landing directory used to be built from the work item alone, so round 2's tree landed at
+`tree/work/` inside round 1's. The host diff is `git diff` in `tree/`, so **the board's diff
+for round 2 was round 1's diff**, and the merger read the same path — an approve on round 2
+would have pushed round 1's commit while the reviewer believed they were judging round 2. On
+the run that found it the two trees happened to be identical, so nothing incorrect shipped;
+that was luck, not a property. The second-order effect was worse: a nested copy leaves `git
+status` reporting `?? work/`, which is exactly the merger's *"left changes uncommitted"*
+refusal, so **every round after the first was permanently unshippable for a reason unrelated
+to its work.**
+
+So the layout is now:
+
+```
+rounds/<work item id>/round-<n>/attempt-<k>/
+                                         result.json
+                                         tree/          <- ContainerRuntime.RoundTreeFolder
+```
+
+`Round` carries `RoundNumber` and `Attempt` for this, and the loop is the only thing that
+knows either — `Orchestrator.RoundFor` fills them in, and
+`WorkerRoundRunner.LandingFor(options, round)` is the one place the path is composed. **The
+*attempt* is in the path as well as the round, and a per-round path alone would still have
+been wrong**: a round that failed transiently is asked for again as the *same* round, so a
+retry's tree would have landed inside the attempt it is retrying.
+
+**The merger reads the path off the round's record rather than recomputing it.**
+`GitHubClient.TreeFor` walks the work item's rounds newest-first and takes the first tree that
+is on this host, which is what makes *"the merger and the board read the same one"* a
+structural property rather than a convention two components have to keep agreeing on. It is
+also what `Merging.cs` now sets up: the fixture records a round rather than arranging for the
+client to look somewhere convenient, so a test cannot pass by pointing the merger at a tree
+it put elsewhere. A round whose tree never came out is **not** a reason to ship an earlier
+round's, so the walk stops at the first real tree and refuses if there is none.
 
 ## The merger
 
@@ -578,13 +696,41 @@ availability: a reviewer can judge a change when GitHub is unreachable, and a di
 from the same service that produced the change would be a second opinion from the thing
 under review rather than evidence about it.
 
-Three further honesty cases the board distinguishes rather than collapsing, each with a test:
+Four honesty cases the board distinguishes rather than collapsing, each with a test:
 
 | On the card | Means | Not |
 | --- | --- | --- |
-| `data-state="empty"` | the round changed nothing | a round nobody looked at |
+| `data-state="shown"` | there is a change to read | — |
+| `data-state="empty"` | the round **ran to completion** and changed nothing | a round nobody looked at, or a round that did not run |
+| `data-state="unfinished"` | the round's own command did not succeed, so the round stopped | a round that chose to change nothing |
 | `data-state="unavailable"` | no diff could be generated, and why | a round that changed nothing |
-| no `data-diff` at all | no diff on record — an older row, or a round with no tree | either of the above |
+| no `data-diff` at all | no diff on record — an older row, or a round with no tree | any of the above |
+
+**`unfinished` is #22's fourth state, and it is about the round rather than the disk.** The
+first real run found a round whose agent was refused by a provider rate limit reported as
+`Produced` with an `empty` diff — and *"Empty. Nothing on disk differs from the commit the
+round started at"* is a **true statement about the disk** and a **false one about the round**.
+The disk claim was never the problem; pairing it with an outcome saying the round had
+produced something was. So the disk is still read exactly as before and the sentence is
+branched on the outcome, which is the only place the two are read together:
+
+- `Produced` and no change → the round ran to completion and changed nothing. A real
+  outcome, and a reviewer is entitled to be told it.
+- anything else and no change → the round did not run to completion. Whatever is on disk is
+  where it stopped.
+
+The word is `unfinished` rather than `never-ran` on purpose: a round can run for eighty
+minutes, change nothing and then be killed, and "unfinished" is true of that where "never
+ran" would be a claim the record cannot support. The sentence says which, and points at the
+payload that carries the exit code — see **When a round's own command failing is a result**.
+
+**It sits *after* the "there is a change" check rather than before it**, and that order is
+itself a claim about the reviewer's need: a round that got partway and then failed has a real
+change on disk, and showing it is more useful than replacing it with a note that the round
+did not finish. The card's outcome and failure already say the round did not finish; the diff
+says what it left behind. `A_round_that_changed_nothing_but_did_not_finish_says_so_rather_
+than_being_empty` puts the two states side by side over two byte-identical empty diffs,
+because the only thing telling them apart is the outcome.
 
 A round recorded **before** the diff column existed is not retrofitted with an empty one: the
 tree it would have been read out of was not kept per round, and a fabricated empty diff would
@@ -1026,11 +1172,30 @@ unclassified unattended retry is what parking a failed merge exists to prevent.
   at all decides between a connection that was not there and the remote declining.
 
 **A build that fails its tests is structurally unretriable, not merely un-retried.** A
-round that ran and whose change failed comes back `Produced` with the failing exit code in
-the payload; a `Produced` round carries no `Failure` at all, and `RoundResult.IsRetryable`
-is `Failed && Transient`. There is nothing for a retry policy to act on.
-`PolicyTests` asserts by IL scan that `IsRetryable` is read in exactly one method, so a
-second opinion cannot grow next to it.
+round that ran to completion and whose change failed comes back `Produced` with the failing
+exit code in the payload; a `Produced` round carries no `Failure` at all, and
+`RoundResult.IsRetryable` is `Failed && Transient`. There is nothing for a retry policy to
+act on. `PolicyTests` asserts by IL scan that `IsRetryable` is read in exactly one method, so
+a second opinion cannot grow next to it — and
+`A_rounds_own_exit_code_is_read_in_exactly_one_place_and_no_command_exit_code_is` holds the
+other half, that no component deciding an outcome may look at a *command's* exit code at all.
+
+**A round that did not run to completion is a different case, and #22 added it.** Before
+that ticket the only transient round failure was a container the daemon would not start, so a
+rate-limited agent was neither retried nor visible as a failure. It is now classified by the
+round's own exit code and is **transient** — see **When a round's own command failing is a
+result** for the boundary and the argument. The costs of that answer are named because they
+are real: three attempts at *one* round, holding its container slot across the backoff, then
+the round ends and the work item parks. A genuinely permanent cause therefore spends two
+extra containers rather than a reviewer's attention, while the opposite answer would park a
+work item a second attempt would have ridden out. What is **not** spent is a round of the
+ceiling: an attempt that produced nothing is not an attempt at building anything.
+
+**The two are kept apart by which number was non-zero, and by nothing else.** A round's own
+exit code decides the outcome; a command's exit code is data and is read in exactly two
+places, neither of which is a policy component. A single "did anything come back non-zero"
+flag would make every failing test a transient failure and retry it for ever, which is the
+thing DESIGN.md rules out in as many words.
 
 **A transient round failure retries; the round does not end.** Three attempts total, then
 Escalated. The round is asked for again once the backoff has passed, as the *same* round —

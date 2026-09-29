@@ -138,6 +138,13 @@ public class IndexModel : PageModel
     public string? WhatIsLeftOff(DiffOnTheBoard? diff) => HowToReadTheDiff.WhatIsLeftOff(diff);
 
     /// <summary>
+    /// What a round with no change on disk is being said to have done, in the two words the
+    /// review surface has for the two cases, or null when there is a change to read.
+    /// </summary>
+    public string? SaysAboutAnUnchangedDisk(DiffOnTheBoard? diff) =>
+        HowToReadTheDiff.SaysAboutAnUnchangedDisk(diff);
+
+    /// <summary>
     /// The decisions offered on a work item in a given lane, read from the set rather
     /// than written out in the view, so the board's buttons and the factory's decisions
     /// cannot drift apart. Review offers all three; a parked work item offers the two

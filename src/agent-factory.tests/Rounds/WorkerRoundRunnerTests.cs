@@ -266,19 +266,29 @@ public class WorkerRoundRunnerTests
     [Fact]
     public async Task A_round_whose_own_commands_failed_is_still_a_result_and_not_a_failure()
     {
+        // **The fixture's exit codes are the whole point of this test, and this ticket moved
+        // what they mean.** It used to carry `roundExitCode: 3` alongside a command that
+        // exited 1, which put both failures in the result and let the test pass without
+        // saying which one it was about. `roundExitCode` is the round's *own last command* —
+        // for the script this factory runs, the agent invocation — so a 3 there means the
+        // round did not run to completion, which is the other test's case and not this one.
+        //
+        // So: the round's own command exits **0** and a command *inside* the round exits 1.
+        // That is the shape of a build whose tests failed, and it is the case ADR-0001 is
+        // about.
         using var harness = AFactory();
         harness.Docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] =
             """
-            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":3,"uid":1000,"gitRepo":true}
+            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":0,"uid":1000,"gitRepo":true}
             {"kind":"command","seq":1,"label":"the tests","argv":["./scripts/test.sh"],"exitCode":1,"stderrTail":"expected 42, got 0\n"}
             """;
 
         var result = await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
 
-        // A round that ran and whose own commands failed came back with a result, and the
-        // failing exit code is data inside it for a reviewer to read. A container that
-        // broke is the other thing, and it is not this — which is the structural half of
-        // "a build that fails its tests is not retried" (ADR-0001).
+        // A round that ran to completion and whose own work failed came back with a result,
+        // and the failing exit code is data inside it for a reviewer to read. A container
+        // that broke is the other thing, and it is not this — which is the structural half
+        // of "a build that fails its tests is not retried" (ADR-0001).
         Assert.Equal(RoundOutcome.Produced, result.Outcome);
         Assert.Null(result.Failure);
         Assert.False(result.IsRetryable);
@@ -286,6 +296,69 @@ public class WorkerRoundRunnerTests
         // The failure is in the record, said as a number and as what the command said.
         Assert.Contains("exit 1", result.ResultPayload!, StringComparison.Ordinal);
         Assert.Contains("expected 42, got 0", result.ResultPayload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_round_whose_own_command_did_not_succeed_is_a_failure_and_not_a_result()
+    {
+        // The other half of the test above, and the defect this ticket exists for (#22).
+        //
+        // The factory's round script ends with the `opencode run` invocation, so a non-zero
+        // `roundExitCode` *is* the agent's exit code. The first real run hit a provider rate
+        // limit: `opencode run` exited 1 in two and a half seconds, wrote nothing, and the
+        // card said `data-outcome="Produced" data-diff-state="empty"` over the sentence
+        // "Empty. Nothing on disk differs from the commit the round started at" — a
+        // confident false claim about a round that never started, with the real exit code
+        // sitting in the payload two lines below it.
+        using var harness = AFactory();
+        harness.Docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] =
+            """
+            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":1,"uid":1000,"user":"agent","gitRepo":true,"startHead":"aaa1111","head":"aaa1111","credentialEnvNames":[]}
+            {"kind":"command","seq":1,"label":"the agent, building and testing the change","argv":["opencode","run","--standalone"],"exitCode":1,"stderrTail":"Error: Error from provider (Console): Rate limit exceeded. Please try again later.\n"}
+            """;
+
+        var result = await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
+
+        // Failed. Not Produced, and the distinction is the round's own exit code rather than
+        // any flag — a failing test returns zero from the round's own command and is still
+        // Produced, which is the test above.
+        Assert.Equal(RoundOutcome.Failed, result.Outcome);
+
+        // Transient, and this is the case the retry policy was built without being able to
+        // see. Three attempts at one round, then it parks; the cost of being wrong the other
+        // way is a work item parked over a rate limit that a second attempt would have
+        // ridden out.
+        Assert.Equal(FailureClass.Transient, result.Failure);
+        Assert.True(result.IsRetryable);
+
+        // And the payload is carried anyway, because it is the only account of what stopped
+        // the round: the exit code and the provider's own words. A failed round with no
+        // payload is a card with nothing on it.
+        Assert.NotNull(result.ResultPayload);
+        Assert.Contains("Rate limit exceeded", result.ResultPayload, StringComparison.Ordinal);
+        Assert.Contains("EXITED 1", result.ResultPayload, StringComparison.Ordinal);
+        Assert.Contains("did not run to completion", result.ResultPayload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_result_file_with_no_exit_code_in_it_claims_nothing_about_the_round()
+    {
+        // An image that recorded no exit code has not claimed the round failed either, and
+        // an absent field is not a zero. Reading a missing number as a failure would be the
+        // guessing the whole classification policy refuses to do, in the one place where
+        // guessing would park a work item that was about to work.
+        using var harness = AFactory();
+        harness.Docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] =
+            """
+            {"kind":"result","schema":"agent-factory/worker-result@1","uid":1000,"gitRepo":true}
+            {"kind":"command","seq":1,"label":"the tests","argv":["./scripts/test.sh"],"exitCode":0}
+            """;
+
+        var result = await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
+
+        Assert.Equal(RoundOutcome.Produced, result.Outcome);
+        Assert.Null(result.Failure);
+        Assert.Contains("is not in this result file", result.ResultPayload!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -458,7 +531,17 @@ public class WorkerRoundRunnerTests
         // it is gone, because the host pushes and not the container. That is only true if
         // the lifted-out files are not temporary, so where they land and that they are
         // still there afterwards are both part of the promise.
-        var landing = Path.Combine(harness.Options.RoundsDirectory, WorkItem.ToString("N"));
+        //
+        // The path carries the work item, the round and the attempt. `docker cp` copies a
+        // directory *into* a destination that already exists rather than replacing it, so a
+        // path built from the work item alone puts round 2's tree inside round 1's — which
+        // is what made the board show round 1's diff on round 2's card and the merger push
+        // round 1's commit (#22).
+        var landing = Path.Combine(
+            harness.Options.RoundsDirectory,
+            WorkItem.ToString("N"),
+            "round-1",
+            "attempt-1");
 
         Assert.Equal(Path.Combine(landing, "result.json"), Assert.Single(Directory.GetFiles(landing)));
         Assert.True(File.Exists(Path.Combine(landing, "tree", ".git", "HEAD")));
@@ -468,6 +551,50 @@ public class WorkerRoundRunnerTests
         // dispose is what takes the directory away afterwards, which is the test's doing and
         // not the round's.
         Assert.Equal(Path.GetDirectoryName(harness.Options.DatabasePath), Path.GetDirectoryName(harness.Options.RoundsDirectory));
+    }
+
+    [Fact]
+    public async Task Every_attempt_of_every_round_lands_in_a_directory_of_its_own()
+    {
+        // The nesting hazard, stated as a property of the layout rather than as an
+        // observation about one round. `docker cp` into an existing directory copies the
+        // source *inside* it under its own name, so two containers lifting into one
+        // directory produce `tree/` and `tree/work/` — and the board's diff and the merger's
+        // push would both then be reading the first round while believing they were reading
+        // the second (#22).
+        //
+        // This is the assertion that would have caught it: it is about the paths, so it
+        // holds whatever any of the rounds actually produced, and no two of them can collide
+        // however the loop schedules them.
+        using var harness = AFactory();
+        harness.Docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] =
+            """{"kind":"result","roundExitCode":0}""";
+        harness.Docker.ContainerFiles["/work/.git/HEAD"] = "ref: refs/heads/main\n";
+
+        var landings = new List<string>();
+
+        // Two rounds of one work item, and a second attempt at the first round — the retry,
+        // which is the same round asked for again and is the case a per-round path alone
+        // would still have got wrong.
+        foreach (var round in new[] { (1, 1), (1, 2), (2, 1) })
+        {
+            await harness.Runner.RunRoundAsync(ARound(roundNumber: round.Item1, attempt: round.Item2), CancellationToken.None);
+            landings.Add(WorkerRoundRunner.LandingFor(harness.Options, ARound(roundNumber: round.Item1, attempt: round.Item2)));
+        }
+
+        Assert.Equal(3, landings.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(landings, landing => Assert.True(Directory.Exists(landing), $"{landing} was not created"));
+        Assert.All(landings, landing =>
+            Assert.True(
+                File.Exists(Path.Combine(landing, ContainerRuntime.RoundTreeFolder, ".git", "HEAD")),
+                $"no tree of its own under {landing}"));
+
+        // And nothing landed inside anything else: no `work` directory anywhere, which is
+        // the exact artefact a nested copy leaves behind. The merger refuses a tree with
+        // uncommitted files, so a nesting also makes a later round permanently unshippable
+        // for a reason that has nothing to do with its work.
+        Assert.Empty(Directory
+            .EnumerateDirectories(harness.Options.RoundsDirectory, "work", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -493,7 +620,9 @@ public class WorkerRoundRunnerTests
         string feedback = "",
         string project = "nexus",
         string title = "A work item, end to end",
-        string body = "What the issue says, in the maintainer's words.") => new(
+        string body = "What the issue says, in the maintainer's words.",
+        int roundNumber = 1,
+        int attempt = 1) => new(
         WorkItem,
         project,
         RepoUrl,
@@ -501,7 +630,9 @@ public class WorkerRoundRunnerTests
         title,
         body,
         "main",
-        feedback);
+        feedback,
+        roundNumber,
+        attempt);
 
     private static Harness AFactory(
         string project = "nexus",

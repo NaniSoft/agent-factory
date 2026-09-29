@@ -67,6 +67,21 @@ public static class ResultPayload
         text.Append("round   ran as ")
             .Append(round.User is { Length: > 0 } user ? $"{user} (uid {round.Uid})" : $"uid {round.Uid}")
             .AppendLine();
+
+        // The round's own exit code, at the top and not in a footnote, because it is the one
+        // line here that decides whether the rest of this is a result or the wreckage of a
+        // round that stopped (#22). A non-zero one is stated as what it is rather than left
+        // for a reader to infer from a command's exit code further down: the round's own
+        // command and the commands it ran are different facts, and only one of them says
+        // whether the round finished.
+        text.Append("outcome ").AppendLine(round.RoundExitCode switch
+        {
+            null => "the round's own exit code is not in this result file, so nothing is claimed about it",
+            0 => "the round's own command exited 0: the round ran to completion",
+            var code => $"THE ROUND'S OWN COMMAND EXITED {code}: the round did not run to completion, and "
+                + "nothing below is a finished result",
+        });
+
         text.Append("tree    ")
             .AppendLine(round.IsARepository
                 ? $"{round.Branch ?? "(no branch)"} at {(Short(round.Head) ?? "no commit")}, from {(Short(round.StartHead) ?? "no commit")}"

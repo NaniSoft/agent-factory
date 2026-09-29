@@ -270,11 +270,69 @@ public class MergeTests
     }
 
     [Fact]
+    public async Task The_tree_shipped_is_the_latest_rounds_own_and_not_another_rounds()
+    {
+        // The merger's half of #22, and the one with teeth: the first real run had round 2's
+        // tree nested inside round 1's, and the merger read the *work item's* directory — so
+        // an approve of round 2 would have pushed round 1's commit while the reviewer
+        // believed they were judging round 2. The trees here are different, and the round
+        // that is shipped is the one a reviewer would have been shown last.
+        using var later = new Merging();
+        later.NothingShippedYet();
+
+        // A second round, with a different change, on a tree of its own — the shape the
+        // round runner now produces because `docker cp` nests into a directory that already
+        // exists rather than replacing it.
+        var secondRound = AgentFactory.Tests.Review.LiftedTree.WithACommitOn(
+            "main",
+            System.IO.Path.Combine(
+                later.Options.RoundsDirectory, later.WorkItem.Id.ToString("N"), "round-2", "attempt-1",
+                AgentFactory.Containers.ContainerRuntime.RoundTreeFolder));
+        secondRound.Committed("the second round's change", ("src/Second.cs", "public sealed class Second { }\n"));
+        secondRound.WithReadOnlyObjects();
+
+        var second = later.Store.RecordRound(
+            later.WorkItem.Id,
+            AgentFactory.Rounds.RoundOutcome.Produced,
+            resultPayload: "round two's own record",
+            agentNote: "Answered it differently.",
+            startedUtc: later.Clock.UtcNow,
+            diff: new AgentFactory.Results.HostDiff(
+                "diff --git a/src/Second.cs b/src/Second.cs\n",
+                "refs/remotes/origin/main",
+                secondRound.Path,
+                ContainerBounded: false,
+                UnavailableBecause: null));
+
+        var secondCommit = secondRound.Head();
+        later.Api.Responding(
+            "POST",
+            "/pulls",
+            (HttpStatusCode.Created, GitHubApi.PullRequest(7, secondCommit, later.Branch)));
+        later.Api.Responding("PUT", "/pulls/7/merge", (HttpStatusCode.OK, """{"merged": true}"""));
+
+        await later.Merge();
+
+        // Round 2's commit is on the remote, and round 1's is not on it at all. An approve
+        // on round 2 pushing round 1's change is the specific falsehood this asserts against.
+        Assert.NotEqual(later.Round.RoundNumber, second.RoundNumber);
+        Assert.Equal(secondCommit, later.Remote.CommitOn(later.Branch));
+        Assert.NotEqual(later.Commit, later.Remote.CommitOn(later.Branch));
+
+        secondRound.Dispose();
+    }
+
+    [Fact]
     public async Task A_round_whose_tree_never_came_out_of_its_container_cannot_be_shipped()
     {
         // The host holds the only copy of a round's change (ADR-0006): the container is gone
         // and there is nothing to re-fetch. There is no retry into existence for this, so it
         // is permanent and it is refused before anything leaves the building.
+        //
+        // **The message changed when the tree moved under a round rather than a work item**
+        // (#22). It used to name the one path the client computed for the work item; it now
+        // says how many rounds there were and that none of them left a tree, because there
+        // is no longer a single path to name. The claim is the same one either way.
         using var merging = new Merging();
         foreach (var file in Directory.EnumerateFiles(Path.Combine(merging.TreePath, ".git", "objects"), "*", SearchOption.AllDirectories))
         {
@@ -285,7 +343,8 @@ public class MergeTests
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(() => merging.Merge());
 
-        Assert.Contains("not on this host", refused.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("left a tree on this host", refused.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no commit to push", refused.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(merging.Api.Requests);
     }
 

@@ -258,7 +258,14 @@ public sealed class RoundResultDeriver
         CredentialNames: Strings(header, "credentialEnvNames"),
         Git: Blank(Text(header, "git")),
         Agent: Blank(Text(header, "opencode")),
-        OperatingSystem: Blank(Text(header, "os")));
+        OperatingSystem: Blank(Text(header, "os")),
+
+        // The round's own exit code, read for the first time here. It is the one field in
+        // the header that says whether the round *finished* rather than what it observed
+        // while running, and it was written into every result file and read by nothing for
+        // the whole first life of this factory (#22). Null when the image recorded none,
+        // which is an absence rather than a zero and is carried as such.
+        RoundExitCode: Int(header, "roundExitCode"));
 
     // --- files changed -------------------------------------------------------
 

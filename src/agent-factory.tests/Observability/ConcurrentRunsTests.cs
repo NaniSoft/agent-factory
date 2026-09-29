@@ -257,7 +257,7 @@ public class ConcurrentRunsTests
                 log.For<WorkerRoundRunner>());
 
             await runner.RunRoundAsync(
-                new Round(workItem, Nexus, NexusRepo, 42, "the issue", "the brief", "main", string.Empty),
+                new Round(workItem, Nexus, NexusRepo, 42, "the issue", "the brief", "main", string.Empty, 1, 1),
                 CancellationToken.None);
 
             // The deriver wrote a record, and it names a work item it was never given.

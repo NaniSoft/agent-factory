@@ -97,8 +97,10 @@ internal static class HowItEnded
 
                 _ when round.Failure == FailureClass.Transient => $"Escalated. Round {round.RoundNumber} came back "
                     + $"{round.Outcome} as a transient failure, and it was tried on {round.Attempts} attempts before the "
-                    + "factory gave up, so there is no result to review. It is parked for a human, who can still merge "
-                    + "or decline it from here.",
+                    + "factory gave up, so there is no result to review. A round whose own command did not succeed is "
+                    + "this shape: a rate limit or a refused provider is the ordinary cause, and the factory spends its "
+                    + "attempts on one rather than counting it against the reviewer's rounds. It is parked for a human, "
+                    + "who can still merge or decline it from here.",
 
                 _ => $"Escalated. Round {round.RoundNumber} came back {round.Outcome} as a permanent failure, "
                     + "so there is no result to review and the factory did not try again — a build that fails its own "

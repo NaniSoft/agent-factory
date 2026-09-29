@@ -341,6 +341,54 @@ public class ContainerRuntimeTests
         Assert.Equal(["rm", "-f", $"agent-factory-round-{WorkItem:N}"], docker.TheOnly("rm"));
     }
 
+    [Fact]
+    public async Task Lifting_the_same_path_twice_nests_it_rather_than_replacing_it()
+    {
+        // The fake's own behaviour, asserted rather than assumed — and it is a test about
+        // the *test double*, because the double is what let this defect through.
+        //
+        // `FakeDockerCli.CopyDirectory` used to merge into an existing destination. Real
+        // `docker cp` does not: it copies the source *into* a directory that is already
+        // there, under the source's own name, which is what the second real run found
+        // (#22). Every two-round test in this suite passed against filesystem behaviour no
+        // reviewer has ever been given, so a fake that behaves like the command is only
+        // worth anything if something checks that it does.
+        //
+        // The two lifts below go to the same destination on purpose, which is exactly what
+        // one directory per work item did.
+        using var landing = new Landing();
+        var docker = new FakeDockerCli();
+        docker.ContainerTrees[ContainerRuntime.WorkPathInContainer] = landing.Source;
+        docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = """{"kind":"result"}""";
+
+        var runtime = new ContainerRuntime(docker, Microsoft.Extensions.Logging.Abstractions.NullLogger<ContainerRuntime>.Instance);
+
+        // The two lifts below go to the *same* destination on purpose, which is exactly what
+        // one landing directory per work item did: round 1 put a tree there, and round 2's
+        // copy found it already there.
+        await runtime.RunAsync(ARequest(), Path.Combine(landing.Path, "shared"), null, CancellationToken.None);
+        await runtime.RunAsync(ARequest(), Path.Combine(landing.Path, "shared"), null, CancellationToken.None);
+
+        var shared = Path.Combine(landing.Path, "shared", ContainerRuntime.RoundTreeFolder);
+
+        // Lifting into a directory that does not exist gives the tree itself, which is the
+        // first round's outcome and the only shape the old fake could produce.
+        Assert.True(File.Exists(Path.Combine(shared, "top.txt")));
+
+        // Lifting into one that does gives `work/` *inside* it, and leaves what was already
+        // there alone. Both halves matter: the nesting is what put round 2's tree inside
+        // round 1's, and the non-replacement is what made it look like a merge to anything
+        // reading the directory listing rather than the exit code.
+        Assert.True(File.Exists(Path.Combine(shared, "work", "top.txt")));
+        Assert.True(File.Exists(Path.Combine(shared, "work", "sub", "file.txt")));
+
+        // And the result file, which is a file rather than a directory, is replaced — the
+        // one case a real `cp` does overwrite, and the one a round's result file lands on.
+        Assert.Equal(
+            """{"kind":"result"}""",
+            File.ReadAllText(Path.Combine(landing.Path, "shared", "result.json")));
+    }
+
     private static WorkerContainerRequest ARequest() => new(
         $"agent-factory-round-{WorkItem:N}",
         "ghcr.io/nanisoft/agent-factory-worker:1",
@@ -379,16 +427,32 @@ public class ContainerRuntimeTests
         }
     }
 
-    /// <summary>Where a round's lifted-out files land, deleted on dispose.</summary>
+    /// <summary>
+    /// Where a round's lifted-out files land, and a tree the fake container is holding to
+    /// hand over. Both are deleted on dispose.
+    /// </summary>
+    /// <remarks>
+    /// The held tree is a real directory with real content in it, because what a round
+    /// lifts out of a container is a directory copy rather than a set of text files, and
+    /// the nesting this class is here to check is a property of directories.
+    /// </remarks>
     private sealed class Landing : IDisposable
     {
         public Landing()
         {
             Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "agent-factory-rounds", Guid.NewGuid().ToString("n"));
             Directory.CreateDirectory(Path);
+
+            Source = System.IO.Path.Combine(Path, "held-in-the-container");
+            Directory.CreateDirectory(System.IO.Path.Combine(Source, "sub"));
+            File.WriteAllText(System.IO.Path.Combine(Source, "top.txt"), "one\n");
+            File.WriteAllText(System.IO.Path.Combine(Source, "sub", "file.txt"), "two\n");
         }
 
         public string Path { get; }
+
+        /// <summary>What the fake container is holding, before any <c>cp</c> hands it over.</summary>
+        public string Source { get; }
 
         public void Dispose()
         {
@@ -398,7 +462,7 @@ public class ContainerRuntimeTests
             }
             catch (IOException)
             {
-                // A leftover temp directory is not worth failing a test over.
+                // A leftover temporary directory is not worth failing a test over.
             }
         }
     }

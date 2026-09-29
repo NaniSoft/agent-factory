@@ -976,22 +976,40 @@ public sealed class GitHubClient : IGitHub
     /// round whose tree did not come out of its container has nothing to push — the
     /// container is gone and there is no second copy of the change (ADR-0006).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is the <em>latest</em> round's tree, and that is the whole of the change this
+    /// ticket made to this method. The path is per round rather than per work item now —
+    /// <c>docker cp</c> copies a directory into a destination that already exists rather
+    /// than replacing it, so one directory per work item put round 2's tree inside round
+    /// 1's (#22) — and a merger that still looked in the work item's own directory would be
+    /// pushing round 1's commit while the reviewer believed they were judging round 2.
+    /// </para>
+    /// <para>
+    /// The latest round with a tree, rather than the latest round: a round whose tree never
+    /// came out is not a reason to ship an earlier one, so the search walks back until it
+    /// finds a tree and says which round it is shipping if it cannot find one at all.
+    /// </para>
+    /// </remarks>
     private string TreeFor(WorkItem workItem)
     {
-        var tree = Path.Combine(
-            _options.RoundsDirectory,
-            workItem.Id.ToString("N"),
-            ContainerRuntime.RoundTreeFolder);
+        var rounds = _store.Rounds(workItem.Id);
 
-        if (!Directory.Exists(Path.Combine(tree, ".git")))
+        foreach (var round in Enumerable.Reverse(rounds))
         {
-            throw new PermanentFailure(
-                $"the round's tree is not on this host at {tree}, so there is no commit to push. The container that "
-                    + "made the change is gone and the host holds the only copy of it, so this cannot be retried into "
-                    + "existence and the change has to be built again");
+            if (round.Diff is { } diff && Directory.Exists(Path.Combine(diff.Tree, ".git")))
+            {
+                return diff.Tree;
+            }
         }
 
-        return tree;
+        // Named by the rounds that had none, so the refusal says which round the reviewer
+        // was looking at rather than only that the host has nothing.
+        throw new PermanentFailure(
+            $"none of the {rounds.Count} round(s) of {workItem.Project}#{workItem.IssueNumber} left a tree on this "
+                + "host, so there is no commit to push. The containers that made the changes are gone and the host "
+                + "holds the only copy of them, so this cannot be retried into existence and the change has to be "
+                + "built again");
     }
 
     /// <summary>

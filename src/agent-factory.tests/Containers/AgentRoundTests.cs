@@ -411,7 +411,9 @@ public class AgentRoundTests
         title,
         body,
         BaseRef,
-        string.Empty);
+        string.Empty,
+        1,
+        1);
 
     /// <summary>One container name, torn down whatever the test does.</summary>
     private static string Container =>

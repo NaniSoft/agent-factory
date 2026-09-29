@@ -199,6 +199,131 @@ public class PolicyTests
         .Count(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}" == target);
 
     [Fact]
+    public void A_rounds_own_exit_code_is_read_in_exactly_one_place_and_no_command_exit_code_is()
+    {
+        // **Added for #22, and the pin that makes the ticket's central claim structural.**
+        //
+        // The whole of that ticket is that two different exit codes were being conflated:
+        // the exit code of the round's *own last command* (which says whether the round
+        // finished) and the exit code of a command *inside* the round (which is data about
+        // the work). The second real run had a round whose agent was refused by a provider
+        // rate limit reported as `Produced` with an empty diff, because the first number was
+        // written into every result file and read by nothing.
+        //
+        // So this pins two things. `roundExitCode` is read in one place and one place only,
+        // and that place is the round runner — the component that observed the round, and
+        // the one the design's rule says classifications are made by. And nothing in the
+        // process reads `FailedCommands`, or `CommandOutcome.ExitCode`, to decide an
+        // outcome: a build whose tests failed is `Produced` and carries no classification at
+        // all, and a policy that consulted the command exit codes would make every one of
+        // them retryable, which is what DESIGN.md says not to do.
+        var assembly = typeof(FactoryApp).Assembly;
+
+        // Where the number comes from and where it is used. It is read out of the result
+        // file's header by the deriver, put in front of a reviewer by the payload, and
+        // decided on in exactly one place — the round runner, the component that observed
+        // the round. Anything else that wanted to know whether a round finished has to come
+        // through `TheRoundRan`, which is the only shape the decision is made in.
+        //
+        // The record's own generated members are excluded for the reason the retry test
+        // excludes them: `with`, `Deconstruct` and the compiler's copy constructor are the
+        // type talking to itself rather than a second opinion, and a test that counted them
+        // would be asserting on the compiler rather than on the policy.
+        var read = CallsMadeBy(assembly)
+            .Where(call => call.Called.Name == "get_RoundExitCode" || call.Called.Name == "get_TheRoundRan")
+            .Where(call => Owner(call.Caller) != typeof(AgentFactory.Results.RoundEnvironment))
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            [
+                // Puts it in front of a reviewer, in the payload, because a failed round's
+                // payload is the only account of what stopped it.
+                "ResultPayload.Headline",
+
+                // The one decision. Anything else that wanted to know whether a round
+                // finished would have to come through this.
+                "WorkerRoundRunner.RunRoundAsync",
+            ],
+            read);
+
+        // And the *field* is read by the deriver's header reader alone — `EnvironmentFrom`
+        // is the only method in the process that turns a header field into a number, and a
+        // second reader would be a second reading of the round's own account of itself,
+        // free to disagree with the first.
+        var fieldRead = CallsMadeBy(assembly)
+            .Where(call => call.Called.DeclaringType?.Name == "RoundResultDeriver"
+                && call.Called.Name == "Int"
+                && call.Caller is { } caller
+                && Owner(caller)?.Name == "RoundResultDeriver")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        // Two, and both are the readers of a record's fields: the header and the command
+        // record. Neither is asked about anything beyond its own shape.
+        Assert.Equal(
+            ["RoundResultDeriver.CommandFrom", "RoundResultDeriver.EnvironmentFrom"],
+            fieldRead);
+
+        // And the command exit codes decide nothing. The readers of `Passed` are a
+        // projection over the record and the payload renderer that shows it to a reviewer;
+        // **neither the loop nor the round runner reads it**, and that is the claim worth
+        // making here rather than a list of method names — a list would have to name the
+        // compiler's own artefact for a lambda, which is an assertion on the compiler rather
+        // than on the policy.
+        //
+        // So this is the negative form, and it is the one that catches the mutation: a
+        // boundary written as "did anything come back non-zero" would make every failing
+        // test retryable, and this fails the moment the round runner or the loop so much as
+        // looks at a command's exit code.
+        var policyDecidesOn = CallsMadeBy(assembly)
+            .Where(call => call.Called.Name is "get_Passed" or "get_FailedCommands" or "get_ExitCode")
+            .Where(call => call.Caller is { } caller
+                && Owner(caller) is { } owner
+                && owner.Name is "Orchestrator" or "WorkerRoundRunner")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            policyDecidesOn.Count == 0,
+            "a round's outcome must be decided by the round's own exit code and by nothing a command inside the "
+                + "round returned, or a build that fails its tests becomes a transient failure and is retried "
+                + "for ever: " + string.Join(", ", policyDecidesOn));
+
+        // The one place a command's exit code is *read* at all, which is the payload showing
+        // a reviewer what ran.
+        Assert.Contains(
+            "ResultPayload.Commands",
+            CallsMadeBy(assembly)
+                .Where(call => call.Called.Name == "get_Passed")
+                .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}"));
+
+        // The two numbers are two *different fields*, which is the whole of the boundary. A
+        // single "did anything fail" flag would put a rate-limited round and a test-failed
+        // round in the same place, and this is the assertion that they are not: the round's
+        // own exit code is named `roundExitCode` and the command's is `exitCode`, and the
+        // deriver reads them into two different types.
+        Assert.NotEqual(
+            typeof(AgentFactory.Results.RoundEnvironment).GetProperty("RoundExitCode"),
+            typeof(CommandOutcome).GetProperty("ExitCode"));
+
+        // Which is the structural claim #7 made, restated in the terms this ticket changed.
+        // A produced round carries no classification and cannot be retried, whatever its
+        // commands returned; a rate-limited round is `Failed` and `Transient` and is. The
+        // two are told apart by which number was non-zero, not by a flag both could set.
+        Assert.True(RoundResult.Failed(FailureClass.Transient).IsRetryable);
+        Assert.False(RoundResult.Failed(FailureClass.Permanent).IsRetryable);
+        Assert.False(RoundResult.Produced("exit 1: 41 tests failed", null).IsRetryable);
+        Assert.Null(RoundResult.Produced("exit 1: 41 tests failed", null).Failure);
+    }
+
+    [Fact]
     public void There_is_exactly_one_answer_to_whether_a_round_is_worth_retrying()
     {
         // The load-bearing distinction of the ticket, and the one most likely to be eroded:

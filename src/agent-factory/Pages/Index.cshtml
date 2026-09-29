@@ -350,7 +350,7 @@
                             @{
                                 var diff = Model.DiffOf(round);
                             }
-                            @if (diff is { State: DiffState.Shown } or { State: DiffState.Empty })
+                            @if (diff is { State: DiffState.Shown } or { State: DiffState.Empty } or { State: DiffState.Unfinished })
                             {
                                 <section class="diff"
                                          data-diff="round @round.RoundNumber"
@@ -363,11 +363,16 @@
                                     <h4 class="diff-heading">
                                         the change, from the tree this round left
                                     </h4>
-                                    @if (diff.State == DiffState.Empty)
+                                    @if (Model.SaysAboutAnUnchangedDisk(diff) is { } unchanged)
                                     {
-                                        <p class="diff-empty" data-diff-empty="round @round.RoundNumber">
-                                            Empty. Nothing on disk differs from the commit the round started at.
-                                        </p>
+                                        @* Two different sentences for the same empty disk, and the difference
+                                            is the round rather than the disk. "Unfinished" exists because a
+                                            round whose agent was refused before it began reports the same
+                                            unchanged tree as one that chose to change nothing, and calling
+                                            the second thing the first is a confident false claim about a
+                                            round that never started (#22). The payload beside it carries the
+                                            exit code and whatever the provider said. *@
+                                        <p class="diff-empty" data-diff-empty="round @round.RoundNumber">@unchanged</p>
                                     }
                                     else
                                     {

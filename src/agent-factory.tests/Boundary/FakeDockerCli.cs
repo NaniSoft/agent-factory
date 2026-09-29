@@ -84,8 +84,47 @@ public sealed class FakeDockerCli : IDockerCli
         return await Handler(call);
     }
 
+    /// <summary>
+    /// One <c>cp</c> out of the fake container, with the destination rules the real
+    /// command has.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **The rule that matters is that <c>docker cp</c> never replaces a destination
+    /// directory: it copies the source <em>into</em> it, under the source's own name.**
+    /// Verified against the real daemon (#22):
+    /// </para>
+    /// <code>
+    /// cp into a destination that does not exist:  tree/top.txt, tree/sub/file.txt
+    /// cp into a destination that already exists:  tree/top.txt, tree/sub/file.txt,
+    ///                                           tree/work/top.txt, tree/work/sub/file.txt
+    /// </code>
+    /// <para>
+    /// A fake that <em>merged</em> instead of nesting passed every two-round test in this
+    /// suite against filesystem behaviour no reviewer has ever been given, and that is how a
+    /// round's second tree came to land inside its first: the board showed round 1's diff on
+    /// round 2's card, and the merger read the same path. The fake is not a stub here; it
+    /// is standing in for a command whose whole hazard is this.
+    /// </para>
+    /// <para>
+    /// A destination that is an existing <em>file</em> is the one thing a real <c>cp</c>
+    /// does replace, and it is what a round's result file lands on, so that case is
+    /// reproduced too rather than left to whichever branch a test happened to take.
+    /// </para>
+    /// </remarks>
     private bool Copy(string from, string to)
     {
+        // The source's own name, which is what a copy into an existing directory is named.
+        var source = from.TrimEnd('/');
+        var name = System.IO.Path.GetFileName(source);
+        var isTree = ContainerTrees.ContainsKey(from)
+            || ContainerFiles.Keys.Any(file => file.StartsWith(source + "/", StringComparison.Ordinal));
+
+        if (isTree && System.IO.Directory.Exists(to))
+        {
+            to = System.IO.Path.Combine(to, name);
+        }
+
         if (ContainerTrees.TryGetValue(from, out var realTree))
         {
             // Copied as a real directory, attributes and all, because that is what comes
@@ -104,7 +143,7 @@ public sealed class FakeDockerCli : IDockerCli
         }
 
         var tree = ContainerFiles
-            .Where(file => file.Key.StartsWith(from.TrimEnd('/') + "/", StringComparison.Ordinal))
+            .Where(file => file.Key.StartsWith(source + "/", StringComparison.Ordinal))
             .ToList();
 
         if (tree.Count == 0)
@@ -114,7 +153,7 @@ public sealed class FakeDockerCli : IDockerCli
 
         foreach (var (path, content) in tree)
         {
-            var relative = path[from.TrimEnd('/').Length..].TrimStart('/');
+            var relative = path[source.Length..].TrimStart('/');
             var destination = System.IO.Path.Combine(to, relative);
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(destination)!);
             File.WriteAllText(destination, content);

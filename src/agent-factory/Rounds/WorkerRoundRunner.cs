@@ -72,6 +72,15 @@ public sealed class WorkerRoundRunner : INOpenCode
     /// the same command line whatever issue it is building, which is what makes "the
     /// reviewer's words cannot become shell syntax" a property of the code rather than a
     /// claim about it.
+    /// <para>
+    /// **The last command is the agent, and that is load-bearing rather than incidental.**
+    /// A shell's exit status is its last command's, so <c>roundExitCode</c> — the number the
+    /// image records and the factory reads to decide whether a round finished — is the exit
+    /// code of the <c>opencode run</c> below. Adding a line after it would silently move
+    /// the boundary between "the round finished" and "the round did not", so the last
+    /// statement here is the agent and nothing follows it. The note is written by the agent
+    /// itself, inside its own run, rather than by a line here for the same reason.
+    /// </para>
     /// </remarks>
     public const string RoundScript = """
         set -uo pipefail
@@ -152,7 +161,19 @@ public sealed class WorkerRoundRunner : INOpenCode
             return RoundResult.Failed(FailureClass.Permanent);
         }
 
-        var landing = Path.Combine(_options.RoundsDirectory, round.WorkItemId.ToString("N"));
+        // **One landing directory per round attempt, and the round number is in it.**
+        // `docker cp` does not replace a destination directory: it copies the source *into*
+        // it, under the source's own name. A single directory per work item therefore meant
+        // round 2's tree landed at `tree/work/` inside round 1's, so the board's diff for
+        // round 2 was round 1's diff and the merger — which reads the same path — would
+        // have pushed round 1's commit on an approve of round 2 (#22).
+        //
+        // The *attempt* is in the path as well as the round, and that is the second half of
+        // the same hazard: a round that failed transiently is asked for again as the same
+        // round, so a per-round directory alone would put the retry's tree inside the first
+        // attempt's. Nothing in the design wants the two kept apart by anything but the
+        // path, and this is the place that knows both numbers.
+        var landing = LandingFor(_options, round);
 
         // The name a round's container is created under, and the only handle teardown
         // needs. It carries the work item so a container can be found on a busy daemon,
@@ -288,17 +309,80 @@ public sealed class WorkerRoundRunner : INOpenCode
             DiffDocument.Parse(diff.Text).Files.Count,
             derived.UnreadableBecause is { } unreadable ? " It could not be read: " + unreadable : string.Empty);
 
-        // Produced whatever the round's own commands returned, and whatever the result
-        // file's shape was. A round that ran and whose change failed its own tests is
-        // Produced, with the failing exit codes in the payload — that is the structural
-        // half of "a build that fails its tests is not retried" (ADR-0001), and it is why
-        // nothing here reads the deriver's outcome to decide what to return.
+        // **The round's own exit code, and the whole of the outcome decision.** This is the
+        // judgement the design's sentence did not make, and it is made here rather than in
+        // the loop because this is the component that read the number.
+        //
+        // `roundExitCode` is the exit code of the round's own last command, and for the
+        // script this factory runs that last command *is* the agent: `RoundScript` ends with
+        // the `opencode run` invocation and nothing after it. A non-zero therefore means the
+        // round did not run to completion — a rate limit, a refused provider, a missing
+        // model, a brief the agent would not accept — and in every one of those cases the
+        // round produced nothing a reviewer can judge. Reporting that as `Produced` with an
+        // empty diff is what made the first real run's cards lie: `data-outcome="Produced"
+        // data-diff-state="empty"` and the sentence "Empty. Nothing on disk differs from
+        // the commit the round started at", which is a confident false claim about a round
+        // that never started (#22).
+        //
+        // The commands *inside* the round are a different matter and are not read here at
+        // all: a build whose tests failed returns zero from its own last command, so it is
+        // still `Produced` and the failing exit code stays data in the payload, which is
+        // what ADR-0001 asks for. The two cases never meet, because they are two different
+        // numbers read in two different places — a single "did anything fail" flag would
+        // put them back together and make a failing test retryable.
+        if (!derived.Environment.TheRoundRan)
+        {
+            var exit = derived.Environment.RoundExitCode;
+
+            // Transient, and this is the case it exists for. A rate limit is the most
+            // obviously transient failure in this system, and the retry policy was built
+            // without being able to see it. The costs are bounded and named: three attempts
+            // at one round, holding its container slot, then the round ends and the work
+            // item parks where a human can finish it — so a genuinely permanent cause
+            // spends two extra containers rather than a reviewer's attention, while the
+            // other answer (permanent) would park a work item a second attempt would have
+            // fixed. Nothing about the round's *work* is retried, because there is no work:
+            // the payload and the diff travel on the result either way.
+            _logger.LogWarning(
+                "A round of {Project}#{Issue} wrote a result but its own command exited {ExitCode}, so the round "
+                    + "did not run to completion. Its tree is left where it stopped and nothing in it is a finished "
+                    + "result. The commands it did run, and what they said, are in the payload. This is transient, "
+                    + "so the round is asked for again as the same round rather than spent against the ceiling.",
+                round.Project,
+                round.IssueNumber,
+                exit);
+
+            return RoundResult.Failed(
+                FailureClass.Transient,
+                run.LogTail,
+                diff,
+                ResultPayload.Of(derived, run.LogTail));
+        }
+
+        // Produced. The round's own last command returned zero, so the round finished, and
+        // whatever the commands inside it returned is a result a reviewer judges rather
+        // than a failure the factory retries (ADR-0001).
         return RoundResult.Produced(
             ResultPayload.Of(derived, run.LogTail),
             derived.AgentNote,
             run.LogTail,
             diff);
     }
+
+    /// <summary>
+    /// Where one round attempt's lifted-out files land: the work item's own directory, a
+    /// directory per round inside it, and a directory per attempt inside that.
+    /// </summary>
+    /// <remarks>
+    /// The round number is what stops one round landing inside another's and the attempt
+    /// number is what stops a retry landing inside the attempt it is retrying; the argument
+    /// for both is on <see cref="RunRoundAsync"/>, where the directory is built.
+    /// </remarks>
+    public static string LandingFor(FactoryOptions options, Round round) => Path.Combine(
+        options.RoundsDirectory,
+        round.WorkItemId.ToString("N"),
+        $"round-{round.RoundNumber}",
+        $"attempt-{round.Attempt}");
 
     /// <summary>
     /// The round's environment, and the one place a credential value is put into a worker

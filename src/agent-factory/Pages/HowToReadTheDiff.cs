@@ -1,6 +1,7 @@
 namespace AgentFactory.Pages;
 
 using AgentFactory.Results;
+using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 
 /// <summary>
@@ -60,6 +61,25 @@ internal static class HowToReadTheDiff
     /// empty section: "no diff was generated" and "the round changed nothing" are very
     /// different claims and a reviewer is entitled to be told which is which.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fourth state — <see cref="DiffState.Unfinished"/> — is decided from the round's
+    /// outcome rather than from the diff, and it is the one place the two are read
+    /// together. <see cref="RoundOutcome.Produced"/> means the round's own last command
+    /// returned zero, so an empty diff on a produced round genuinely is "the round ran and
+    /// changed nothing". An empty diff on any other round is not that, and saying it is was
+    /// the defect: the first real run's cards read <c>data-outcome="Produced"
+    /// data-diff-state="empty"</c> over a round whose agent had exited 1 on a rate limit in
+    /// two and a half seconds, having written nothing (#22).
+    /// </para>
+    /// <para>
+    /// It sits <em>after</em> the "there is a change" check rather than before it, and
+    /// that order is a claim about the reviewer's need: a round that got partway through
+    /// and then failed has a real change on disk, and showing it is more useful than
+    /// replacing it with a note that the round did not finish. The card's outcome and
+    /// failure say the round did not finish; the diff says what it left behind.
+    /// </para>
+    /// </remarks>
     public static DiffOnTheBoard? Of(RoundResultRecord round)
     {
         if (round.Diff is not { } diff)
@@ -81,33 +101,33 @@ internal static class HowToReadTheDiff
                 BoundedElsewhere: BoundedElsewhere(diff));
         }
 
-        if (!diff.HasText)
+        if (diff.HasText)
         {
-            // An empty diff is a real outcome, and saying so is the whole of what is
-            // needed. A section with "nothing on disk differs" in it is a fact about the
-            // round; an absent section would read as a round the factory did not look at.
+            var document = DiffDocument.Parse(diff.Text);
+            var window = DiffWindow.Showing(document, MaxFiles, MaxLines);
+
             return new DiffOnTheBoard(
-                State: DiffState.Empty,
-                Files: [],
-                OmittedFiles: 0,
-                OmittedLines: 0,
-                TotalFiles: 0,
-                TotalLines: 0,
+                State: DiffState.Shown,
+                Files: window.Files,
+                OmittedFiles: window.OmittedFiles,
+                OmittedLines: window.OmittedLines,
+                TotalFiles: window.TotalFiles,
+                TotalLines: window.TotalLines,
                 Tree: diff.Tree,
                 UnavailableBecause: null,
                 BoundedElsewhere: BoundedElsewhere(diff));
         }
 
-        var document = DiffDocument.Parse(diff.Text);
-        var window = DiffWindow.Showing(document, MaxFiles, MaxLines);
-
+        // No change on disk. Whether that is the round's decision is now a separate
+        // question, and the answer is the round's outcome rather than anything the diff can
+        // be asked.
         return new DiffOnTheBoard(
-            State: DiffState.Shown,
-            Files: window.Files,
-            OmittedFiles: window.OmittedFiles,
-            OmittedLines: window.OmittedLines,
-            TotalFiles: window.TotalFiles,
-            TotalLines: window.TotalLines,
+            State: round.Outcome == RoundOutcome.Produced ? DiffState.Empty : DiffState.Unfinished,
+            Files: [],
+            OmittedFiles: 0,
+            OmittedLines: 0,
+            TotalFiles: 0,
+            TotalLines: 0,
             Tree: diff.Tree,
             UnavailableBecause: null,
             BoundedElsewhere: BoundedElsewhere(diff));
@@ -124,16 +144,63 @@ internal static class HowToReadTheDiff
             ? $"{diff.OmittedFiles} more file(s), {diff.OmittedLines} more line(s), are not on this page. Nothing is "
                 + $"summarised in their place. The whole diff is the round's own tree, on this machine, at {diff.Tree}."
             : null;
+
+    /// <summary>
+    /// What a round with no change on disk is being said to have done, which is not the
+    /// same sentence in the two cases.
+    /// </summary>
+    /// <remarks>
+    /// The difference is the whole of the fourth state, and it is worth stating in words
+    /// rather than only in a <c>data-</c> attribute. "Nothing on disk differs from the
+    /// commit the round started at" is true of a rate-limited round, and reading it as
+    /// "the round ran and decided to change nothing" is a claim about a round that never
+    /// started — which is what the first real run's board said, over a payload two lines
+    /// below it carrying <c>exit 1</c> and the provider's own error (#22).
+    /// </remarks>
+    public static string? SaysAboutAnUnchangedDisk(DiffOnTheBoard? diff) => diff switch
+    {
+        {
+            State: DiffState.Empty,
+        } => "Empty. Nothing on disk differs from the commit the round started at: the round ran to completion "
+            + "and changed nothing.",
+
+        {
+            State: DiffState.Unfinished,
+        } => "Unfinished. The round's own command did not succeed, so the round did not run to completion. "
+            + "Nothing on disk differs from the commit it started at because that is where it stopped, not because "
+            + "the round chose to leave it alone. What it did run is in the record below this.",
+
+        _ => null,
+    };
 }
 
 /// <summary>What the board has for one round's change.</summary>
+/// <remarks>
+/// The four are claims, and each one has to be a claim the round's record supports. Three
+/// of them are about the <em>diff</em>: there is a change, there is demonstrably no change,
+/// or no diff could be produced. The fourth is about the <em>round</em>, and it exists
+/// because the first real run found a case none of the three could honestly cover: a round
+/// whose agent was refused before it began reported <c>empty</c>, and "Empty. Nothing on
+/// disk differs from the commit the round started at" is a true statement about the disk
+/// and a false one about the round (#22). The disk claim was never the problem; pairing it
+/// with an outcome that said the round had produced something was.
+/// </remarks>
 public enum DiffState
 {
     /// <summary>No diff was generated, and the board says why.</summary>
     Unavailable,
 
-    /// <summary>The round changed nothing on disk, which is a real outcome.</summary>
+    /// <summary>
+    /// The round ran to completion and left the disk as it found it. A real outcome, and
+    /// one a reviewer is entitled to be told about rather than have it rendered as nothing.
+    /// </summary>
     Empty,
+
+    /// <summary>
+    /// The round's own last command did not succeed, so the round did not run to
+    /// completion. Whatever the disk holds is where it stopped, not a change it made.
+    /// </summary>
+    Unfinished,
 
     /// <summary>There is a change to read.</summary>
     Shown,

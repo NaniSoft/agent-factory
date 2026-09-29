@@ -59,12 +59,30 @@ public sealed class Merging : IDisposable
 
         // Where the round runner would have lifted it, and what a round leaves there: a
         // commit on top of the base, with its object files read-only.
-        _tree = LiftedTree.WithACommitOn(
-            "main",
-            Path.Combine(Options.RoundsDirectory, WorkItem.Id.ToString("N"), ContainerRuntime.RoundTreeFolder));
+        //
+        // Per round, not per work item: `docker cp` copies a directory into a destination
+        // that already exists rather than replacing it, so a work item's rounds cannot share
+        // one landing directory without the second landing inside the first (#22).
+        _tree = LiftedTree.WithACommitOn("main", TreePath);
 
         _tree.Committed("the change a round made", ("src/Poller.cs", "public sealed class Poller { }\n"));
         _tree.WithReadOnlyObjects();
+
+        // The round, recorded against that tree. This is what the merger now reads: the
+        // path is on the round's own record rather than recomputed, so the tree the merger
+        // ships is the tree the board showed a reviewer.
+        Round = Store.RecordRound(
+            WorkItem.Id,
+            AgentFactory.Rounds.RoundOutcome.Produced,
+            resultPayload: "the round's own record of itself",
+            agentNote: "Made the poller keep going when a project is paced.",
+            startedUtc: _clock.UtcNow,
+            diff: new AgentFactory.Results.HostDiff(
+                Text: "diff --git a/src/Poller.cs b/src/Poller.cs\n",
+                Base: "refs/remotes/origin/main",
+                Tree: TreePath,
+                ContainerBounded: false,
+                UnavailableBecause: null));
 
         _credentials = new FakeCredentialReader().Having(KeyName, Token);
 
@@ -88,6 +106,9 @@ public sealed class Merging : IDisposable
 
     public GitHubApi Api { get; } = new();
 
+    /// <summary>The store's clock, so a test recording another round can use the same one.</summary>
+    public TestClock Clock => _clock;
+
     public RecordingLogger<GitHubClient> Log { get; } = new();
 
     public GitHubClient Client { get; }
@@ -95,6 +116,12 @@ public sealed class Merging : IDisposable
     public IWorkItemStore Store { get; }
 
     public WorkItem WorkItem { get; }
+
+    /// <summary>
+    /// The round whose change this is, as the store holds it — the record the merger reads
+    /// the tree's path from and the board renders it on.
+    /// </summary>
+    public AgentFactory.WorkItems.RoundResultRecord Round { get; }
 
     public FactoryOptions Options { get; }
 
@@ -105,7 +132,17 @@ public sealed class Merging : IDisposable
     /// <summary>Every name the credential reader was asked for, in order.</summary>
     public IReadOnlyList<string> CredentialsAsked => _credentials.Asked;
 
-    /// <summary>The round's tree, as it landed.</summary>
+    /// <summary>
+    /// The round's tree, as it landed.
+    /// </summary>
+    /// <remarks>
+    /// Built under <see cref="FactoryOptions.RoundsDirectory"/>, named for the work item and
+    /// the round inside it, because that is the shape the round runner now lifts into and
+    /// because the merger finds a tree the only way it can — off the round's own record,
+    /// which is the same path the board prints for that round (#22). The fixture therefore
+    /// records the round rather than arranging for the client to look somewhere convenient,
+    /// and a test cannot pass by pointing the merger at a tree it put somewhere else.
+    /// </remarks>
     public LiftedTree Tree => _tree;
 
     /// <summary>The commit the merger will push, read from git rather than remembered.</summary>
@@ -124,11 +161,16 @@ public sealed class Merging : IDisposable
     /// </remarks>
     public string Branch => "agent-factory/42-the-poller-stops-when-a-project-is-paced";
 
-    /// <summary>What the merger would find if it looked, which is where the tree really is.</summary>
+    /// <summary>
+    /// Where the round's tree really is: the path on the round's own record, which is where
+    /// the round runner lifts into and therefore where the merger looks.
+    /// </summary>
     public string TreePath => Path.Combine(
         Options.RoundsDirectory,
         WorkItem.Id.ToString("N"),
-        ContainerRuntime.RoundTreeFolder);
+        "round-1",
+        "attempt-1",
+        AgentFactory.Containers.ContainerRuntime.RoundTreeFolder);
 
     /// <summary>Ships the work item's change, once.</summary>
     public Task Merge(CancellationToken cancellationToken = default) =>

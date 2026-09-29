@@ -204,6 +204,31 @@ public sealed record Commit(string Id, string Subject);
 /// <param name="Git">The git the round built with.</param>
 /// <param name="Agent">The OpenCode CLI the round drove.</param>
 /// <param name="OperatingSystem">What the round ran on.</param>
+/// <param name="RoundExitCode">
+/// What the round's own last command returned, as the image recorded it, or null when the
+/// result file carries no such number.
+///
+/// <para>
+/// This is the one number in the result that is about the <em>round</em> rather than about
+/// anything in it, and it is the boundary the design's own sentence does not draw. The exit
+/// code of a <em>command the round ran</em> is a test failing or a lint complaining: data,
+/// and a result a reviewer judges (ADR-0001). The exit code of the round's own last command
+/// is whether the round <em>finished</em> — and for the script this factory runs, that last
+/// command is the agent itself, because <c>WorkerRoundRunner.RoundScript</c> ends with the
+/// <c>opencode run</c> invocation and nothing after it. A rate limit, a refused provider, a
+/// missing model and a malformed brief all arrive as a non-zero here, having produced
+/// nothing at all, and nothing else in the file distinguishes them from a round that
+/// changed nothing on purpose.
+/// </para>
+///
+/// <para>
+/// The image's own README says the same thing from the other side: the container's exit
+/// code is about the container, not the round, and "a round whose last command failed still
+/// exits 0 with roundExitCode inside the file". That is why this is read out of the result
+/// and not out of the daemon — <c>docker logs</c> exits zero whatever the container did, so
+/// there is nothing on that side to read (#22).
+/// </para>
+/// </param>
 public sealed record RoundEnvironment(
     string? User,
     int Uid,
@@ -215,4 +240,18 @@ public sealed record RoundEnvironment(
     IReadOnlyList<string> CredentialNames,
     string? Git,
     string? Agent,
-    string? OperatingSystem);
+    string? OperatingSystem,
+    int? RoundExitCode = null)
+{
+    /// <summary>
+    /// Whether the round is known to have run to completion — its own last command returned
+    /// zero, or the result file simply did not say and nothing is being claimed.
+    /// </summary>
+    /// <remarks>
+    /// False means "this is not a finished round", never "this round failed", and it is
+    /// deliberately true for a null: an image that did not record the number has not
+    /// claimed the round failed either, and inventing a failure out of an absent field is
+    /// the guessing the whole classification policy refuses to do.
+    /// </remarks>
+    public bool TheRoundRan => RoundExitCode is not { } code || code == 0;
+}

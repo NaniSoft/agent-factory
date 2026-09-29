@@ -153,6 +153,68 @@ public class RoundResultDeriverTests : IDisposable
     }
 
     [Fact]
+    public void The_rounds_own_exit_code_is_read_out_of_the_header_and_nothing_infers_it()
+    {
+        // #22: `roundExitCode` was written into every result file by the image and read by
+        // nothing in the entire application. This is the read, at the layer that reads
+        // records, and it is a plain field read — no inference from a command, no default,
+        // and no decision here about what a non-zero one means.
+        var finished = _deriver.Derive(AResultFile(
+            """
+            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":0}
+            {"kind":"command","seq":1,"label":"the tests","argv":["./scripts/test.sh"],"exitCode":1}
+            """));
+
+        Assert.Equal(0, finished.Environment.RoundExitCode);
+        Assert.True(finished.Environment.TheRoundRan);
+
+        // The round's own exit code and a command's are different fields and stay that way.
+        // A round can be finished *and* have run a command that failed — which is a build
+        // whose tests failed, and is the case that must not become a retryable failure.
+        Assert.Equal(1, Assert.Single(finished.FailedCommands).ExitCode);
+        Assert.True(finished.Environment.TheRoundRan);
+
+        var stopped = _deriver.Derive(AResultFile(
+            """
+            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":1}
+            {"kind":"command","seq":1,"label":"the agent","argv":["opencode","run"],"exitCode":1}
+            """));
+
+        Assert.Equal(1, stopped.Environment.RoundExitCode);
+        Assert.False(stopped.Environment.TheRoundRan);
+    }
+
+    [Fact]
+    public void A_result_file_with_no_round_exit_code_in_it_claims_nothing_rather_than_guessing_zero()
+    {
+        // An absent field is not a zero and not a failure. `worker-collect` writes `null`
+        // when it was not given one, and a result file from an older image has no such
+        // field at all; both mean the round has not said how it ended, and reading either as
+        // a failure would park a work item on the strength of a field that was never written.
+        var result = _deriver.Derive(AResultFile(
+            """
+            {"kind":"result","schema":"agent-factory/worker-result@1","roundExitCode":null}
+            {"kind":"command","seq":1,"label":"the tests","argv":["./scripts/test.sh"],"exitCode":0}
+            """));
+
+        Assert.Null(result.Environment.RoundExitCode);
+        Assert.True(result.Environment.TheRoundRan);
+    }
+
+    [Fact]
+    public void A_result_that_could_not_be_read_at_all_carries_no_exit_code()
+    {
+        // The degraded case: nothing was observed, so nothing is claimed — including that
+        // the round failed. A `Nothing()` result is not evidence of a failure any more than
+        // it is evidence of a success.
+        var nothing = _deriver.Derive(AResultFile("this is not a result file at all"));
+
+        Assert.False(nothing.IsARecord);
+        Assert.Null(nothing.Environment.RoundExitCode);
+        Assert.True(nothing.Environment.TheRoundRan);
+    }
+
+    [Fact]
     public void The_factory_records_what_a_command_returned_and_does_not_decide_what_it_meant()
     {
         // ADR-0011 settles the design's own contradiction about test commands: the agent
