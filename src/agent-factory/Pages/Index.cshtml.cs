@@ -33,7 +33,44 @@ public class IndexModel : PageModel
     /// <summary>The files that were refused, and why. A refusal is reported, not swallowed.</summary>
     public IReadOnlyList<ProjectFileRejection> Rejections => _projects.Rejections;
 
-    public IReadOnlyList<WorkItem> WorkItems => _store.List();
+    /// <summary>
+    /// The work items on the board, narrowed to one project when the reviewer has asked
+    /// to see one. Everything else is untouched by the filter: a filter is a way of
+    /// looking, not a policy, and the decisions a reviewer can make are the same three
+    /// whatever is on the page (ADR-0005).
+    /// </summary>
+    public IReadOnlyList<WorkItem> WorkItems => Project is { Length: > 0 } project
+        ? _store.List().Where(workItem => workItem.Project == project).ToList()
+        : _store.List();
+
+    /// <summary>
+    /// The projects the reviewer can narrow the board to: the ones being served, plus any
+    /// that have work items left over from a project file that has since been removed. A
+    /// project the factory has stopped serving still has a history a reviewer is judging,
+    /// and hiding it behind a filter that cannot be selected would lose it.
+    /// </summary>
+    public IReadOnlyList<string> ProjectsOnTheBoard => _projects.Projects
+        .Select(project => project.Name)
+        .Concat(_store.List().Select(workItem => workItem.Project))
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>
+    /// The project the board is narrowed to, or empty for all of them. A name that is not
+    /// one being served and has no work items of its own is not refused and not guessed at:
+    /// it narrows the board to nothing, which is what asking to see nothing shows, and the
+    /// filter itself still renders every project so the reviewer can pick another.
+    /// </summary>
+    public string? Project { get; private set; }
+
+    /// <summary>
+    /// How many worker containers the factory is inside, out of the budget. Said on the
+    /// board because a reviewer watching a work item sit in Frontier is asking whether the
+    /// factory is working or wedged, and the budget is the answer — a bounded machine that
+    /// renders nothing about its bound reads as a stuck one.
+    /// </summary>
+    public int RoundsInFlight => _loop.RoundsInFlight;
 
     /// <summary>
     /// Every round a work item has run, oldest first. A reviewer in Review judges what
@@ -81,16 +118,27 @@ public class IndexModel : PageModel
     /// </summary>
     public string? Refusal { get; private set; }
 
-    public void OnGet()
+    public void OnGet(string? project)
     {
+        // A query string and a read. It is a way of looking at the board rather than a way
+        // of changing it: no work item moves, no decision is recorded, and the reviewer's
+        // three decisions are offered and refused on exactly the same terms whatever the
+        // filter is (ADR-0005, ADR-0008). Nothing else on the board is a state, and a
+        // filter that were one would be a fourth decision.
+        Project = project?.Trim();
     }
 
     /// <summary>
     /// The board's only write. A reviewer posts one of the three decisions, the store
     /// keeps it, and the loop applies it.
     /// </summary>
-    public async Task<IActionResult> OnPostDecision(string? workItem, string? decision, string? feedback)
+    public async Task<IActionResult> OnPostDecision(string? workItem, string? decision, string? feedback, string? project)
     {
+        // Kept so that a refusal renders the board the reviewer was actually looking at
+        // rather than the unfiltered one. It is a read of the request and nothing more: a
+        // post cannot change what a later read shows about which projects exist.
+        Project = project?.Trim();
+
         // What a button sent. Anything that is not one of the three is not a decision,
         // and this endpoint has no other thing it can be asked to do — a form posted by
         // hand is refused, not interpreted. The message is kept in the words a reviewer
@@ -120,9 +168,9 @@ public class IndexModel : PageModel
         // The decision is recorded and the swimlane it means is the loop's, so the board
         // asks the loop rather than moving a work item itself. One step applies one
         // transition, and a decision comes before everything else a step could apply, so
-        // this step is the decision and nothing else. The heartbeat that steps the loop
-        // between decisions is the real agent's ticket; a reviewer's own click is a
-        // heartbeat too, and the only one there is today.
+        // this step is the decision and nothing else. A reviewer's click is a step of its
+        // own and always was; what is different now is that the heartbeat steps the loop
+        // between decisions too, so a click is a second driver rather than the only one.
         var step = await _loop.StepAsync();
 
         // A decision the loop could not carry out is said here, on the response the
@@ -139,7 +187,10 @@ public class IndexModel : PageModel
         }
 
         // Post, redirect, get: a reviewer who refreshes after deciding has not decided
-        // a second time.
-        return LocalRedirect("/");
+        // a second time. The filter rides along so that a reviewer judging one project
+        // stays on it rather than being dropped onto the whole board by their own click.
+        return LocalRedirect(Project is { Length: > 0 } narrowed
+            ? $"/?project={Uri.EscapeDataString(narrowed)}"
+            : "/");
     }
 }

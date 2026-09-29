@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Boundary;
 using System.Reflection;
 using AgentFactory;
 using AgentFactory.Clock;
+using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
@@ -69,6 +70,20 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>Applies transitions until the machine has nothing left to apply.</summary>
     public Task Settle() => _app.Services.GetRequiredService<Orchestrator>().SettleAsync();
+
+    /// <summary>
+    /// The real heartbeat, in the running process. A test calls <see cref="Tick"/> to move
+    /// the machine the way production does — one tick, no sleep — rather than reaching for
+    /// the orchestrator directly, so what is under test is the thing that will actually be
+    /// driving the factory.
+    /// </summary>
+    public Task Tick() => _app.Services.GetRequiredService<FactoryDriver>().TickAsync();
+
+    /// <summary>
+    /// How many worker containers the factory is inside right now, read the same way the
+    /// board reads it.
+    /// </summary>
+    public int RoundsInFlight => _app.Services.GetRequiredService<Orchestrator>().RoundsInFlight;
 
     /// <summary>
     /// Settles the machine, and says so rather than hanging if it takes unreasonably long.
@@ -190,7 +205,7 @@ public sealed class FactoryHost : IAsyncDisposable
         // dependency and never learns what is behind it.
         builder.Services.AddSingleton<IGitHub>(fakeGitHub);
 
-        var app = FactoryApp.Create(builder, options);
+        var app = FactoryApp.Create(builder, options, drivingTheMachine: false);
         await app.StartAsync();
 
         var address = app.Services

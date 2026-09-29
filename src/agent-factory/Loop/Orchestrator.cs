@@ -16,13 +16,32 @@ using Microsoft.Extensions.Logging;
 /// ADR-0005, ADR-0006).
 /// </summary>
 /// <remarks>
+/// <para>
 /// The machine advances only when a caller steps it, and one step applies at most one
 /// transition. A step never waits on a round: a round that has not come back is a round
-/// that is still running, and the next step asks again. That is what makes the round
-/// timeout a comparison against <see cref="IClock"/> rather than a timer, and what lets
-/// the whole loop be tested without a sleep. A step does await the merge an approve asks
-/// for, because merging is the transition that approve *is* rather than something asked
-/// for earlier and collected later — a reviewer's click has to do something now.
+/// that is still running, and the next step asks about it again. That is what makes the
+/// round timeout a comparison against <see cref="IClock"/> rather than a timer, and what
+/// lets the whole loop be tested without a sleep. A step does await the merge an approve
+/// asks for, because merging is the transition that approve *is* rather than something
+/// asked for earlier and collected later — a reviewer's click has to do something now.
+/// </para>
+/// <para>
+/// There is a budget of <see cref="FactoryConstants.ContainerBudget"/> rounds in flight
+/// rather than one, and it is the whole of what bounds concurrency. Each round runs in its
+/// own fresh worker container whatever project it is for (ADR-0001), so there is no shared
+/// tree to serialise and no lock to take: the only scarce thing is a container, and the
+/// budget is the count of those. A round that cannot be given one is not started; it waits
+/// in Frontier, where a reviewer can see that it is waiting for a container rather than
+/// waiting on a lock.
+/// </para>
+/// <para>
+/// The step order is the asymmetry, and it is deliberately *not* the same shape it was
+/// with one round in flight. A round that is running no longer stops the machine: a
+/// decision a reviewer made, a work item nobody reviewed and a merge that failed are all
+/// applied ahead of the pipeline whatever else is in flight, because none of them starts a
+/// container and none of them should wait behind one that has ninety minutes to run. What
+/// waits is only the starting of another round, and only when the budget is full.
+/// </para>
 /// </remarks>
 public sealed class Orchestrator
 {
@@ -32,8 +51,54 @@ public sealed class Orchestrator
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
 
-    /// <summary>The round this process is inside, if it is inside one.</summary>
-    private InFlight? _inFlight;
+    /// <summary>
+    /// The rounds this process is inside, by the work item each is an attempt at. A set
+    /// rather than a single field because the budget is a count, and a count is the only
+    /// thing that can be bounded — a boolean slot would be the same as one round in flight
+    /// with a different name, and would go on being a lock in all but name.
+    /// </summary>
+    private readonly Dictionary<Guid, InFlight> _inFlight = [];
+
+    /// <summary>
+    /// One step at a time. The machine is a serial state machine over one store, and with a
+    /// heartbeat in the process there are two things that can ask it for a step at the same
+    /// moment: a reviewer's click and a tick. Without this the budget itself would be a
+    /// race — two callers could both read one round in flight and both start a second, and
+    /// the count that is supposed to bound concurrency would bound nothing.
+    /// </summary>
+    /// <remarks>
+    /// This is a gate on another caller, not a wait for anything: it has no timeout, it is
+    /// held only for the length of a step, and nothing here sleeps behind it. It is not one
+    /// of the four things <c>PolicyTests</c> forbids, and that test names it explicitly as
+    /// the single place a <c>SemaphoreSlim</c> may be waited on, so it cannot quietly
+    /// become a queue with a deadline — which is a different policy and would have to be
+    /// argued for on its own.
+    ///
+    /// It is held across the merge an approve asks for, and a merge that hangs rather than
+    /// fails is bounded by the seam's own client (#10) rather than by anything here. That
+    /// is not new with a driver — a reviewer's click has always held the machine while its
+    /// merge is outstanding — but a driver means the machine is being asked from a
+    /// background thread too, so it is said here rather than left to be discovered.
+    /// </remarks>
+    private readonly SemaphoreSlim _oneStepAtATime = new(1, 1);
+
+    /// <summary>
+    /// How many worker containers the factory is inside right now, out of the budget. The
+    /// board's own answer to "why has my work item not started", and the reason the budget
+    /// is rendered on it rather than only in a constant: a bounded machine that says
+    /// nothing about its bound is indistinguishable from a wedged one.
+    /// </summary>
+    /// <remarks>
+    /// A counter beside the set rather than a property read off it, and the reason is
+    /// honest rather than tidy: the board reads this from a request thread while a tick may
+    /// be writing the set on another, and a <c>Dictionary</c> cannot be read and written at
+    /// once. The count is only ever changed under the step gate, and read with a volatile
+    /// read, so what the board says is either the count before this step or the count after
+    /// it — never a torn one and never a wrong one.
+    /// </remarks>
+    public int RoundsInFlight => Volatile.Read(ref _roundsInFlight);
+
+    private int _roundsInFlight;
 
     public Orchestrator(
         IWorkItemStore store,
@@ -50,25 +115,42 @@ public sealed class Orchestrator
     }
 
     /// <summary>
-    /// Applies at most one transition, and says what it made of it. A round in flight is
-    /// the only thing the machine waits on; a work item waiting in Frontier is not,
-    /// because starting it is a transition the next step can make. A decision a reviewer
-    /// has made comes before everything else, because a reviewer who is present is
-    /// waiting on it — and a reviewer who is not is what the feedback threshold is for,
-    /// which comes next.
+    /// Applies at most one transition, and says what it made of it. A round that has come
+    /// back is the first thing the machine has to do with it — its container is gone and
+    /// the slot is owed to somebody. What is *not* first is a round that has not come back:
+    /// with one round in flight a running round was the only thing there was to do, and
+    /// with a budget it is not, because a decision a reviewer made, a work item nobody
+    /// reviewed and a merge that failed all start no container and none of them should
+    /// wait behind a round that has ninety minutes to run. Only the starting of another
+    /// round waits, and only when the budget is full.
     /// </summary>
     /// <remarks>
-    /// The order is the asymmetry, in the order it is read: a decision that was made
-    /// beats a decision that was not. The merge of an ignored work item waits its turn
-    /// like everything else does, and it waits for a round in flight too — bounded, since
-    /// a round is bounded at the round timeout, and the wait makes the dangerous path
-    /// later rather than earlier.
+    /// The order is the asymmetry, in the order it is read: a round that has finished, then
+    /// a decision that was made, then a decision that was not, then the build.
     /// </remarks>
     public async Task<StepResult> StepAsync()
     {
-        if (_inFlight is { } run)
+        await _oneStepAtATime.WaitAsync();
+        try
         {
-            return LandIfTheRoundIsOver(run) ? StepResult.Moved : StepResult.Idle;
+            return await StepOnceAsync();
+        }
+        finally
+        {
+            _oneStepAtATime.Release();
+        }
+    }
+
+    /// <summary>
+    /// One transition's worth of work, with no gate in front of it. The body of a step and
+    /// nothing else, so that <see cref="StepAsync"/> is the only way in and the gate is the
+    /// only thing that cannot be forgotten.
+    /// </summary>
+    private async Task<StepResult> StepOnceAsync()
+    {
+        if (LandARoundThatIsOver())
+        {
+            return StepResult.Moved;
         }
 
         return await ApplyADecision()
@@ -82,13 +164,39 @@ public sealed class Orchestrator
     /// that has not come back, because a round that is running is not a transition — the
     /// caller steps again when it might have finished. A round waiting out its retry
     /// backoff stops it too, for the same reason and with the same consequence: the wait is
-    /// ended by the caller's clock rather than by anything in here.
+    /// ended by the caller's clock rather than by anything in here. It also stops when the
+    /// container budget is full and there is nothing else to apply, which is the whole of
+    /// what "the driver does nothing" means.
     /// </summary>
     public async Task SettleAsync()
     {
         while ((await StepAsync()).Applied)
         {
         }
+    }
+
+    /// <summary>
+    /// Lands the first round in flight that is over, and says whether it landed one. One
+    /// per step, so a step is still one transition and the round timeout is still a
+    /// comparison against the clock rather than a timer.
+    /// </summary>
+    /// <remarks>
+    /// Every round in flight is asked, not just one of them: a round waiting out its retry
+    /// backoff is not over and must not stop another round that has finished from being
+    /// recorded. The order is the dictionary's, and it does not matter which finishes
+    /// first — they are independent attempts at independent work items.
+    /// </remarks>
+    private bool LandARoundThatIsOver()
+    {
+        foreach (var run in _inFlight.Values.ToList())
+        {
+            if (LandIfTheRoundIsOver(run))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -381,6 +489,14 @@ public sealed class Orchestrator
     /// so it can be governed.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// This method reads no in-flight state at all, and that is the property rather than an
+    /// accident of where it is written. A merge is not a round, starts no container and is
+    /// applied ahead of the pipeline in <see cref="StepOnceAsync"/>, so a full budget cannot
+    /// delay it — and a guard added here would be invisible until a project happened to have
+    /// two long builds running on the day the feedback threshold fired.
+    /// </para>
+    /// <para>
     /// This is a merge and not a shortcut round Done. It goes through the same
     /// <see cref="IGitHub"/> seam an approve does and obeys the same rule, so a Done here
     /// is a claim about a repository rather than about a clock: with no merger behind the
@@ -394,6 +510,22 @@ public sealed class Orchestrator
     /// from when the work item entered Review rather than from when it was last written to.
     /// So a test drives it by advancing time, nothing waits, and a work item sent back and
     /// reviewed again gets a full threshold rather than inheriting the last one's remainder.
+    ///
+    /// <para>
+    /// It takes no slot and is not blocked by a full one, and both halves of that are
+    /// deliberate. #6 left this noted as a shape the concurrency work would want to revisit
+    /// — and the answer is that a merge is not a round: it starts no worker container, runs
+    /// no agent and costs nothing the budget exists to protect, so making it wait for one
+    /// would let a build in one project decide when a change reaches another repository. A
+    /// factory with two long builds running would stop merging the work items nobody was
+    /// reviewing, which is a less safe factory than one with none of them.
+    /// </para>
+    /// <para>
+    /// So the step order is what carries it: a merge is applied before the pipeline in
+    /// <see cref="StepOnceAsync"/>, and the only thing that consults the budget is starting
+    /// a round. Nothing in this method reads the in-flight set, and that is the property
+    /// rather than an accident of where it is written.
+    /// </para>
     /// </remarks>
     private async Task<StepResult?> MergeWhatNobodyReviewed()
     {
@@ -460,39 +592,79 @@ public sealed class Orchestrator
         ?.Feedback ?? string.Empty;
 
     /// <summary>
-    /// A work item is accepted out of Backlog when a slot is free. A slot is free when no
-    /// round is in flight and nothing is waiting in Frontier; the budget behind that count
-    /// is the concurrency ticket's business, and the shape here is the one it will
-    /// generalise. Acceptance is automatic and is never gated on a human: the board is
-    /// where a reviewer acts, through the three decisions, not by holding intake
-    /// (ADR-0007).
+    /// A work item is accepted out of Backlog into Frontier, and acceptance is automatic
+    /// and is never gated on a human: the board is where a reviewer acts, through the
+    /// three decisions, not by holding intake (ADR-0007).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Frontier is the waiting room, and this is where the shape #3 left behind is
+    /// generalised. There used to be one slot, and a slot was a boolean — no round in
+    /// flight <em>and</em> nothing in Frontier — so acceptance was refused whenever either
+    /// was occupied, and every work item past Backlog was alone in the build. A budget of
+    /// two says the same thing with a count: a work item may be waiting in Frontier
+    /// without occupying a container, and what the budget governs is the number of rounds
+    /// actually started rather than the number of work items queued.
+    /// </para>
+    /// <para>
+    /// That is why acceptance is not gated on the budget here. Gating it would move the
+    /// wait into Backlog and leave the two lanes meaning the same thing, and it would
+    /// make a work item's place in the queue depend on how many containers happened to be
+    /// free — the opposite of "a work item waits in Frontier rather than starting without
+    /// a slot". A reviewer watching a long build wants to see the next work item already
+    /// queued behind it, not still in Backlog as though nothing had been accepted.
+    /// </para>
+    /// </remarks>
     private bool AcceptIntoFrontier()
     {
-        var workItems = _store.List();
-        var next = workItems.FirstOrDefault(item => item.Swimlane == Swimlane.Backlog);
+        var next = _store.List().FirstOrDefault(item => item.Swimlane == Swimlane.Backlog);
         if (next is null)
-        {
-            return false;
-        }
-
-        if (_inFlight is not null || workItems.Any(item => item.Swimlane == Swimlane.Frontier))
         {
             return false;
         }
 
         _store.Move(next.Id, Swimlane.Frontier);
         _logger.LogInformation(
-            "Accepted {Project}#{Issue} into Frontier: a slot is free.",
+            "Accepted {Project}#{Issue} into Frontier, where it waits for a worker container.",
             next.Project,
             next.IssueNumber);
 
         return true;
     }
 
+    /// <summary>
+    /// Starts a round for the work item in Frontier whose project is least busy, but only
+    /// while the container budget has room. This is the only place the budget is enforced,
+    /// and a step asked while it is full does nothing at all — which is what makes a driver
+    /// safe: a tick with a full budget starts no round, rather than starting one because a
+    /// clock moved.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A round in flight keeps its own work item in In Progress, so a work item with a round
+    /// running can never be chosen again here and two rounds can never be started for one
+    /// work item. That is a property of the lanes rather than a check, which is why there is
+    /// no "not the one already running" guard here to forget.
+    /// </para>
+    /// <para>
+    /// Within the budget the order is by least-loaded project rather than by age, and that
+    /// is the answer to "one noisy repository cannot starve the rest". A global budget on
+    /// its own bounds the machine; it does not stop a project with a thousand open issues
+    /// from holding both of the two slots for ever while a project with one waits behind it.
+    /// Preferring the project that is holding fewer containers means a project that has work
+    /// waiting is served as soon as any container comes free, whatever is queued ahead of
+    /// it — and the tie is broken by age, so one project on its own still gets the whole
+    /// budget and the queue reads in the order it was picked up (ADR-0007).
+    /// </para>
+    /// </remarks>
     private bool StartARound()
     {
-        var next = _store.List().FirstOrDefault(item => item.Swimlane == Swimlane.Frontier);
+        if (!ASlotIsFree())
+        {
+            return false;
+        }
+
+        var next = NextInFrontier();
         if (next is null)
         {
             return false;
@@ -507,27 +679,79 @@ public sealed class Orchestrator
         // is what keeps the loop from being blocked inside a container it knows nothing
         // about, and what makes the timeout a comparison against the clock. The token is
         // the round's own: ending the round ends the call.
-        var inFlight = new InFlight(next.Id, next.RoundCount + 1, _clock.UtcNow);
+        var inFlight = new InFlight(next.Id, next.Project, next.RoundCount + 1, _clock.UtcNow);
         inFlight.Pending = AskForTheRound(round, inFlight.Token);
 
-        _inFlight = inFlight;
+        _inFlight.Add(next.Id, inFlight);
+        Volatile.Write(ref _roundsInFlight, _inFlight.Count);
         _store.Move(next.Id, Swimlane.InProgress);
         _logger.LogInformation(
-            "Round {Round} of {Project}#{Issue} started.",
+            "Round {Round} of {Project}#{Issue} started; {Busy} of {Budget} worker containers are in use.",
             inFlight.RoundNumber,
             next.Project,
-            next.IssueNumber);
+            next.IssueNumber,
+            RoundsInFlight,
+            FactoryConstants.ContainerBudget);
 
         return true;
     }
 
     /// <summary>
-    /// Lands the round in flight if it is over: returned, or past the round timeout. A
-    /// round that has done neither is still running, and the machine waits. A round that
-    /// has failed transiently and is waiting out its backoff is over in the only sense
-    /// that matters — it is not running — but it has not ended, and it goes back through
-    /// here to be asked for again.
+    /// The work item in Frontier whose project is holding the fewest containers right now,
+    /// and among those the one that has been waiting longest. Null when nothing is waiting.
     /// </summary>
+    /// <remarks>
+    /// The project's own name is held on each in-flight round rather than looked up in the
+    /// store for every candidate, because this runs on the hot path of every step that
+    /// starts a round and a store read per queued work item would be a cost bought for a
+    /// comparison that has already been made. The count is over rounds, not work items, so
+    /// a round waiting out its retry backoff counts against its project — it still holds a
+    /// container, and a project holding one is not a project that should get the next.
+    /// </remarks>
+    private WorkItem? NextInFrontier()
+    {
+        var waiting = _store.List().Where(item => item.Swimlane == Swimlane.Frontier).ToList();
+        if (waiting.Count == 0)
+        {
+            return null;
+        }
+
+        var held = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var run in _inFlight.Values)
+        {
+            held[run.Project] = held.TryGetValue(run.Project, out var count) ? count + 1 : 1;
+        }
+
+        // The tie-break is written out rather than left to the sort being stable, because
+        // "the store's own order" is a property a reader should be able to see.
+        return waiting
+            .OrderBy(item => held.TryGetValue(item.Project, out var count) ? count : 0)
+            .ThenBy(item => item.CreatedUtc)
+            .ThenBy(item => item.IssueNumber)
+            .First();
+    }
+
+    /// <summary>
+    /// Whether the container budget has room for another round. The whole of the
+    /// concurrency policy in one comparison, and it counts rounds rather than projects:
+    /// each round gets its own fresh container whatever project it is for, so there is
+    /// nothing shared to lock and nothing to serialise (ADR-0001).
+    /// </summary>
+    private bool ASlotIsFree() => _inFlight.Count < FactoryConstants.ContainerBudget;
+
+    /// <summary>
+    /// Lands one round in flight if it is over: returned, or past the round timeout. A
+    /// round that has done neither is still running, and the machine moves on to something
+    /// else rather than waiting for it. A round that has failed transiently and is waiting
+    /// out its backoff is over in the only sense that matters — it is not running — but it
+    /// has not ended, and it goes back through here to be asked for again.
+    /// </summary>
+    /// <remarks>
+    /// This is the one method that reads <see cref="RoundResult.IsRetryable"/>, and a
+    /// round waiting out a backoff stays in the in-flight set: it has not ended, so it has
+    /// not released its container, and the slot it holds is the reason a third round
+    /// cannot start while two are still being tried.
+    /// </remarks>
     private bool LandIfTheRoundIsOver(InFlight run)
     {
         if (run.IsWaitingToRetry)
@@ -562,10 +786,13 @@ public sealed class Orchestrator
             return WaitOutTheBackoff(run);
         }
 
-        // The round is over, and now the in-flight state can go: the container is gone, the
-        // round's token has nothing left to cancel, and a work item in Escalated is not
-        // holding a slot.
-        _inFlight = null;
+        // The round is over, and now its in-flight state can go: the container is gone, the
+        // round's token has nothing left to cancel, a work item in Escalated is not holding
+        // a slot, and the budget is one container freer for whatever is queued behind it.
+        // Removing by key rather than clearing the set is what keeps one round ending from
+        // releasing the slot of a round that is still running.
+        _inFlight.Remove(run.WorkItemId);
+        Volatile.Write(ref _roundsInFlight, _inFlight.Count);
         run.Dispose();
 
         var round = _store.RecordRound(
@@ -604,6 +831,17 @@ public sealed class Orchestrator
     /// (ADR-0001). The work item stays in In Progress and keeps its slot, because a round
     /// that has not ended has not released one.
     /// </summary>
+    /// <remarks>
+    /// Holding the slot across the backoff is the generalisation of #7's shape rather than
+    /// a detail of it, and it is what stops the retry policy being a way round the budget.
+    /// The attempt ceiling is three <em>attempts at one round</em> and the budget is two
+    /// <em>rounds at once</em>; conflating them is how three waiting retries would come to
+    /// occupy a budget of two. A round waiting forty seconds is still a round that exists,
+    /// so it still holds one of the two, and a third work item waits in Frontier for a
+    /// container that has not been given away. What it must not do is hold a slot for ever,
+    /// and it cannot: the attempt ceiling ends the round, and the round timeout ends the
+    /// attempt.
+    /// </remarks>
     private bool WaitOutTheBackoff(InFlight run)
     {
         var backoff = FactoryConstants.RetryBackoff(run.Attempts);
@@ -734,16 +972,25 @@ public sealed class Orchestrator
     }
 
     /// <summary>
-    /// One round this process is inside. The pending call is kept rather than awaited
-    /// inline, so that a round is a thing the machine can be asked about instead of a call
-    /// it is blocked in — and so that a round waiting out a retry backoff is the same kind
-    /// of thing as a round running: an attempt at one round that has not ended.
+    /// One round this process is inside, holding one container of the budget until it ends.
+    /// The pending call is kept rather than awaited inline, so that a round is a thing the
+    /// machine can be asked about instead of a call it is blocked in — and so that a round
+    /// waiting out a retry backoff is the same kind of thing as a round running: an attempt
+    /// at one round that has not ended, and so has not given its slot back.
     /// </summary>
-    private sealed class InFlight(Guid workItemId, int roundNumber, DateTimeOffset startedUtc) : IDisposable
+    private sealed class InFlight(Guid workItemId, string project, int roundNumber, DateTimeOffset startedUtc) : IDisposable
     {
         private readonly CancellationTokenSource _rounds = new();
 
         public Guid WorkItemId { get; } = workItemId;
+
+        /// <summary>
+        /// The project this round is for, kept here because the loop has to be able to ask
+        /// which projects are busy without reading the store to find out: the fairness rule
+        /// that keeps one repository from holding the whole budget is a comparison between
+        /// projects, and it is made while the budget is being spent.
+        /// </summary>
+        public string Project { get; } = project;
 
         public int RoundNumber { get; } = roundNumber;
 

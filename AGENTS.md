@@ -32,6 +32,14 @@ is the trust boundary while the factory runs in development.
 directory and a temporary SQLite file, and asserts against what the board renders. There
 are no sleeps in the suite and no shared state between tests.
 
+**The test host does not start the heartbeat.** `FactoryHost` builds the factory with
+`drivingTheMachine: false`, so the driver is registered and resolvable but nothing ticks on
+its own; a test calls `TickAsync()` to move the machine the way production does, once, with
+no sleep. Without that, a live five-second timer would run alongside every test that
+asserts on the state of the machine and the whole suite would be a race against it. This is
+the only thing the test host switches off, and it is switched off by an explicit argument
+rather than by a setting nobody can find.
+
 Most of the suite is hermetic and needs neither Docker nor a network: the container
 runtime is driven through a recording `IDockerCli` in `Boundary/FakeDockerCli.cs`, which
 behaves like the commands it stands in for rather than remembering what it was told. The
@@ -193,14 +201,17 @@ now keeps its tail whether or not a caller asked for progress; it used to be fed
 one did, which would have made the tail silently empty for exactly the caller that needs
 it.
 
-**There is still no production heartbeat.** Nothing steps the orchestrator or the poller on
-a schedule, so in production a work item in Backlog still moves only when a reviewer's
-click asks the loop for a step. The gap is now the *only* thing between this factory and a
-moving one — the agent runs, the result is derived, and the board renders both — which makes
-it worth stating precisely: the driver that steps the machine between decisions is still
-nobody's, and adding one is a deliberate call rather than a side effect. Nothing in the
-container runtime sleeps, defers or times out; the one thing it waits for is a container, and
-that wait is ended by the round's token rather than by a clock of its own.
+**The heartbeat landed with the container budget, and nothing in the container runtime
+changed.** `Driving/FactoryDriver.cs` is the driver every ticket up to here recorded as
+missing — see **The heartbeat** under **The loop** for what it is and why it is safe. The
+gap this paragraph used to describe is closed: the agent runs, the result is derived, the
+board renders both, and something now steps the machine between decisions.
+
+What did *not* change is the runtime. It still sleeps for nothing, defers for nothing and
+times out nothing; the one thing it waits for is a container, and that wait is ended by the
+round's token rather than by a clock of its own. That is the property the budget relies on —
+a round's container is gone before the next one starts, so the budget is a count of live
+containers and not a count of rounds that have ever been asked for.
 
 ## Testing the rounds and the results
 
@@ -253,12 +264,34 @@ building is a judgement a human makes **on the board**, the only surface the des
 trusts for human input. The labels and assignees are carried on `OpenIssue` and never
 read, and a test says so, so the rule cannot be quietly reintroduced.
 
-Like the loop it is stepped, not timer-driven. One `StepAsync()` is one project's turn,
+Like the loop it is stepped, not timer-driven, and **what steps it is now the heartbeat**
+rather than a reviewer's click — see **The heartbeat** under **The loop**. What did *not*
+change is the poller itself: it is still strictly serial, one project's turn at a time, and
+`PassAsync` still awaits each in turn. That is a decision rather than an oversight, and it is
+the one `#4` asked to be settled.
+
+**Intake stays serial deliberately.** Parallelising it would buy a little latency in the
+one part of the factory that was never the bottleneck — a pass is already bounded per
+project, so a busy repository cannot spend a pass on itself — while costing the one property
+that makes the multi-project guarantee provable at all. The rotation order *is* the
+anti-starvation mechanism: one project's turn at a time, in a derived order, is what makes
+"one noisy repository cannot starve the rest" a fact about the code rather than a hope about
+timing. A parallel pass would interleave the reads, and the order `IntakeTests` asserts
+against would become a property of scheduling rather than of the directory.
+
+One `StepAsync()` is one project's turn,
 taken only once `FactoryConstants.PollInterval` has passed since the last pass began — a
 comparison against `IClock`, not a `Task.Delay`, so no test sleeps. `PassAsync()` takes
 every project's turn in turn. The rotation order is the directory sorted by file name, so
 it is deterministic without anyone maintaining it, and it is a project's turn that is
 bounded rather than a pass: a busy repository cannot spend a pass on itself.
+
+A tick from the driver asks for a turn and the poller decides for itself whether one is
+due, so the cadence above is the poller's own and the driver's five-second tick never turns
+into a read the interval has not asked for. Intake is bounded the other way too: a project
+being paced out of a pass is a project's own turn being skipped, and the rotation carries on
+to the others, which is what `A_failing_project_still_does_not_stop_the_rest_of_the_rotation`
+asserts over a simulated day.
 
 Intake is idempotent against the store's unique index on `(repo_url, issue_number)`, and
 a re-poll of an open issue leaves the work item it finds exactly as it is — same lane,
@@ -276,21 +309,187 @@ appears.
 
 One `StepAsync()` applies at most one transition, which is what makes the
 90-minute `FactoryConstants.RoundTimeout` a comparison against `IClock` rather than a
-timer. Like the poller it is stepped rather than driven, and like the poller nothing
-drives it on a schedule. There is a real `INOpenCode` behind the seam, and a step starts a
-round that really runs an agent in a real container, so there is now something for a
-heartbeat to step — but nothing in this process steps it on a timer, and that is still
-deliberate rather than an oversight: a background loop that started rounds with no budget,
-no concurrency limit and no log would be a factory spending containers on every issue of
-every project at once, and the container budget and cross-project concurrency are `#12`'s. A
-reviewer's click is the only thing that drives the machine today, and whoever adds the driver
-that steps it between decisions owns that decision deliberately.
+timer. A step **does** await the merge an approve asks for, because merging is the transition
+that approve *is* rather than something asked for earlier and collected later — a reviewer's
+click has to do something now. Nothing sleeps, defers or times out in the loop. A merge that
+hangs rather than fails is bounded by the seam's own client when it exists (#10), not by
+anything here.
 
-A step **does** await the merge an approve asks for, because merging is the transition
-that approve *is* rather than something asked for earlier and collected later: there is no
-heartbeat yet, and a reviewer's click has to do something now. Nothing sleeps, defers or
-times out in the loop. A merge that hangs rather than fails is bounded by the seam's own
-client when it exists (#10), not by anything here.
+**The step order changed with the budget, and that is the generalisation.** A round that has
+come back is landed first, then a decision a reviewer made, then a work item nobody reviewed,
+then a parked merge's retry, and only then the pipeline. With one round in flight a running
+round was the only thing the machine did, and it blocked everything else — including a
+reviewer's decision and a 48-hour merge. It no longer does, because none of those starts a
+container and none of them should wait behind a round that has ninety minutes to run. What
+waits is only the *starting* of another round, and only when the budget is full.
+
+### The container budget
+
+**Concurrency is bounded by a count of worker containers and by nothing else.**
+`FactoryConstants.ContainerBudget` is `2`, sized for this machine's 7.19 GB in which each
+worker runs an agent, a toolchain and a build. It is a code constant and not configuration,
+like everything else in that class, so no project can have a different budget and no
+deployment can quietly raise the machine's ceiling.
+
+It is deliberately **not** a lock, a shared working tree or a per-project quota. Each round
+gets its own fresh container whatever project it is for (ADR-0001), so there is nothing
+shared to serialise and nothing to take a lock on. The only scarce thing is a container and
+the budget is the count of those — `_inFlight` is a `Dictionary<Guid, InFlight>` rather
+than the single optional it was, because a count is the only thing that can be bounded, and a
+boolean slot would be one round in flight with a different name.
+
+Three things about it are load-bearing, and each is asserted rather than left to be
+discovered:
+
+- **A work item waits in Frontier, not in Backlog.** `AcceptIntoFrontier` is no longer gated
+  on the budget: Frontier is the waiting room, and what the budget governs is the number of
+  rounds *started*. Gating acceptance on the budget would move the wait into Backlog and
+  leave the two lanes meaning the same thing, and it would make a work item's place in the
+  queue depend on how many containers happened to be free. A reviewer watching a long build
+  wants to see the next work item already queued behind it, not still in Backlog as though
+  nothing had been accepted.
+- **The budget is enforced in exactly one place**, `Orchestrator.ASlotIsFree`, and nothing
+  else consults it. `PolicyTests` also asserts the loop is the only caller of
+  `INOpenCode.RunRoundAsync`, which is the structural half of the same claim: a second
+  component able to start a round would be a second way to spend a container that nothing
+  in the loop could see or count.
+- **A merge takes no slot at all.** #6 left this noted as a shape to revisit, and the answer
+  is that a merge starts no container, runs no agent and costs nothing the budget exists to
+  protect. Making it wait for one would let a build in one project decide when a change
+  reaches another repository, and a factory with two long builds running would stop shipping
+  what a human had already read and approved — a less safe factory than one with no builds
+  at all. So the step order carries it, and `MergeWhatNobodyReviewed` reads no in-flight
+  state whatever. A reviewer's decision is the same, for the same reason.
+
+**Within the budget, the next container goes to whichever project is holding fewer.** A
+global budget bounds the machine; on its own it does not stop a project with a thousand open
+issues from holding both slots for ever while a project with one waits behind it.
+`NextInFrontier` orders the queue by each project's held count and breaks the tie by age, so
+a project with work waiting is served as soon as any container frees — and a project on its
+own still gets the whole budget, which is what "bounded" has to mean rather than "rationed".
+`ContainerBudgetTests` asserts both halves, because taking "one project per container" too
+literally would starve a project that is the only one with work.
+
+**A round waiting out its retry backoff still holds its slot**, which is the generalisation
+of #7's rule rather than a detail of it. The attempt ceiling is three *attempts at one
+round* and the budget is two *rounds at once*; conflating them is how three waiting retries
+would come to occupy a budget of two. A round waiting forty seconds is still a round that
+exists, so it still holds one of the two, and a third work item waits in Frontier for a
+container that has not been given away. What it must not do is hold a slot for ever, and it
+cannot: the attempt ceiling ends the round and the round timeout ends the attempt.
+
+**One gate, on the loop's own step.** With a heartbeat there are two things that can ask the
+machine for a step at once — a reviewer's click and a tick — and without a gate the budget
+itself would be a race: two callers could both read one round in flight and both start a
+second, and the count that is supposed to bound concurrency would bound nothing. So
+`StepAsync` takes a `SemaphoreSlim` and `StepOnceAsync` is the body. This is a gate on
+another caller and not a wait for anything: no timeout, held only for the length of a step,
+and the only one in the process, which `PolicyTests` asserts so that it cannot quietly become
+a queue with a deadline. It is held across the merge an approve asks for, which is a merge
+that hangs rather than fails — bounded by the seam's own client (#10), not by anything here.
+
+### The heartbeat
+
+`Driving/FactoryDriver.cs` is the driver every prior ticket recorded as missing: a real
+agent, a real container, a real deriver and a correct retry policy all exist, and until now
+nothing stepped the machine on a schedule, so in production a work item in Backlog only
+moved when a reviewer's click asked for a step. **It is a tick, not a wait.** Each tick asks
+intake for one project's turn and the loop to apply whatever it can until it has nothing
+left, and returns. Nothing is held up: the loop applies one transition per step, so a tick's
+work is bounded by what the machine has to apply rather than by a clock, and
+`FactoryConstants.HeartbeatInterval` (five seconds) is the only thing in the process that
+has to find out for itself that time passed.
+
+**It respects the budget by not being the thing that enforces it.** The driver has no
+opinion about how many containers are running — it does not know, cannot know, and is not
+asked. It asks the loop for a step, and the loop is the only component that counts rounds, so
+a tick with a full budget applies a landed round, a decision or a merge if there is one and
+otherwise does nothing at all. That is why the budget and the driver land together: a timer
+with nothing behind it is a factory spending a container on every issue of every project at
+once, which is the failure #8 refused.
+
+**The `Task.Delay` in `ExecuteAsync` is the one legitimate exception to "nothing waits", and
+`PolicyTests` was changed deliberately and visibly to say so.** It used to read "there is no
+`Task.Delay` anywhere in the assembly", which was right until the heartbeat landed and wrong
+the moment it did. Rather than weaken it to "`Task.Delay` is allowed now", it was *tightened*
+to name the single permitted call site: one `Task.Delay`, in `FactoryDriver.ExecuteAsync`,
+counted as well as named, and nothing else anywhere. A second one — in the loop, in the
+deriver, in the poller, or a second in the driver itself — fails the suite, exactly as a
+second one did under the old blanket ban. `Thread.Sleep`, `Timer` and `CancelAfter` remain
+forbidden everywhere, and the deriver's own "nothing waits here" check was re-pointed at
+*the deriver* rather than at the assembly so that it cannot become the thing that quietly
+forbids the heartbeat again.
+
+**The poller stays serial, deliberately.** #4 left this as a note: intake is a read against
+one seam, a pass is already bounded per project, and parallelising it would buy a little
+latency in the one part of the factory that was never the bottleneck while costing the
+rotation order — which is what makes "one noisy repository cannot starve the rest" provable
+at all. The driver *steps* the poller, so intake now runs on a schedule; the schedule is
+intake's own (`PollInterval`, compared against `IClock`), and a tick before one is due is a
+no-op rather than a read.
+
+**The driver is not started in the test host.** `FactoryApp.Create` takes
+`drivingTheMachine` and `FactoryHost` passes false, because a live five-second tick running
+alongside a test that asserts on the state of the machine would make every test in the suite
+a race against a timer. The driver is registered either way, so a test resolves it and calls
+`TickAsync()` — a method separate from `ExecuteAsync` precisely so a test can move the
+machine without a clock of its own and without a sleep.
+
+### Testing concurrency without sleeping
+
+`Concurrency/ContainerBudgetTests.cs` and `Concurrency/ProjectBoardTests.cs` settle every
+concurrency question by **holding a round open and stepping the machine**, never by timing
+one. A round that has been asked for and not yet returned is a round the factory is inside,
+so `FakeNOpenCode` counts how many were inside at once and the tests assert on that **peak**.
+
+That distinction is the whole difference the ticket draws, and it is worth stating plainly: a
+test that waits for every work item to reach Review passes just as well against a factory
+that ran the rounds one after another as against one that ran three at once. The peak does
+not. `The_budget_bounds_how_many_rounds_run_at_once`,
+`The_budget_is_never_exceeded_no_matter_how_many_work_items_are_waiting`,
+`A_long_build_in_one_project_does_not_delay_another_projects_issue_from_starting` and
+`A_noisy_repository_cannot_take_the_whole_budget_from_a_project_with_one_issue` all assert
+on the count rather than on the end state, and all of them are hermetic — no Docker, no
+model, no sleep, no port. `A_reviewers_approval_merges_with_the_budget_full` makes the
+budget full with rounds that are stuck and never released, so the merge below is made with
+the budget full and there is no timing in it at all.
+
+**One test that does not prove what it might seem to, stated rather than hidden.**
+"A merge is not blocked by a full budget" is three tests rather than one, because the
+48-hour threshold cannot be made to come due while two rounds are genuinely in flight: the
+rounds must have started *after* the work item entered Review, and the threshold is 48 hours,
+so by the time it fires both rounds are long past the 90-minute round timeout. It is
+therefore asserted through the two paths that *can* contend with a full budget — a
+reviewer's approval, and a parked merge's ten-second retry backoff — plus the structural
+check that `MergeWhatNobodyReviewed` reads no in-flight state. That is weaker than a
+behavioural test against the timeout path, and the reason is a property of the two constants
+rather than of the tests.
+
+### The board, by project
+
+The board groups work items by project inside every lane and can be narrowed to one, and
+grouping is the visible half of the budget: a work item in Frontier is queued rather than
+refused, and a reviewer who cannot tell whose work item that is cannot tell whether the
+factory is working on their project or somebody else's.
+
+- **Grouping is inside the lane**, because the lanes are the board's spine and a lane is a
+  state every project shares. Each group carries its own count, which is the question a
+  reviewer is asking when they group: how much of this lane is mine.
+- **Filtering is a GET with `?project=`**, a read and not a write path. It changes what is
+  rendered and nothing else: no work item moves, no decision is recorded, and the three
+  decisions are offered and refused on exactly the same terms whatever the filter is
+  (ADR-0005, ADR-0008). A filter that narrowed the decision set would be policy on the page.
+- **A filter naming a project the factory does not serve shows nothing and says so.** An
+  empty board is two different facts a reviewer cannot tell apart — this project has nothing
+  waiting, or the factory has never heard of it — and the second would look like the first
+  working perfectly. So the board states which filter is in force and whether the factory
+  knows that project. Every project is always on offer, including the one in force, so a
+  reviewer can get back to the whole board without a browser's back button, and a decision's
+  redirect keeps them on the project they were looking at.
+- **The budget is rendered** — "2 of 2 worker containers in use" — because a bounded machine
+  that says nothing about its bound is indistinguishable from a wedged one. A work item in
+  Frontier behind a full budget is queued; one behind an empty one would be a fault worth
+  seeing.
 
 ## Every way a loop ends
 
@@ -346,9 +545,10 @@ separate cause column would be a second copy of what the record already says, fr
 disagree with it. The merge failure's own message is *not* persisted — that is the log
 and the response the reviewer was holding.
 
-Still not here, and deliberately: the merger (`#10`), the diff view (`#11`), the container
-budget (`#12`). The agent and the result deriver are here — see **The worker container**.
-Retry classification and backoff are here too: see **Failure paths and retry** below. Nothing
+Still not here, and deliberately: the merger (`#10`) and the diff view (`#11`). The agent and
+the result deriver are here — see **The worker container**. The container budget and the
+driver are here too — see **The loop**. Retry classification and backoff are here too: see
+**Failure paths and retry** below. Nothing
 sleeps, defers or times out in any of this: the ceiling is a count and the threshold is a
 comparison against `IClock`.
 
@@ -434,13 +634,20 @@ up within sixteen minutes.
 Nothing here sleeps, defers or times out. A backoff is a `TimeSpan` compared against
 `IClock`, and a step asked before the wait has passed does nothing at all. `PolicyTests`
 scans the application IL for `Task.Delay`, `Thread.Sleep`, `Timer` and
-`CancellationTokenSource.CancelAfter` and requires none of them — which is also why a
-bounded GitHub read is left to the seam's own client (#10) rather than given a timer here,
-the same answer the merge call already has.
+`CancellationTokenSource.CancelAfter` and requires none of them **in the policy** — the one
+exception is the heartbeat's own tick, named and counted, under **The heartbeat** above —
+which is also why a bounded GitHub read is left to the seam's own client (#10) rather than
+given a timer here, the same answer the merge call already has.
 
-**No production heartbeat still.** A retry waits for something to step the machine, and in
-production the only thing that does is a reviewer's click. The policy is bounded and correct
-without a driver; what is missing is the driver and `#12`'s budget, not this.
+**A retry now waits for a heartbeat rather than for a reviewer.** That is the whole of what
+the driver changed for this policy, and it is worth saying precisely because a retry is
+exactly the thing that must *not* fire on a schedule of its own. The backoff is still a
+comparison against `IClock`; what changed is that something now asks the loop to look, so
+the wait is ended by the driver's tick rather than by a human happening to click. A
+transient failure is not retried because five seconds passed — it is retried because a step
+was taken and the step found the wait had passed. `The_heartbeat_steps_intake_as_well_as_the_loop`
+asserts that a tick before the poll interval is a no-op rather than a read, which is the same
+property on the intake side.
 
 ## Done means merged
 
@@ -496,16 +703,21 @@ the three is refused rather than guessed at. `Pages/Index.cshtml` renders them a
 form wherever a reviewer can still act — Review offers all three, a parked work item
 offers two — and that form is the factory's only write path: the process serves one
 route, the board has one reading handler and one writing handler, and a test says all of
-it.
+it. The project filter is on the reading handler and is not a third of either: a query
+string that changes what is rendered and nothing else, which
+`A_filtered_board_still_offers_the_three_decisions_and_still_refuses_the_fourth` asserts by
+pressing a decision on a filtered board and by posting a fourth by hand to it.
 
 The board does not move work items, and it does not merge anything. It records what the
 reviewer decided, in their own words, and asks the loop for one step; which swimlane a
 decision means is the loop's policy (ADR-0005), so a page that decided lanes itself would
 be a second state machine that could disagree with the loop about the same work item. That
-one step is also the only thing that drives the loop in production today, and it is
-deliberate: a reviewer's click has to do something now, and nothing else is there to step
-the machine between decisions until the heartbeat lands (`#12`'s budget, and the driver
-that would have to respect it).
+one step is also a *second* driver rather than the only one, now that the heartbeat steps
+the loop between decisions, and it is deliberately kept: a reviewer's click has to do
+something now rather than at the next tick, so the decision is carried out while the reviewer
+is holding the response. The two are not in conflict because the loop takes one step at a
+time (`Orchestrator.StepAsync`'s gate), so a tick and a click cannot interleave inside one
+step — they queue, and the board's own step is the one the reviewer is waiting on.
 
 What the loop has to **say** also comes back through that step, as `StepResult`, and the
 board renders a refusal where the reviewer is looking rather than working out for itself

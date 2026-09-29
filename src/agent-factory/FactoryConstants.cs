@@ -94,6 +94,46 @@ public static class FactoryConstants
     public const int BoardAutoRefreshSeconds = 5;
 
     /// <summary>
+    /// How many worker containers the factory may have running at once. Two, sized for
+    /// this machine's 7.19 GB, in which each worker runs an agent, a toolchain and a
+    /// build: three would have them fighting each other for memory rather than building.
+    /// A code constant and not configuration, like everything else here, so every project
+    /// gets the same budget and changing it is a deliberate edit in one obvious place.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The budget is a count of <em>containers</em>, and it is the only thing that bounds
+    /// concurrency. It is deliberately not a lock, not a shared working tree and not a
+    /// per-project quota: each round gets its own fresh container whatever project it is
+    /// for (ADR-0001), so there is nothing to serialise and nothing to share, and a
+    /// project's own long build cannot hold another project's issue out of a container.
+    /// </para>
+    /// <para>
+    /// It is not the same number as <see cref="TransientRetryAttempts"/>, and the two
+    /// must not be conflated: that one counts how many times one round is asked for, and
+    /// this one counts how many rounds exist at a time. A round waiting out its retry
+    /// backoff still holds a container slot — it has not ended — so three waiting retries
+    /// cannot happen at all, because a budget of two never admits a third round to wait.
+    /// </para>
+    /// </remarks>
+    public const int ContainerBudget = 2;
+
+    /// <summary>
+    /// How often the driver steps the machine: intake takes a turn and the loop applies
+    /// whatever it can. It is a tick rather than a wait — the driver asks, and nothing
+    /// inside the policy is holding anything up — and it is short enough that a finished
+    /// round is noticed while the board is still refreshing itself.
+    /// </summary>
+    /// <remarks>
+    /// The one place in the process with a <c>Task.Delay</c> in it, and the one legitimate
+    /// exception to there being no waits anywhere: everything the policy defers is a
+    /// <see cref="TimeSpan"/> compared against <c>IClock</c>, and only the driver needs to
+    /// know that time passed on its own. <c>PolicyTests</c> says so by naming this one
+    /// call site rather than by allowing waits in general.
+    /// </remarks>
+    public static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>
     /// The longest intake will wait before asking a project again, however long it has
     /// been failing. Above this the growth stops, and the trade is stated rather than
     /// assumed: a project that has been down for a day is read a handful of times instead

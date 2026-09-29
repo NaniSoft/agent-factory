@@ -21,6 +21,19 @@ public sealed class Board
     }
 
     /// <summary>
+    /// The board narrowed to one project, exactly as a reviewer narrows it: a GET with the
+    /// project in the query string. Reading it this way rather than filtering the markup
+    /// afterwards is what makes the test about the board's own behaviour — a filter that
+    /// only existed in the test's hands would pass here and fail in front of a reviewer.
+    /// </summary>
+    public static async Task<Board> ReadForAsync(HttpClient client, string project)
+    {
+        using var response = await client.GetAsync($"/?project={Uri.EscapeDataString(project)}");
+        response.EnsureSuccessStatusCode();
+        return new Board(await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
     /// The board as a response rendered it, which for a decision is where a refusal
     /// lives: a refusal is on the page the reviewer is looking at now, and reading the
     /// board again afterwards would find a clean one and lose it.
@@ -29,6 +42,128 @@ public sealed class Board
     {
         response.EnsureSuccessStatusCode();
         return new Board(await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// The markup of one project's group, up to the next group or the end of the board.
+    /// Scoped to a swimlane where a test says which lane it means, because the same project
+    /// has a group in every lane and "one project's cards" is not a thing on its own.
+    /// </summary>
+    public string ProjectGroup(string project, string? swimlane = null)
+    {
+        var lane = swimlane is null ? Swimlane(project) : Swimlane(swimlane);
+        var marker = $"data-project-group=\"{project}\"";
+        var start = lane.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        var end = lane.IndexOf("data-project-group=\"", start + marker.Length, StringComparison.Ordinal);
+        return end < 0 ? lane[start..] : lane[start..end];
+    }
+
+    /// <summary>Every project the board offers as a filter, in the order it renders them.</summary>
+    public IReadOnlyList<string> ProjectFilters() => ValuesOf("data-project-filtered");
+
+    /// <summary>
+    /// The project the board is currently narrowed to, or empty for all of them. Read off
+    /// the board's own statement of it rather than out of the URL, because what matters is
+    /// what a reviewer can see: a filter that is applied and not said is a filter nobody
+    /// can tell is in force.
+    /// </summary>
+    /// <remarks>
+    /// Read as a browser would rather than as the board wrote it. A project name is a
+    /// reviewer's own project's name, so it can carry an ampersand or a quote, and asserting
+    /// on the raw markup would be asserting on the escaping instead of on the filter.
+    /// </remarks>
+    public string ProjectInForce() => System.Net.WebUtility.HtmlDecode(
+        AttributeOf(ElementCarrying("data-project-in-force"), "data-project-in-force") ?? string.Empty);
+
+    /// <summary>
+    /// Whether the project the board is narrowed to is one the factory serves or has work
+    /// for. False means the board is empty because the name is unknown, which is a different
+    /// thing from a project that simply has nothing waiting. Null when the board is not
+    /// filtered at all.
+    /// </summary>
+    public bool? ProjectIsKnown()
+    {
+        var value = AttributeOf(ElementCarrying("data-project-in-force"), "data-known");
+        return value is null ? null : value == "true";
+    }
+
+    /// <summary>
+    /// The opening tag of the first element carrying a marker, whatever its value. The
+    /// existing helpers all need to be told the value first, which is the wrong shape for a
+    /// marker whose whole point is that the value is the thing under test.
+    /// </summary>
+    private string ElementCarrying(string marker)
+    {
+        var name = $"{marker}=\"";
+        var at = Html.IndexOf(name, StringComparison.Ordinal);
+        return at < 0 ? string.Empty : Html[at..Html.IndexOf('>', at)];
+    }
+
+    /// <summary>
+    /// A decision pressed on a board the reviewer has narrowed to one project. It reads
+    /// that page and posts to that page's own form, because the filter rides on the form's
+    /// action: pressing a button found on the unfiltered board would be a decision made
+    /// from a different page than the one the reviewer is looking at.
+    /// </summary>
+    public static async Task<HttpResponseMessage> DecideForProjectAsync(
+        HttpClient client,
+        string project,
+        Guid workItemId,
+        string decision,
+        string? feedback = null)
+    {
+        var board = await ReadForAsync(client, project);
+        var form = board.DecisionFormFor(workItemId);
+        if (form.Length == 0)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"the board filtered to {project} rendered no decision form for that work item");
+        }
+
+        var fields = FieldsFor(form, workItemId)
+            .Concat(Fields(form, "button").Where(button => button.Value == decision))
+            .ToList();
+
+        return await SubmitAsync(client, form, fields, feedback);
+    }
+
+    /// <summary>
+    /// A decision posted by hand from a board filtered to one project. What the filter
+    /// must not change is what the board refuses, so this goes through the filtered form
+    /// with a value the board did not offer.
+    /// </summary>
+    public static async Task<HttpResponseMessage> PostByHandForProjectAsync(
+        HttpClient client,
+        string project,
+        Guid workItemId,
+        string? decision,
+        string? feedback = null)
+    {
+        var board = await ReadForAsync(client, project);
+        var form = board.DecisionFormFor(workItemId) is { Length: > 0 } own
+            ? own
+            // The page's own form, borrowed for its antiforgery token — which is what a
+            // reviewer holding a stale page has. Without this the post would be refused for
+            // having no token rather than for what it is asking, and the test would be
+            // asserting the wrong refusal.
+            : board.FirstDecisionForm();
+
+        if (form.Length == 0)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"the board filtered to {project} rendered no decision form at all, so there is "
+                    + "nothing on it to post from");
+        }
+
+        var fields = FieldsFor(form, workItemId);
+        fields.Add(new KeyValuePair<string, string>("decision", decision ?? string.Empty));
+
+        return await SubmitAsync(client, form, fields, feedback);
     }
 
     /// <summary>
@@ -238,8 +373,16 @@ public sealed class Board
         return open < 0 || close < 0 ? string.Empty : Html[open..(close + "</form>".Length)];
     }
 
-    private static string ActionOf(string form) =>
-        AttributeOf(form[..(form.IndexOf('>') + 1)], "action") ?? "/";
+    /// <summary>
+    /// Where a form posts to, as a browser would read it. The board escapes an ampersand in
+    /// the action's query string into an entity, which a browser decodes before following
+    /// it — so a test that posted to the raw attribute would be posting to a URL carrying a
+    /// literal `&amp;project=nexus` and the page would see no project at all. That is the
+    /// escaping being read as the wire format, and it is the sort of thing that makes a
+    /// test pass against markup a reviewer would never get.
+    /// </summary>
+    private static string ActionOf(string form) => System.Net.WebUtility.HtmlDecode(
+        AttributeOf(form[..(form.IndexOf('>') + 1)], "action") ?? "/");
 
     /// <summary>An attribute value as a browser reads it, rather than as the board wrote it.</summary>
     private static string Decoded(string? value) =>

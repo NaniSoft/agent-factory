@@ -5,7 +5,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent Factory — board</title>
+    <title>Agent Factory — board@(Model.Project is { Length: > 0 } p ? $" — {p}" : "")</title>
     <link rel="stylesheet" href="~/board.css" />
 </head>
 <body>
@@ -50,9 +50,40 @@
                 </ul>
             }
         </p>
+
+        @* The container budget, on the board rather than only in a constant: a reviewer
+            watching a work item sit in Frontier is asking whether the factory is working or
+            wedged, and this is the answer. Bounded and saying so is what makes the wait
+            readable — a work item in Frontier behind a full budget is queued, and one behind
+            an empty one would be a fault worth seeing. *@
+        <p class="container-budget"
+           data-container-budget="budget"
+           data-budget="@FactoryConstants.ContainerBudget"
+           data-in-flight="@Model.RoundsInFlight">
+            @Model.RoundsInFlight of @FactoryConstants.ContainerBudget worker containers in use.
+            A work item in <strong>Frontier</strong> is waiting for a container, not for a
+            decision — each round gets its own, whatever project it is for.
+        </p>
     </header>
 
     <main>
+        @* Grouping and filtering by project. A GET and a query string, so it is a way of
+            looking at the board rather than a write path: the filter changes what is
+            rendered and nothing else, and every decision the board offers is offered on
+            exactly the same terms whatever is showing. Every project is always offered,
+            including the one currently in force, so a reviewer can get back to the whole
+            board without a browser's back button. *@
+        <nav class="project-filter" data-project-filter="filter">
+            <a href="/" data-project-filtered="" data-current="@(Model.Project is not { Length: > 0 } ? "true" : "false")">All projects</a>
+            @foreach (var project in Model.ProjectsOnTheBoard)
+            {
+                var current = Model.Project == project;
+                <a href="/?project=@Uri.EscapeDataString(project)"
+                   data-project-filtered="@project"
+                   data-current="@(current ? "true" : "false")">@project</a>
+            }
+        </nav>
+
         @if (Model.Refusal is { Length: > 0 })
         {
             <p class="refusal" data-refusal="the decision was refused">@Model.Refusal</p>
@@ -75,181 +106,226 @@
             </section>
         }
 
-        <section class="board">
+        @* Stated on the board rather than only in the filter's own markup, because a filter
+            naming a project the factory is not serving narrows the board to nothing and a
+            reviewer looking at an empty board has to be able to tell "this project has
+            nothing waiting" from "the factory does not know that project". *@
+        @if (Model.Project is { Length: > 0 } narrowed)
+        {
+            <p class="project-in-force" data-project-in-force="@narrowed" data-known="@(Model.ProjectsOnTheBoard.Contains(narrowed, StringComparer.Ordinal) ? "true" : "false")">
+                Showing @narrowed.
+                @if (!Model.ProjectsOnTheBoard.Contains(narrowed, StringComparer.Ordinal))
+                {
+                    <span>The factory has never heard of it: no project by that name is being served and none has work waiting.</span>
+                }
+            </p>
+        }
+
+        <section class="board" data-board-projects="@(Model.Project ?? string.Empty)">
             @foreach (var swimlane in Swimlanes.All.Concat(Swimlanes.ParkedAndFinal))
             {
                 var items = Model.WorkItems.Where(workItem => workItem.Swimlane == swimlane).ToList();
                 <div class="swimlane @(swimlane is Swimlane.Escalated or Swimlane.Rejected ? "parked-and-final" : null)"
                      data-swimlane="@swimlane">
                     <h2>@Swimlanes.Label(swimlane)</h2>
-                    <ul>
-                        @foreach (var workItem in items)
-                        {
-                            var rounds = Model.RoundsOf(workItem.Id);
-                            var decisions = Model.DecisionsOf(workItem.Id);
-
-                            // Why it ended, for the lanes that are an ending. Escalated and Rejected are two
-                            // states with two distinct causes, so the card says which one this is rather than
-                            // leaving two lanes whose cards read alike.
-                            var cause = Model.CauseOf(workItem);
-
-                            // When this card's silence would ship it, on the card itself rather than only in
-                            // the header, because a timeout a reviewer cannot see per work item is a timeout
-                            // they cannot act on while it still matters.
-                            var mergesAt = Model.AutoMergeAt(workItem);
-                            <li class="work-item"
-                                data-work-item="@workItem.Id"
-                                data-project="@workItem.Project"
-                                data-issue="@workItem.IssueNumber"
-                                data-base-branch="@workItem.BaseBranch"
-                                data-round-count="@workItem.RoundCount"
-                                data-rounds="@rounds.Count"
-                                data-decisions="@decisions.Count"
-                                data-merge-attempts="@workItem.MergeAttempts"
-                                data-cause="@cause"
-                                data-auto-merge="@(mergesAt?.ToString("O") ?? string.Empty)">
-                                <span class="project">@workItem.Project</span>
-                                <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
-                                <span class="base-branch">base @workItem.BaseBranch</span>
-                                <span class="round-count">round @workItem.RoundCount of @FactoryConstants.RoundCeiling</span>
-                                @if (cause.Length > 0)
+                    @* Grouped by project inside the lane, which is the one axis the
+                        swimlane is not. A lane is a state and every project shares them;
+                        the question a reviewer asks of a lane with nine cards on it is
+                        which of them are theirs, and grouping answers it without a filter
+                        and without reading each card. Oldest first within a group, which
+                        is the store's own order, so a project's queue reads in the order
+                        it was picked up. *@
+                    @foreach (var group in items
+                        .GroupBy(workItem => workItem.Project, StringComparer.Ordinal)
+                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <section class="project-group" data-project-group="@group.Key" data-project-count="@group.Count()">
+                            <h3>@group.Key <span class="count">@group.Count()</span></h3>
+                            <ul>
+                                @foreach (var workItem in group)
                                 {
-                                    <span class="cause">@cause</span>
+                                    await RenderCardAsync(workItem);
                                 }
-                                @if (mergesAt is { } when)
-                                {
-                                    <span class="auto-merge">
-                                        auto-merges at @when.ToString("yyyy-MM-dd HH:mm 'UTC'")
-                                        unless a reviewer decides first
-                                    </span>
-                                }
-                                @if (rounds.Count > 0)
-                                {
-                                    <ol class="rounds">
-                                        @foreach (var round in rounds)
-                                        {
-                                            <li class="round"
-                                                data-round="@round.RoundNumber"
-                                                data-outcome="@round.Outcome"
-                                                data-failure="@(round.Failure?.ToString() ?? string.Empty)"
-                                                data-attempts="@round.Attempts"
-                                                data-has-result="@(round.ResultPayload is { Length: > 0 } ? "true" : "false")"
-                                                data-has-log="@(round.Log is { Length: > 0 } ? "true" : "false")">
-                                                <span class="round-number">round @round.RoundNumber</span>
-                                                <span class="outcome">@round.Outcome</span>
-                                                @if (round.Attempts > 1)
-                                                {
-                                                    @* Only said when it took more than one. A round that needed asking
-                                                        for twice is a fact a reviewer wants; one that did not is noise. *@
-                                                    <span class="attempts">@round.Attempts attempts</span>
-                                                }
-                                                @if (round.Failure is { } failure)
-                                                {
-                                                    <span class="failure">@failure.ToString().ToLowerInvariant() failure</span>
-                                                }
-                                                @* The result: the files changed, the commands run, what each
-                                                    returned, and the diff, all derived by observing the round's
-                                                    container. It is derived text rather than a rendered view of a
-                                                    parsed object, and that is deliberate — the board has no opinion
-                                                    about any part of it, and neither has anything to interpret. *@
-                                                @if (round.ResultPayload is { Length: > 0 })
-                                                {
-                                                    <pre class="result" data-result="round @round.RoundNumber">@round.ResultPayload</pre>
-                                                }
-                                                @if (round.AgentNote is { Length: > 0 })
-                                                {
-                                                    @* The only sentence a model wrote. Said after the observations on
-                                                        purpose: it is the one part of a result nothing above is
-                                                        derived from, so it reads as an account and not as a record. *@
-                                                    <span class="note" data-note="round @round.RoundNumber">@round.AgentNote</span>
-                                                }
-                                                @if (round.Log is { Length: > 0 })
-                                                {
-                                                    @* The round's log, kept with the round rather than only in the
-                                                        factory's own logging. A round whose result could not be read
-                                                        is a round whose only account of itself is this, so it is
-                                                        always rendered and never folded away by default. *@
-                                                    <details class="round-log" open="@(round.ResultPayload is not { Length: > 0 })">
-                                                        <summary data-log="round @round.RoundNumber">the round's log</summary>
-                                                        <pre class="log">@round.Log</pre>
-                                                    </details>
-                                                }
-                                            </li>
-                                        }
-                                    </ol>
-                                }
-                                @if (decisions.Count > 0)
-                                {
-                                    @* What the reviewer did and what they said, in every lane. *@
-                                    <ol class="decided">
-                                        @foreach (var decision in decisions)
-                                        {
-                                            <li class="decision-made"
-                                                data-decision-made="@Decisions.Slug(decision.Decision)"
-                                                data-made-on="@workItem.Id"
-                                                data-feedback="@decision.Feedback"
-                                                data-applied-to="@decision.AppliedTo"
-                                                data-decided-utc="@decision.DecidedUtc.ToString("O")">
-                                                <span class="decision">@Decisions.Label(decision.Decision)</span>
-                                                @if (decision.AppliedTo is { } appliedTo)
-                                                {
-                                                    @* Where the loop put the work item to apply this one. Said
-                                                        plainly, because it is the whole of what the decision did:
-                                                        an approval the loop could not carry out reads as applied
-                                                        to Review, which is how a change that was approved and
-                                                        not shipped stays visible after the page is re-read. *@
-                                                    <span class="applied-to">applied to @Swimlanes.Label(appliedTo)</span>
-                                                }
-                                                @if (decision.Feedback is { Length: > 0 })
-                                                {
-                                                    <span class="reviewer-words">@decision.Feedback</span>
-                                                }
-                                            </li>
-                                        }
-                                    </ol>
-                                }
-                                @{
-                                    // The only form on the board, and the only write path there is. Rendered
-                                    // wherever a reviewer can still act — Review, and a parked work item, which
-                                    // offers the two decisions that finish it. A Rejected or Done work item
-                                    // gets no form at all, because there is nothing left to decide.
-                                    var offered = Model.DecisionsOffered(workItem.Swimlane);
-                                }
-                                @if (offered.Count > 0)
-                                {
-                                    <form class="decide"
-                                          data-decide="@workItem.Id"
-                                          method="post"
-                                          action="/?handler=Decision">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="workItem" value="@workItem.Id" />
-                                        <label class="feedback" for="feedback-@workItem.Id">Your reasons — the next round is handed them as its brief</label>
-                                        <textarea id="feedback-@workItem.Id" name="feedback" rows="4"></textarea>
-                                        <div class="decisions">
-                                            @foreach (var decision in offered)
-                                            {
-                                                <button type="submit"
-                                                        name="decision"
-                                                        value="@Decisions.Slug(decision)"
-                                                        data-decision="@Decisions.Slug(decision)">@Decisions.Label(decision)</button>
-                                            }
-                                        </div>
-                                    </form>
-                                }
-                            </li>
-                        }
-                    </ul>
+                            </ul>
+                        </section>
+                    }
                 </div>
             }
         </section>
     </main>
 
-    @* Auto-refresh: a board a reviewer has to refresh by hand is a board they stop trusting. *@
+    @* Auto-refresh: a board a reviewer has to refresh by hand is a board they stop trusting. The
+        filter rides through a reload, because a board that forgets which project you asked
+        for is a board you have to set up again every five seconds. *@
     <script>
         (function () {
             const seconds = @FactoryConstants.BoardAutoRefreshSeconds;
-            window.setInterval(function () { window.location.reload(); }, seconds * 1000);
+            const project = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Project ?? ""));
+            const url = project ? "/?project=" + encodeURIComponent(project) : "/";
+            window.setInterval(function () { window.location.replace(url); }, seconds * 1000);
         })();
     </script>
 </body>
 </html>
+
+@{
+    // One card. A local function rather than a partial because a card is the board's
+    // markup and the board is one page: splitting it would put a work item's whole record
+    // — its rounds, its decisions, its cause and its decision form — behind an include
+    // boundary for no gain.
+    async Task RenderCardAsync(WorkItem workItem)
+    {
+        var rounds = Model.RoundsOf(workItem.Id);
+        var decisions = Model.DecisionsOf(workItem.Id);
+
+        // Why it ended, for the lanes that are an ending. Escalated and Rejected are two
+        // states with two distinct causes, so the card says which one this is rather than
+        // leaving two lanes whose cards read alike.
+        var cause = Model.CauseOf(workItem);
+
+        // When this card's silence would ship it, on the card itself rather than only in
+        // the header, because a timeout a reviewer cannot see per work item is a timeout
+        // they cannot act on while it still matters.
+        var mergesAt = Model.AutoMergeAt(workItem);
+        <li class="work-item"
+            data-work-item="@workItem.Id"
+            data-project="@workItem.Project"
+            data-issue="@workItem.IssueNumber"
+            data-base-branch="@workItem.BaseBranch"
+            data-round-count="@workItem.RoundCount"
+            data-rounds="@rounds.Count"
+            data-decisions="@decisions.Count"
+            data-merge-attempts="@workItem.MergeAttempts"
+            data-cause="@cause"
+            data-auto-merge="@(mergesAt?.ToString("O") ?? string.Empty)">
+            <span class="project">@workItem.Project</span>
+            <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
+            <span class="base-branch">base @workItem.BaseBranch</span>
+            <span class="round-count">round @workItem.RoundCount of @FactoryConstants.RoundCeiling</span>
+            @if (cause.Length > 0)
+            {
+                <span class="cause">@cause</span>
+            }
+            @if (mergesAt is { } when)
+            {
+                <span class="auto-merge">
+                    auto-merges at @when.ToString("yyyy-MM-dd HH:mm 'UTC'")
+                    unless a reviewer decides first
+                </span>
+            }
+            @if (rounds.Count > 0)
+            {
+                <ol class="rounds">
+                    @foreach (var round in rounds)
+                    {
+                        <li class="round"
+                            data-round="@round.RoundNumber"
+                            data-outcome="@round.Outcome"
+                            data-failure="@(round.Failure?.ToString() ?? string.Empty)"
+                            data-attempts="@round.Attempts"
+                            data-has-result="@(round.ResultPayload is { Length: > 0 } ? "true" : "false")"
+                            data-has-log="@(round.Log is { Length: > 0 } ? "true" : "false")">
+                            <span class="round-number">round @round.RoundNumber</span>
+                            <span class="outcome">@round.Outcome</span>
+                            @if (round.Attempts > 1)
+                            {
+                                @* Only said when it took more than one. A round that needed asking
+                                    for twice is a fact a reviewer wants; one that did not is noise. *@
+                                <span class="attempts">@round.Attempts attempts</span>
+                            }
+                            @if (round.Failure is { } failure)
+                            {
+                                <span class="failure">@failure.ToString().ToLowerInvariant() failure</span>
+                            }
+                            @* The result: the files changed, the commands run, what each
+                                returned, and the diff, all derived by observing the round's
+                                container. It is derived text rather than a rendered view of a
+                                parsed object, and that is deliberate — the board has no opinion
+                                about any part of it, and neither has anything to interpret. *@
+                            @if (round.ResultPayload is { Length: > 0 })
+                            {
+                                <pre class="result" data-result="round @round.RoundNumber">@round.ResultPayload</pre>
+                            }
+                            @if (round.AgentNote is { Length: > 0 })
+                            {
+                                @* The only sentence a model wrote. Said after the observations on
+                                    purpose: it is the one part of a result nothing above is
+                                    derived from, so it reads as an account and not as a record. *@
+                                <span class="note" data-note="round @round.RoundNumber">@round.AgentNote</span>
+                            }
+                            @if (round.Log is { Length: > 0 })
+                            {
+                                @* The round's log, kept with the round rather than only in the
+                                    factory's own logging. A round whose result could not be read
+                                    is a round whose only account of itself is this, so it is
+                                    always rendered and never folded away by default. *@
+                                <details class="round-log" open="@(round.ResultPayload is not { Length: > 0 })">
+                                    <summary data-log="round @round.RoundNumber">the round's log</summary>
+                                    <pre class="log">@round.Log</pre>
+                                </details>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+            @if (decisions.Count > 0)
+            {
+                @* What the reviewer did and what they said, in every lane. *@
+                <ol class="decided">
+                    @foreach (var decision in decisions)
+                    {
+                        <li class="decision-made"
+                            data-decision-made="@Decisions.Slug(decision.Decision)"
+                            data-made-on="@workItem.Id"
+                            data-feedback="@decision.Feedback"
+                            data-applied-to="@decision.AppliedTo"
+                            data-decided-utc="@decision.DecidedUtc.ToString("O")">
+                            <span class="decision">@Decisions.Label(decision.Decision)</span>
+                            @if (decision.AppliedTo is { } appliedTo)
+                            {
+                                @* Where the loop put the work item to apply this one. Said
+                                    plainly, because it is the whole of what the decision did:
+                                    an approval the loop could not carry out reads as applied
+                                    to Review, which is how a change that was approved and
+                                    not shipped stays visible after the page is re-read. *@
+                                <span class="applied-to">applied to @Swimlanes.Label(appliedTo)</span>
+                            }
+                            @if (decision.Feedback is { Length: > 0 })
+                            {
+                                <span class="reviewer-words">@decision.Feedback</span>
+                            }
+                        </li>
+                    }
+                </ol>
+            }
+            @{
+                // The only form on the board, and the only write path there is. Rendered
+                // wherever a reviewer can still act — Review, and a parked work item, which
+                // offers the two decisions that finish it. A Rejected or Done work item
+                // gets no form at all, because there is nothing left to decide.
+                var offered = Model.DecisionsOffered(workItem.Swimlane);
+            }
+            @if (offered.Count > 0)
+            {
+                <form class="decide"
+                      data-decide="@workItem.Id"
+                      method="post"
+                      action="/?handler=Decision@(Model.Project is { Length: > 0 } filter ? $"&project={Uri.EscapeDataString(filter)}" : "")">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="workItem" value="@workItem.Id" />
+                    <label class="feedback" for="feedback-@workItem.Id">Your reasons — the next round is handed them as its brief</label>
+                    <textarea id="feedback-@workItem.Id" name="feedback" rows="4"></textarea>
+                    <div class="decisions">
+                        @foreach (var decision in offered)
+                        {
+                            <button type="submit"
+                                    name="decision"
+                                    value="@Decisions.Slug(decision)"
+                                    data-decision="@Decisions.Slug(decision)">@Decisions.Label(decision)</button>
+                        }
+                    </div>
+                </form>
+            }
+        </li>
+    }
+}

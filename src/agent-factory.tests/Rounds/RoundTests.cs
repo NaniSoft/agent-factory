@@ -40,26 +40,43 @@ public class RoundTests
     }
 
     [Fact]
-    public async Task A_work_item_is_accepted_into_frontier_when_a_slot_frees()
+    public async Task A_work_item_waits_in_frontier_for_a_container_and_is_built_when_one_frees()
     {
+        // **This test changed shape, deliberately, for the container budget.** It used to
+        // take two work items and assert the second stayed in Backlog, which is the #3
+        // shape: one slot, and a slot was a boolean. The budget makes that false by
+        // construction — with a budget of two, two work items both get containers, and a
+        // test that kept asserting "the second is in Backlog" would be asserting that the
+        // budget is one. It takes three now, and asserts the thing the budget is for: the
+        // third waits, it waits in Frontier rather than in Backlog, and it starts as soon
+        // as a container comes back rather than being refused.
         using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode().Stuck().Stuck();
+        var agent = new FakeNOpenCode().Stuck().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
         var second = host.Store.Intake("nexus", RepoUrl, 43, "A round, with the agent faked", IssueBody, "main").WorkItem;
+        var third = host.Store.Intake("nexus", RepoUrl, 44, "Waiting for a container", IssueBody, "main").WorkItem;
 
-        // The first work item takes the only slot and stays in it while its round runs.
+        // The budget fills, and the third work item is accepted and queued — not held back
+        // in Backlog as though nothing had been accepted, and not started without a
+        // container.
         await host.Settle();
-        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, first.Id));
-        Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, second.Id));
-        Assert.Single(agent.AskedFor);
 
-        // The round returns, so the slot frees, so the second is accepted.
+        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, first.Id));
+        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, second.Id));
+        Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, third.Id));
+        Assert.Equal(2, agent.AskedFor.Count);
+        Assert.Equal(2, host.RoundsInFlight);
+
+        // A container comes back, and the next step gives it to the work item that has been
+        // waiting. This is the ordering the whole budget exists for: a long build holds one
+        // of the two, and the queue behind it moves.
         agent.Release();
         await host.Settle();
 
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, first.Id));
-        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, second.Id));
+        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, third.Id));
+        Assert.Equal(3, agent.AskedFor.Count);
     }
 
     [Fact]

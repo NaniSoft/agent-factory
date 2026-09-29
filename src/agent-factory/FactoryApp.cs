@@ -3,6 +3,7 @@ namespace AgentFactory;
 using AgentFactory.Clock;
 using AgentFactory.Containers;
 using AgentFactory.Credentials;
+using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
@@ -19,7 +20,23 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 /// </summary>
 public static class FactoryApp
 {
-    public static WebApplication Create(WebApplicationBuilder builder, FactoryOptions options)
+    /// <summary>
+    /// Builds the whole factory.
+    /// </summary>
+    /// <param name="builder">The host being composed, already carrying anything a caller
+    /// wants to substitute.</param>
+    /// <param name="options">Where the project files, the store and the board live.</param>
+    /// <param name="drivingTheMachine">
+    /// Whether to also start the heartbeat as a hosted service. Production leaves it
+    /// alone and gets a factory that moves; the test host passes false and steps the
+    /// machine by hand, because a live five-second tick running alongside a test that
+    /// asserts on the state of the machine makes every test in the suite a race against a
+    /// timer. The driver itself is registered either way, so a test can tick it.
+    /// </param>
+    public static WebApplication Create(
+        WebApplicationBuilder builder,
+        FactoryOptions options,
+        bool drivingTheMachine = true)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
@@ -78,13 +95,26 @@ public static class FactoryApp
 
         // The poller is intake: it reads the open issues of the projects being served and
         // records them as work items. Like the orchestrator it is stepped rather than
-        // driven, and like the orchestrator nothing steps it on a schedule. A round can now
-        // really start, but nothing starts the *poller* either: there is still no GitHub
-        // behind its seam, so a driver that stepped it on a timer would be stepping a
-        // refusal every minute. The heartbeat belongs with the real client (#10) and the
-        // container budget it would have to respect (#12), and is recorded in AGENTS.md
-        // rather than left to be discovered.
+        // driven.
         builder.Services.AddSingleton<Poller>();
+
+        // The heartbeat, and the last gap between this factory and a moving one. Every
+        // prior ticket recorded the same thing: a real agent, a real container, a real
+        // deriver and a bounded retry policy all exist, and nothing steps the machine on a
+        // schedule, so a work item in Backlog only moved when a reviewer's click asked for
+        // a step. The driver is that step, and it is safe to add now rather than earlier
+        // for exactly one reason: the container budget landed with it. A timer without a
+        // budget is a factory spending a worker container on every issue of every project
+        // at once, which is what #8 refused.
+        //
+        // It is a hosted service, so the host starts and stops it, and it asks the loop for
+        // a step rather than deciding anything itself — the budget is enforced where the
+        // rounds are counted, in the loop, so a tick with a full budget does nothing.
+        builder.Services.AddSingleton<FactoryDriver>();
+        if (drivingTheMachine)
+        {
+            builder.Services.AddHostedService(services => services.GetRequiredService<FactoryDriver>());
+        }
 
         // IGitHub is one seam covering both polling and merging — one boundary rather than
         // two that can disagree about what a repository is, and now both halves of the

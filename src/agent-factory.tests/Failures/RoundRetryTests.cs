@@ -298,25 +298,62 @@ public class RoundRetryTests
     }
 
     [Fact]
-    public async Task A_round_waiting_to_be_retried_holds_its_slot()
+    public async Task A_round_waiting_to_be_retried_holds_its_slot_and_three_of_them_cannot_hold_the_budget()
     {
-        // A round that has not ended holds the container slot, whether it is running or
-        // waiting for its backoff. Otherwise a repository whose image will not pull could
-        // hand its slot to the next work item and then want it back, which is the
-        // contention the container budget (#12) exists to govern and not this loop.
+        // **This test changed shape, deliberately, for the container budget.** It used to
+        // take two work items and assert the second stayed in Backlog while the first's
+        // round waited out its backoff — the #3 shape, where a slot was a boolean. The
+        // budget makes that false by construction, and the property underneath it is worth
+        // more at the budget than below it: a round waiting forty seconds has not ended,
+        // so it still holds a container, and a third work item waits for one that has not
+        // been given away.
+        //
+        // It also pins the confusion this shape is most likely to fall into. The attempt
+        // ceiling is three attempts *at one round* and the budget is two rounds *at once*;
+        // they are not the same number and neither may be read as the other. Three rounds
+        // waiting out a backoff cannot happen here, because the third round is never
+        // started — which is the whole point, and the reason the assertion is on the count
+        // of rounds asked for rather than on the lanes.
         var clock = new TestClock();
         using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode().FailingTransiently().FailingTransiently();
+        var agent = new FakeNOpenCode()
+            .FailingTransiently()
+            .FailingTransiently()
+            .FailingTransiently()
+            .FailingTransiently();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
 
         var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
         var second = host.Store.Intake("nexus", RepoUrl, 43, "Another work item", IssueBody, "main").WorkItem;
+        var third = host.Store.Intake("nexus", RepoUrl, 44, "A work item with no container", IssueBody, "main").WorkItem;
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 
+        // Two rounds, both failed transiently, both waiting out their backoff and both
+        // still In Progress. Each is holding one of the two containers, and the third work
+        // item has not been asked for a round at all.
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, first.Id));
-        Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, second.Id));
-        Assert.Single(agent.AskedFor);
+        Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, second.Id));
+        Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, third.Id));
+        Assert.Equal(2, agent.AskedFor.Count);
+        Assert.Equal(2, host.RoundsInFlight);
+
+        // The first backoff passes and both are asked for again, as the same two rounds. The
+        // third work item is still not asked for: the budget counts rounds, and both of them
+        // are spoken for however many attempts each has had. Two attempts apiece is the
+        // point at which this is visible — a round on its third attempt has not become
+        // three rounds, and the attempt ceiling of three is not a concurrency budget.
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await host.SettleWithin(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(4, agent.AskedFor.Count);
+        Assert.Equal(2, agent.AskedFor.Select(round => round.WorkItemId).Distinct().Count());
+        Assert.DoesNotContain(agent.AskedFor, round => round.WorkItemId == third.Id);
+
+        // And the third is waiting in Frontier rather than refused: it is a queue position,
+        // not a rejection, and it starts the moment a container comes back.
+        Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, third.Id));
+        Assert.Equal(2, host.RoundsInFlight);
     }
 
     [Fact]
@@ -326,6 +363,14 @@ public class RoundRetryTests
         // only way to know it: one work item per way a round can fail, every one of them
         // in a lane the board draws, every one of them with a cause that says what
         // happened rather than only that something did.
+        //
+        // The work items are taken one at a time and settled before the next is created,
+        // rather than two up front. With one round in flight that made no difference, and
+        // with a budget of two it is the difference between a test that says what it means
+        // and one that says it by accident: the fake agent is scripted in the order rounds
+        // are asked for, so two work items in flight at once would each be described by
+        // whichever script entry they happened to reach. Sequential intake makes "the third
+        // attempt failed" mean the third attempt of that work item.
         var clock = new TestClock();
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode()
@@ -339,7 +384,6 @@ public class RoundRetryTests
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
 
         var exhausted = TakeOne(host, 42);
-        var permanent = TakeOne(host, 43);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         clock.Advance(TimeSpan.FromSeconds(10));
@@ -347,6 +391,8 @@ public class RoundRetryTests
         clock.Advance(TimeSpan.FromSeconds(20));
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, exhausted.Id));
+
+        var permanent = TakeOne(host, 43);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, permanent.Id));

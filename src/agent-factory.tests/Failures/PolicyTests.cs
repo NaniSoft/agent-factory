@@ -20,44 +20,149 @@ using AgentFactory.WorkItems;
 public class PolicyTests
 {
     [Fact]
-    public void Nothing_in_the_factory_waits_for_anything()
+    public void Nothing_in_the_factory_waits_for_anything_except_the_one_thing_that_has_to()
     {
         // The whole reason a backoff is a comparison against IClock and not a delay is that
         // the factory has no clock of its own. A Task.Delay, a Thread.Sleep, a Timer or a
-        // cancellation that fires on a delay would each be a clock of its own, and the first
-        // thing this ticket did with a retry policy would be to add one.
+        // cancellation that fires on a delay would each be a clock of its own, and the
+        // first thing a retry policy does is to add one.
+        //
+        // **This assertion changed, deliberately and visibly, for the container budget.**
+        // It used to read "there is no Task.Delay anywhere in the assembly", which was
+        // right until the heartbeat landed and wrong the moment it did. The heartbeat is
+        // the one legitimate exception: a driver that does not wait cannot know when to
+        // tick, and every other cadence in this factory is a TimeSpan compared against
+        // IClock. Rather than weaken the check to "Task.Delay is allowed now", it has been
+        // *tightened* — to name the single permitted call site. One Task.Delay, in the
+        // driver's own scheduling loop, and nothing else anywhere. A second one, in the
+        // loop or the deriver or the poller, fails here exactly as it did before.
         //
         // This is an IL scan rather than a grep because a grep cannot see a call reached by
         // another name, and a test that only proves the method name is absent from the source
         // is a test that a later agent makes pass by calling it something else. It scans for
         // calls to the four methods that wait, and nothing else: a false positive is
         // impossible, because the only way this fails is by finding one of them exactly.
-        var waiting = new[]
-        {
-            "System.Threading.Tasks.Task:Delay",
-            "System.Threading.Thread:Sleep",
-            "System.Threading.Timer:..ctor",
-            "System.Threading.Timer:Start",
-            "System.Threading.CancellationTokenSource:CancelAfter",
-        };
+        var calls = CallsMadeBy(typeof(FactoryApp).Assembly).ToList();
 
-        var calls = CallsMadeBy(typeof(FactoryApp).Assembly)
-            .Select(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}")
+        // The one wait in the process, named. A tick between steps of the machine is a tick
+        // and not a wait: nothing is held up behind it, and every cadence it drives — the
+        // poll interval, the round timeout, the retry backoffs, the feedback threshold — is
+        // still a comparison the policy makes for itself.
+        Assert.Equal(
+            ["FactoryDriver.ExecuteAsync"],
+            CallersOf(calls, "System.Threading.Tasks.Task:Delay"));
+
+        // And exactly one, counted rather than de-duplicated. The list above names the
+        // method and would be satisfied by a second delay in that same method — a heartbeat
+        // that waited twice over would look identical to one that waited once, and the whole
+        // of the exception is that there is one wait and it is the driver's.
+        Assert.Equal(1, TimesCalled(calls, "System.Threading.Tasks.Task:Delay"));
+
+        var waited = CallersOf(calls, "System.Threading.Thread:Sleep")
+            .Concat(CallersOf(calls, "System.Threading.Timer:..ctor"))
+            .Concat(CallersOf(calls, "System.Threading.Timer:Start"))
+            .Concat(CallersOf(calls, "System.Threading.CancellationTokenSource:CancelAfter"))
             .ToList();
 
-        // A CancellationTokenSource is the one legitimate caller of a waiting-looking type:
-        // a round owns a token so that ending the round ends the call, and there is no
-        // delay in it. Nothing else here waits, defers or times out.
-        var offenders = calls.Where(call => waiting.Contains(call)).ToList();
         Assert.True(
-            offenders.Count == 0,
-            $"the factory must not wait, defer or time out anything of its own: {string.Join(", ", offenders)}");
-
-        // A cancellation that fires on a delay is a timer with a different name, and there
-        // is none of those either — which is what keeps the "a bounded GitHub read belongs
-        // to the seam's own client" answer honest rather than a promise.
-        Assert.DoesNotContain("System.Threading.CancellationTokenSource:CancelAfter", calls);
+            waited.Count == 0,
+            "the factory must not sleep, start a timer, or fire a cancellation on a delay of its own: "
+                + string.Join(", ", waited));
     }
+
+    [Fact]
+    public void The_one_gate_in_the_factory_is_the_loops_step_and_it_waits_for_no_one()
+    {
+        // With a heartbeat there are two things that can ask the machine for a step at once
+        // — a reviewer's click and a tick — and without a gate the budget itself would be a
+        // race: two callers could both read one round in flight and both start a second, and
+        // the count that is supposed to bound concurrency would bound nothing.
+        //
+        // So there is one gate, it is on the loop's own step, and it is the only
+        // SemaphoreSlim in the process. Naming it here is what stops it quietly becoming a
+        // queue with a deadline: a gate that could time out would be a second policy, and
+        // one with a second waiter would be contention the loop has no opinion about.
+        Assert.Equal(
+            ["Orchestrator.StepAsync"],
+            CallsMadeBy(typeof(FactoryApp).Assembly)
+                .Where(call => call.Called.DeclaringType?.Name == "SemaphoreSlim"
+                    && call.Called.Name is "WaitAsync" or "Wait")
+                .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+                .Distinct()
+                .Order(StringComparer.Ordinal)
+                .ToList());
+    }
+
+    [Fact]
+    public void The_container_budget_is_a_code_constant_and_rounds_are_started_in_one_place()
+    {
+        // Two, sized for this machine's 7.19 GB, in which each worker runs an agent, a
+        // toolchain and a build. Written out rather than read from the constant: a test
+        // that read the constant would prove only that the policy is whatever the constant
+        // says. And it is code, not configuration: the project file schema has six fields
+        // and refuses a seventh, so there is nowhere for a project to raise its own
+        // budget even if one wanted to.
+        Assert.Equal(2, FactoryConstants.ContainerBudget);
+
+        // And it is code, not configuration. Nothing a project file or an options object can
+        // set touches the budget, so a project cannot buy itself a third container and no
+        // deployment can quietly raise the machine's ceiling: the number is in one class and
+        // a change to it is a deliberate edit in one obvious place.
+        Assert.DoesNotContain(
+            typeof(FactoryOptions).GetProperties(),
+            property => property.Name.Contains("Budget", StringComparison.OrdinalIgnoreCase)
+                || property.Name.Contains("Concurrent", StringComparison.OrdinalIgnoreCase));
+
+        // The loop is the only component that asks for a round, and so the only one that
+        // can spend the budget. This is the structural half of "the budget is what bounds
+        // concurrency": a second caller of the agent seam would be a second way to start a
+        // container, and nothing in the loop could see it or count it. Checked by caller
+        // rather than by grep, for the reason the rest of this file is.
+        //
+        // The one caller is the loop's own escape hatch rather than the method that decides
+        // to start a round: AskForTheRound is the single place a call to the agent can be
+        // made, so an agent that throws before it has a task to hand back becomes a round
+        // that came back without a result rather than a fault in the middle of a step.
+        Assert.Equal(
+            ["Orchestrator.AskForTheRound"],
+            CallsMadeBy(typeof(FactoryApp).Assembly)
+                .Where(call => call.Called.DeclaringType == typeof(INOpenCode)
+                    && call.Called.Name == "RunRoundAsync")
+                .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+                .Distinct()
+                .Order(StringComparer.Ordinal)
+                .ToList());
+    }
+
+    /// <summary>
+    /// Which methods in the assembly call <paramref name="target"/>, by the real method
+    /// rather than by the compiler's own artefact for an async state machine.
+    ///
+    /// <para>
+    /// De-duplicated, and that is load-bearing rather than tidy. The claim is "one wait in
+    /// one place", and a list of call <em>sites</em> would let a second <c>Task.Delay</c> in
+    /// the same method pass while the count of waits in the process quietly doubled — a
+    /// mutation that was tried and is caught by this being a distinct list rather than a
+    /// raw one.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> CallersOf(
+        IEnumerable<(MethodBase? Caller, MethodBase Called)> calls,
+        string target) => calls
+        .Where(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}" == target)
+        .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+        .Distinct()
+        .Order(StringComparer.Ordinal)
+        .ToList();
+
+    /// <summary>
+    /// How many times the assembly calls <paramref name="target"/>, counted rather than
+    /// de-duplicated, so that two calls of the same method are two and not one.
+    /// </summary>
+    private static int TimesCalled(
+        IEnumerable<(MethodBase? Caller, MethodBase Called)> calls,
+        string target) => calls
+        .Count(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}" == target);
 
     [Fact]
     public void There_is_exactly_one_answer_to_whether_a_round_is_worth_retrying()
@@ -173,12 +278,13 @@ public class PolicyTests
                 .Select(parameter => parameter.ParameterType.Name));
 
         // Nothing sleeps, defers or times out here either, for the same reason as everywhere
-        // else: a deriver that waited would be a wait in the middle of a round.
-        var calls = CallsMadeBy(typeof(FactoryApp).Assembly)
-            .Select(call => $"{call.Called.DeclaringType?.FullName}:{call.Called.Name}")
-            .ToList();
-
-        Assert.DoesNotContain("System.Threading.Tasks.Task:Delay", calls);
+        // else: a deriver that waited would be a wait in the middle of a round. Checked as
+        // *this component* making no waiting call rather than as the assembly containing
+        // none, because the heartbeat is the one place in the process where a delay is
+        // legitimate and this test must not become the thing that quietly forbids it again.
+        Assert.DoesNotContain(
+            "RoundResultDeriver",
+            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.Tasks.Task:Delay"));
     }
 
     [Fact]
