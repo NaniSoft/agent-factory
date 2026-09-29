@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Boundary;
 using System.Reflection;
 using AgentFactory;
 using AgentFactory.Clock;
+using AgentFactory.Containers;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
@@ -70,6 +71,36 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>Applies transitions until the machine has nothing left to apply.</summary>
     public Task Settle() => _app.Services.GetRequiredService<Orchestrator>().SettleAsync();
+
+    /// <summary>
+    /// Steps the machine until it is holding no rounds, and says so rather than returning
+    /// early. <see cref="Settle"/> stops the moment a round is still running, which is
+    /// right when the round is a fake and completes inside the call and wrong when the
+    /// round is the real thing: the real round runner copies a tree off disk and runs git
+    /// against it, so it is genuinely in flight across calls.
+    /// </summary>
+    /// <remarks>
+    /// Yielding between steps rather than sleeping, for the same reason everything else in
+    /// this suite does not sleep: the factory has no clock of its own and neither has this.
+    /// The bound is on steps rather than on time and it fails loudly rather than hanging,
+    /// so a round that never comes back is a failure a test can read.
+    /// </remarks>
+    public async Task RunTheMachineAsync(int maxSteps = 500)
+    {
+        for (var step = 0; step < maxSteps; step++)
+        {
+            await Settle();
+            if (RoundsInFlight == 0)
+            {
+                return;
+            }
+
+            await Task.Yield();
+        }
+
+        throw new Xunit.Sdk.XunitException(
+            $"the machine was still holding {RoundsInFlight} round(s) after {maxSteps} steps: a round is not coming back");
+    }
 
     /// <summary>
     /// The real heartbeat, in the running process. A test calls <see cref="Tick"/> to move
@@ -162,7 +193,10 @@ public sealed class FactoryHost : IAsyncDisposable
         TestClock? clock = null,
         FakeNOpenCode? agent = null,
         FakeGitHub? github = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")), clock, agent, github);
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(clock, agent, github));
 
     public static Task<FactoryHost> StartAsync(
         FactoryRoot root,
@@ -170,19 +204,63 @@ public sealed class FactoryHost : IAsyncDisposable
         TestClock? clock = null,
         FakeNOpenCode? agent = null,
         FakeGitHub? github = null) =>
-        StartAsync(root, new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl), clock, agent, github);
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, boardUrl),
+            new TestSubstitutions(clock, agent, github));
 
     /// <summary>Starts the factory the way its own entry point does: options from configuration.</summary>
-    public static async Task<FactoryHost> StartAsync(
+    public static Task<FactoryHost> StartAsync(
         FactoryRoot root,
         FactoryOptions options,
         TestClock? clock = null,
         FakeNOpenCode? agent = null,
-        FakeGitHub? github = null)
+        FakeGitHub? github = null) =>
+        StartAsync(root, options, new TestSubstitutions(clock, agent, github));
+
+    /// <summary>
+    /// Starts the factory with any <see cref="IGitHub"/> behind the GitHub seam rather
+    /// than the recording fake. That exists for one question — whether the board's review
+    /// surface depends on GitHub being reachable — and a seam that refuses every call is
+    /// how that becomes a fact rather than the absence of a test. The fake is not offered
+    /// here: a test that wants to read back what was asked of GitHub wants the fake, and
+    /// one that wants GitHub to be unreachable does not.
+    /// </summary>
+    public static Task<FactoryHost> StartAsync(
+        FactoryRoot root,
+        FakeNOpenCode agent,
+        IGitHub github) =>
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(Clock: null, agent, github));
+
+    /// <summary>
+    /// Starts the factory with the real round runner behind the agent seam, and the
+    /// Docker CLI faked. That is a different shape from every other host here, and it
+    /// exists for one question: whether the diff on the board really is <c>git diff</c>
+    /// against the tree a round left, rather than whatever a fake decided that tree
+    /// contained. Only the Docker CLI is substituted — the round runner, the container
+    /// runtime, the deriver, the host's diff reader and the board are all the real thing.
+    /// </summary>
+    public static Task<FactoryHost> StartWithTheRealRoundAsync(
+        FactoryRoot root,
+        IDockerCli docker,
+        TestClock? clock = null,
+        IGitHub? github = null) =>
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(clock, Agent: null, github, docker));
+
+    private static async Task<FactoryHost> StartAsync(
+        FactoryRoot root,
+        FactoryOptions options,
+        TestSubstitutions seams)
     {
-        var testClock = clock ?? new TestClock();
-        var fakeAgent = agent ?? new FakeNOpenCode();
-        var fakeGitHub = github ?? new FakeGitHub();
+        var testClock = seams.Clock ?? new TestClock();
+        var fakeAgent = seams.Agent ?? new FakeNOpenCode();
+        var fakeGitHub = seams.GitHub as FakeGitHub ?? new FakeGitHub();
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -195,15 +273,31 @@ public sealed class FactoryHost : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddSingleton<IClock>(testClock);
 
-        // The agent is the one seam with no production implementation yet, so it is
-        // registered here, in the host that has one. The loop takes it as a dependency
-        // and never learns what is behind it.
-        builder.Services.AddSingleton<INOpenCode>(fakeAgent);
-
         // GitHub is the other such seam: one boundary covering both intake and merging,
         // and no implementation behind it yet either. The poller takes it as a
         // dependency and never learns what is behind it.
-        builder.Services.AddSingleton<IGitHub>(fakeGitHub);
+        //
+        // A test may hand in any IGitHub, not only the fake — a seam that refuses every
+        // call is how "the board renders a round's change with GitHub unreachable" is
+        // made a fact rather than an absence of a test. The `GitHub` property below
+        // still exposes the fake, because only a fake records what was asked of it.
+        builder.Services.AddSingleton<IGitHub>(seams.GitHub ?? fakeGitHub);
+
+        if (seams.Docker is { } docker)
+        {
+            builder.Services.AddSingleton(docker);
+        }
+
+        if (seams.Agent is { } agent)
+        {
+            // The agent is the one seam with no production implementation yet, so it is
+            // registered here, in the host that has one. The loop takes it as a
+            // dependency and never learns what is behind it.
+            builder.Services.AddSingleton<INOpenCode>(agent);
+        }
+
+        // With no agent substituted, the composition root's own registration stands and
+        // the loop ends up asking the real WorkerRoundRunner for a round.
 
         var app = FactoryApp.Create(builder, options, drivingTheMachine: false);
         await app.StartAsync();
@@ -220,6 +314,13 @@ public sealed class FactoryHost : IAsyncDisposable
             BoardAddress = address,
         };
     }
+
+    /// <summary>Which seams a test is substituting, and which it is deliberately leaving real.</summary>
+    private sealed record TestSubstitutions(
+        TestClock? Clock,
+        FakeNOpenCode? Agent,
+        IGitHub? GitHub,
+        IDockerCli? Docker = null);
 
     public async ValueTask DisposeAsync()
     {

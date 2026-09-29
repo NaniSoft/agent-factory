@@ -309,6 +309,139 @@ public sealed class Board
         return values;
     }
 
+    /// <summary>
+    /// One round's diff as the board rendered it, decoded. The round is named the way the
+    /// board names it, so a test reads the reviewer's surface rather than reaching into
+    /// the store for what it ought to have rendered.
+    /// </summary>
+    public RenderedDiff DiffOn(int roundNumber)
+    {
+        var marker = $"data-diff=\"round {roundNumber}\"";
+        var start = Html.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"the board rendered no diff for round {roundNumber}, so there is nothing to read");
+        }
+
+        // Scoped to the diff's own `<section>`, which is where it ends. The page also
+        // carries a `data-diff-file` selector in its script — the fold restore reads it —
+        // and a section that ran to the end of the document would pick that up as a file
+        // the board rendered.
+        var end = Html.IndexOf("</section>", start, StringComparison.Ordinal);
+        var section = end < 0 ? Html[start..] : Html[start..end];
+        var open = section[..section.IndexOf('>')];
+
+        return new RenderedDiff(
+            State: AttributeOf(open, "data-state") ?? string.Empty,
+            FilesShown: int.TryParse(AttributeOf(open, "data-files"), out var shown) ? shown : 0,
+            TotalFiles: int.TryParse(AttributeOf(open, "data-total-files"), out var total) ? total : 0,
+            OmittedFiles: int.TryParse(AttributeOf(open, "data-omitted-files"), out var omittedFiles) ? omittedFiles : 0,
+            OmittedLines: int.TryParse(AttributeOf(open, "data-omitted-lines"), out var omittedLines) ? omittedLines : 0,
+            Tree: System.Net.WebUtility.HtmlDecode(AttributeOf(open, "data-tree") ?? string.Empty),
+            Files: FilesInDiff(section),
+            Text: System.Net.WebUtility.HtmlDecode(section));
+    }
+
+    /// <summary>Whether the board rendered a diff section for a round at all.</summary>
+    public bool RenderedDiffOn(int roundNumber) =>
+        Html.Contains($"data-diff=\"round {roundNumber}\"", StringComparison.Ordinal);
+
+    /// <summary>
+    /// One file's section of a diff: the path as the board named it, what it says happened,
+    /// the counts, and git's own text for it — all decoded, because a diff is full of
+    /// characters the board escapes on the way out and asserting on the raw markup would
+    /// be asserting on the escaping.
+    /// </summary>
+    private static IReadOnlyList<RenderedDiffFile> FilesInDiff(string section)
+    {
+        var files = new List<RenderedDiffFile>();
+
+        foreach (var at in IndicesOf(section, "data-diff-file=\""))
+        {
+            var open = section[at..section.IndexOf('>', at)];
+
+            // The <pre> of this file's own text, up to the next file or the end of the
+            // section. Read from the board rather than reconstructed, so a test says what
+            // the reviewer sees.
+            var pre = section.IndexOf("<pre", at, StringComparison.Ordinal);
+            var close = pre < 0 ? -1 : section.IndexOf("</pre>", pre, StringComparison.Ordinal);
+            var body = pre >= 0 && close > pre
+                ? System.Net.WebUtility.HtmlDecode(section[(section.IndexOf('>', pre) + 1)..close])
+                : string.Empty;
+
+            files.Add(new RenderedDiffFile(
+                Path: System.Net.WebUtility.HtmlDecode(AttributeOf(open, "data-diff-file") ?? string.Empty),
+                Change: AttributeOf(open, "data-change") ?? string.Empty,
+                Added: int.TryParse(AttributeOf(open, "data-added"), out var added) ? added : 0,
+                Removed: int.TryParse(AttributeOf(open, "data-removed"), out var removed) ? removed : 0,
+                Binary: AttributeOf(open, "data-binary") == "true",
+                Open: AttributeOf(open, "data-open") == "true",
+                Text: body));
+        }
+
+        return files;
+    }
+
+    private static IEnumerable<int> IndicesOf(string markup, string needle)
+    {
+        for (var at = markup.IndexOf(needle, StringComparison.Ordinal);
+             at >= 0;
+             at = markup.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
+        {
+            yield return at;
+        }
+    }
+
+    /// <summary>
+    /// What one round's log says, decoded, or null when the board rendered no log for it.
+    /// </summary>
+    /// <remarks>
+    /// Read forwards from the log's own marker, which the board puts on the summary that
+    /// opens the log's details element. The log's text is the first <c>&lt;pre&gt;</c>
+    /// after that; a round with a payload has an earlier one on the card and one without
+    /// has only the log's, so this direction reads the log in both shapes.
+    /// </remarks>
+    public string? LogOn(int roundNumber) => Following($"data-log=\"round {roundNumber}\"");
+
+    /// <summary>
+    /// What one round's result payload says, decoded, or null when it rendered none. Read
+    /// backwards from the marker, which the board puts on the payload's own element — a
+    /// round's log is the next <c>&lt;pre&gt;</c> after it, and reading forwards would
+    /// return the log.
+    /// </summary>
+    public string? ResultOn(int roundNumber) => Preceding($"data-result=\"round {roundNumber}\"");
+
+    private string? Preceding(string marker)
+    {
+        var at = Html.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        return Between(
+            Html.LastIndexOf("<pre", at, StringComparison.Ordinal),
+            Html.IndexOf("</pre>", at, StringComparison.Ordinal));
+    }
+
+    private string? Following(string marker)
+    {
+        var at = Html.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        var open = Html.IndexOf("<pre", at, StringComparison.Ordinal);
+        return Between(open, open < 0 ? -1 : Html.IndexOf("</pre>", open, StringComparison.Ordinal));
+    }
+
+    private string? Between(int open, int close) =>
+        open < 0 || close < open
+            ? null
+            : System.Net.WebUtility.HtmlDecode(Html[(Html.IndexOf('>', open) + 1)..close]);
+
     /// <summary>The markup of the decision form the board rendered for one work item.</summary>
     public string DecisionFormFor(Guid workItemId) => FormAt($"data-decide=\"{workItemId:D}\"");
 
@@ -424,3 +557,24 @@ public sealed class Board
         "<(?<name>input|button|textarea|select)[^>]*>",
         RegexOptions.Compiled);
 }
+
+/// <summary>One round's diff as the board rendered it, read back over HTTP and decoded.</summary>
+public sealed record RenderedDiff(
+    string State,
+    int FilesShown,
+    int TotalFiles,
+    int OmittedFiles,
+    int OmittedLines,
+    string Tree,
+    IReadOnlyList<RenderedDiffFile> Files,
+    string Text);
+
+/// <summary>One file's section of a rendered diff: the board's index line and git's own text.</summary>
+public sealed record RenderedDiffFile(
+    string Path,
+    string Change,
+    int Added,
+    int Removed,
+    bool Binary,
+    bool Open,
+    string Text);

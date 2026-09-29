@@ -1,6 +1,5 @@
 namespace AgentFactory.Results;
 
-using System.Text;
 using System.Text.Json;
 
 /// <summary>
@@ -321,195 +320,30 @@ public sealed class RoundResultDeriver
             yield break;
         }
 
-        foreach (var section in SplitOnDiffHeaders(diff))
+        foreach (var section in GitDiff.Sections(diff))
         {
-            var before = SectionPath(section, "--- ");
-            var after = SectionPath(section, "+++ ");
-
             // A pure rename or copy has no `---`/`+++` pair at all — git writes
             // `rename from`/`rename to` and leaves it there — so the headers are a
             // fallback rather than the only source. A binary change has no headers either,
-            // and its `diff --git` line is the only place the path appears; that case is
-            // covered by the caller, which derives a path for every section it is given.
-            var path = after
-                ?? before
-                ?? SectionPath(section, "rename to ")
-                ?? SectionPath(section, "copy to ")
-                ?? HeaderPath(section);
-
-            if (path is null)
+            // and its `diff --git` line is the only place the path appears. `GitDiff` is
+            // where all of that is read, and the review surface reads diffs through the
+            // same code, so the two cannot come to disagree about what a section says.
+            if (GitDiff.PathOf(section) is not { Length: > 0 } path)
             {
                 continue;
             }
 
-            var added = 0;
-            var removed = 0;
-            foreach (var line in section.Split('\n'))
-            {
-                // `+++` and `---` are the file headers, not content; `\ No newline` is
-                // neither. Everything else beginning with a sign is a line the diff adds
-                // or removes, which is the only count here worth keeping.
-                if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (line.StartsWith('+'))
-                {
-                    added++;
-                }
-                else if (line.StartsWith('-'))
-                {
-                    removed++;
-                }
-            }
+            var (added, removed) = GitDiff.Counts(section);
 
             yield return new ChangedFile(
                 path,
-                // `rename from` is a bare path, not a prefixed one, so it is not Stripped:
-                // a file called `a/x` at the repository root keeps its name when it moves.
-                PreviousPath: SectionPath(section, "rename from ") ?? SectionPath(section, "copy from "),
-                Change: ChangeIn(section),
-                Added: added,
-                Removed: removed,
+                GitDiff.PreviousPathOf(section),
+                GitDiff.Change(section),
+                added,
+                removed,
                 InTheDiff: true,
                 Uncommitted: false);
         }
-    }
-
-    private static FileChange ChangeIn(string section)
-    {
-        if (section.Contains("new file mode", StringComparison.Ordinal))
-        {
-            return FileChange.Added;
-        }
-
-        if (section.Contains("deleted file mode", StringComparison.Ordinal))
-        {
-            return FileChange.Deleted;
-        }
-
-        if (section.Contains("rename from", StringComparison.Ordinal))
-        {
-            return FileChange.Renamed;
-        }
-
-        if (section.Contains("copy from", StringComparison.Ordinal))
-        {
-            return FileChange.Copied;
-        }
-
-        if (section.Contains("old mode", StringComparison.Ordinal) && section.Contains("new mode", StringComparison.Ordinal))
-        {
-            return FileChange.TypeChanged;
-        }
-
-        // A content change, and a binary one too: git writes a binary diff with no
-        // `---`/`+++` pair and no other header to read, and it is still a change.
-        return FileChange.Modified;
-    }
-
-    /// <summary>
-    /// A diff split into one section per file. Everything before the first
-    /// <c>diff --git</c> header is a preamble with no file in it and is dropped, because
-    /// a path invented out of a preamble is a path that does not exist.
-    /// </summary>
-    private static IEnumerable<string> SplitOnDiffHeaders(string diff)
-    {
-        const string header = "diff --git ";
-
-        var sections = new List<string>();
-        StringBuilder? current = null;
-
-        foreach (var line in diff.Split('\n'))
-        {
-            if (line.StartsWith(header, StringComparison.Ordinal))
-            {
-                if (current is not null)
-                {
-                    sections.Add(current.ToString());
-                }
-
-                current = new StringBuilder(line);
-                continue;
-            }
-
-            current?.Append('\n').Append(line);
-        }
-
-        if (current is not null)
-        {
-            sections.Add(current.ToString());
-        }
-
-        return sections;
-    }
-
-    /// <summary>
-    /// The path a <c>diff --git</c> line names. Used only where a section has no other
-    /// header: a binary change, where git writes neither <c>---</c> nor <c>+++</c>.
-    /// </summary>
-    /// <remarks>
-    /// The line's shape is <c>diff --git a/&lt;from&gt; b/&lt;to&gt;</c>, and a path may
-    /// contain a space, so the "b/" is found from the right rather than by splitting on
-    /// it: a path called <c>b/src/x</c> must not have its own first segment mistaken for
-    /// the prefix. The prefix is stripped from whichever side it is genuinely on, so a
-    /// file called <c>a/x</c> at the repository root survives.
-    /// </remarks>
-    private static string? HeaderPath(string section)
-    {
-        var line = section.Split('\n')[0];
-        const string prefix = "diff --git ";
-
-        if (!line.StartsWith(prefix, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var rest = line[prefix.Length..];
-        var middle = rest.IndexOf(" b/", StringComparison.Ordinal);
-        if (middle <= 0)
-        {
-            return null;
-        }
-
-        return Unquote(Strip(rest[(middle + 3)..]));
-    }
-
-    /// <summary>Git's <c>a/</c> and <c>b/</c> path prefixes, removed.</summary>
-    private static string Strip(string path) =>
-        path.StartsWith("a/", StringComparison.Ordinal) || path.StartsWith("b/", StringComparison.Ordinal)
-            ? path[2..]
-            : path;
-
-    /// <summary>The path a diff header names, with git's prefixes and quoting removed.</summary>
-    private static string? SectionPath(string section, string header)
-    {
-        foreach (var raw in section.Split('\n'))
-        {
-            if (!raw.StartsWith(header, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var path = raw[header.Length..].Trim();
-            if (path.Length == 0)
-            {
-                return null;
-            }
-
-            // `--- /dev/null` is how git says a side of the diff does not exist. Reporting
-            // the path as "/dev/null" would put a file in a reviewer's list that is not
-            // one, so it is dropped and the other side's path is used instead.
-            if (path is "/dev/null")
-            {
-                return null;
-            }
-
-            return Unquote(Strip(path));
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -546,7 +380,7 @@ public sealed class RoundResultDeriver
                     var fields = line.Split(' ', 9);
                     if (fields.Length == 9)
                     {
-                        yield return (Unquote(fields[8]), Staged(fields[1]));
+                        yield return (GitDiff.Unquote(fields[8]), Staged(fields[1]));
                     }
 
                     break;
@@ -568,7 +402,7 @@ public sealed class RoundResultDeriver
                         // The renamed path is the one the change is about; the path git
                         // moved from is already in the diff, which is the record that has
                         // the move in it.
-                        yield return (Unquote(fields[10].Split('\t')[0]), FileChange.Renamed);
+                        yield return (GitDiff.Unquote(fields[10].Split('\t')[0]), FileChange.Renamed);
                     }
 
                     break;
@@ -580,14 +414,14 @@ public sealed class RoundResultDeriver
                     var fields = line.Split(' ', 11);
                     if (fields.Length == 11)
                     {
-                        yield return (Unquote(fields[10]), FileChange.Unmerged);
+                        yield return (GitDiff.Unquote(fields[10]), FileChange.Unmerged);
                     }
 
                     break;
                 }
 
                 case '?':
-                    yield return (Unquote(line[1..].Trim()), FileChange.Untracked);
+                    yield return (GitDiff.Unquote(line[1..].Trim()), FileChange.Untracked);
                     break;
 
                 case '!':
@@ -696,41 +530,4 @@ public sealed class RoundResultDeriver
     }
 
     private static string? Blank(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
-
-    /// <summary>
-    /// A path as git wrote it. Git quotes a path containing a space, a quote or anything
-    /// above ASCII, and escapes those characters inside the quotes; a path that arrives
-    /// quoted and is left quoted names a file that does not exist.
-    /// </summary>
-    private static string Unquote(string path)
-    {
-        if (path.Length < 2 || path[0] != '"' || path[^1] != '"')
-        {
-            return path;
-        }
-
-        var inner = path[1..^1];
-        var unescaped = new StringBuilder(inner.Length);
-        for (var at = 0; at < inner.Length; at++)
-        {
-            if (inner[at] != '\\' || at + 1 >= inner.Length)
-            {
-                unescaped.Append(inner[at]);
-                continue;
-            }
-
-            at++;
-            unescaped.Append(inner[at] switch
-            {
-                'n' => '\n',
-                't' => '\t',
-                'r' => '\r',
-                '\\' => '\\',
-                '"' => '"',
-                var other => other,
-            });
-        }
-
-        return unescaped.ToString();
-    }
 }

@@ -42,7 +42,12 @@ rather than by a setting nobody can find.
 
 Most of the suite is hermetic and needs neither Docker nor a network: the container
 runtime is driven through a recording `IDockerCli` in `Boundary/FakeDockerCli.cs`, which
-behaves like the commands it stands in for rather than remembering what it was told. The
+behaves like the commands it stands in for rather than remembering what it was told. It
+stands in for `docker cp` with real directories too, not only text files, because a round's
+tree is a git repository with a packfile in it and the host's diff reader runs `git` against
+whatever that `cp` left behind — a fake that could only produce text would make a diff test
+a test of the fake. The one requirement the review tests add is the `git` binary, which any
+checkout of this repository already has. The
 two classes that do need a real container are separated and **skipped, with the reason,
 on a machine that has no Docker daemon or no worker image** — `DockerFactAttribute` checks
 once and says which. Build the image first with
@@ -244,6 +249,30 @@ failure this ticket exists to prevent); if it is not there, the result must not 
 but a round that did not do the work is a legitimate outcome and not a test failure. A model
 is a model, and a test that asserts it obeys tests the provider.
 
+### Testing the review surface
+
+`Review/DiffOnTheBoardTests.cs` drives the board over its real HTTP surface, and it is mostly
+faked — the agent yields a `HostDiff` a test wrote, and the assertion is about how the card
+renders it. One test is not, and it is the one that matters:
+`The_diff_on_the_board_is_git_diff_of_the_tree_a_real_round_left` runs the **real**
+`WorkerRoundRunner`, the real container runtime, the real deriver, the real diff reader and
+the real board, with only `IDockerCli` substituted and only so that `docker cp` hands over a
+genuine git repository. `Review/LiftedTree.cs` builds it, and the fake copies the directory
+out byte for byte with its **read-only pack files intact** — the shape a tree lifted from a
+Linux container has on a Windows host, reproduced rather than assumed, since the reader has
+to survive it. A diff asserted against a fixture the test itself wrote would be a fixture
+agreeing with itself, and that is the same limit the deriver's own doc comment states.
+
+`FactoryHost.RunTheMachineAsync` exists for that test. `Settle` stops the moment a round is
+still running, which is right for a fake that completes inside the call and wrong for a real
+round that copies a tree off disk and runs `git` against it; this steps until the machine
+holds nothing, yielding between steps, and fails loudly rather than hanging.
+
+**One test does not prove what a reader might assume.** The fold-restore is asserted as the
+*shape* it is written against — that every section carries a `data-open-key` naming its work
+item, round and path — and **nothing executes the script**. So the suite proves the key is
+right and the restore is written against it; it does not prove a browser reopened anything.
+
 ## The round's files
 
 `FactoryOptions.RoundsDirectory` is where a round's lifted-out result file and tree land,
@@ -251,6 +280,112 @@ one directory per work item, beside the store. It is **kept** after the round: t
 has to be able to reach the round's commit once the container that made it is gone, because
 the host pushes and not the container (ADR-0006). Turning that tree into a pull request is
 the merger's ticket (`#10`).
+
+It is kept for a second reason now, which is the review surface — see **The diff in
+Review** below. The board's diff is `git diff` against that directory, which is why the
+directory is not cleaned up after a round.
+
+## The diff in Review
+
+**The review surface's diff is `git diff` run on the host, against the tree the round left.**
+That is the whole design of this ticket, and the acceptance criterion is literally "generated
+host-side from the retrieved commit". `Results/HostDiffReader.cs` runs the `git` binary as a
+process; there is no Git library and no HTTP client anywhere in the path.
+
+It is **not** the diff the container recorded. The deriver already reads a diff out of the
+result file, and that one is bounded by the image — on a large change it is a prefix, and a
+board built on it would show a reviewer part of a diff that looked like all of it. The host's
+is generated from the tree, is not bounded, and exists even for a round that wrote no result
+file at all, which is the round a reviewer most wants to see something of. The container's
+bounded copy is still recorded (`DerivedResult.DiffTruncated`) and the card **says** when it
+was bounded, because a reviewer who notices two observations of one change is owed the answer.
+
+Three properties of the reader are deliberate and each is a refusal rather than a
+convenience:
+
+- **`--no-ext-diff` and `--no-textconv`.** The tree is a repository this factory did not
+  write, and a `.gitattributes` line or a `diff =` driver in it names an arbitrary program
+  for git to run. A reviewer asking what changed must not run it.
+- **`safe.directory` through the environment**, exactly as the worker image sets it
+  system-wide. The tree was created by uid 1000 inside a Linux container and git refuses to
+  read a repository it does not own — which would leave the diff silently *absent* rather
+  than wrong. It is injected through the environment so that reading a round's diff never
+  modifies a round's tree.
+- **Nothing is written to the tree.** A tree lifted out of a Linux container arrives on
+  Windows with read-only pack files, and a diff is a read of them. Anything that deleted or
+  moved files in there would have to clear the attributes first, and nothing here does.
+
+**The base is the commit the round started from**, as the round's own result file records it,
+with the work item's base branch as a fallback for a round whose result could not be read.
+That distinction is load-bearing and is what `The_diff_on_the_board_is_git_diff_of_the_tree_a_real_round_left` tests: the fixture moves the base branch on while the round works, so diffing against the branch tip would put a commit the round never saw on the card as if the round had written it.
+
+**The diff is a column on the round, not part of the payload.** `round_results` carries
+`diff`, `diff_base`, `diff_tree`, `diff_container_bounded` and `diff_unavailable` — five
+plain columns rather than one column of JSON. That is deliberate: the store is the store of
+record (ADR-0009), a row it cannot read back is an agent's work nobody can look at, and JSON
+in a column has to be deserialised into exactly the "parses but is missing the field the
+reviewer needs" failure the design names — imported into the one place that has to be
+reliable. Keeping the diff beside the payload also means a **restart cannot lose it**, and
+that a board render reads the record rather than re-running git against a directory it might
+no longer have.
+
+### How a large diff is presented, and why
+
+`Pages/HowToReadTheDiff.cs` is the whole of the judgement, and the view renders what it says
+without deciding anything. Four rules, and the argument for each:
+
+- **One collapsible section per file, with the path, what git says happened, and the line
+  counts on the summary line.** A reviewer's first question about a change is its *shape* —
+  which files, how big, added or deleted — and that is three facts per file. Reading it from
+  a header line means the shape costs one line per file rather than a scroll. The counts are
+  arithmetic over the file's own text, not a verdict about it, so a reviewer can check them.
+- **The first section open, the rest closed.** One open file means the card shows a change
+  rather than a list of file names; closing the rest is what stops twelve files arriving as a
+  wall. Every file's text is in the page either way, which is what makes closing one a
+  presentation choice rather than a summary.
+- **Git's own text underneath, unchanged.** No highlighting, no elision, no collapsing of
+  unchanged context lines, no rewriting. A reviewer can hold the card against their own
+  `git diff` and get the same bytes, which is the property that makes the card evidence
+  rather than a rendering of it. This is why the diff is **modelled** (`Results/DiffDocument.cs`)
+  and not re-parsed out of the payload at render time: the model reads git's format through
+  `Results/GitDiff.cs`, which is the *one* reader of that format in the process — the deriver
+  uses it too, so the two cannot come to disagree about what a section says.
+- **A bound, on whole files, that says what it left off.** `MaxFiles` (200) and `MaxLines`
+  (20 000) are generous, and the ordinary round is nowhere near them. What matters is the
+  shape of the cut: **never mid-hunk**, because half a file looks like all of a file, which
+  is the failure this whole rendering exists to prevent. And what is left off is counted in
+  files and lines, named, and pointed at — the tree, on this machine, at a path the card
+  prints. A diff that stops without saying how much it stopped at is indistinguishable from a
+  diff of a smaller change.
+
+**Open sections survive the reload.** The board refreshes itself every five seconds, which is
+right for a board and would be wrong for a fold. The key is rendered by the board as one
+`data-open-key` attribute — work item, round, path, all three — and kept in `sessionStorage`.
+One attribute rather than a key the script assembles, because the board is the only thing
+that knows which work item and round a section belongs to, and a key built from the path
+alone would open round 2's copy of a file a reviewer opened in round 1.
+
+### What the review surface does not need
+
+**GitHub, and a pull request number.** The diff is a directory on the host and a commit on
+it, both knowable before a branch is pushed and long before a pull request exists. This is
+also #10's seam note honoured: `MergeAsync(repoUrl, issueNumber, ct)` takes an **issue**
+number because the loop has no concept of a pull request, and a review surface that required
+one would be the first thing in the factory to have one. `PolicyTests` asserts it
+structurally — only `Poller` and `Orchestrator` call `IGitHub` at all, and the diff reader's
+constructor takes no client, no agent, no credential reader and no `HttpClient`.
+
+Three further honesty cases the board distinguishes rather than collapsing, each with a test:
+
+| On the card | Means | Not |
+| --- | --- | --- |
+| `data-state="empty"` | the round changed nothing | a round nobody looked at |
+| `data-state="unavailable"` | no diff could be generated, and why | a round that changed nothing |
+| no `data-diff` at all | no diff on record — an older row, or a round with no tree | either of the above |
+
+A round recorded **before** the diff column existed is not retrofitted with an empty one: the
+tree it would have been read out of was not kept per round, and a fabricated empty diff would
+claim a round changed nothing when in fact nobody looked.
 
 ## Intake
 
@@ -479,6 +614,11 @@ factory is working on their project or somebody else's.
   rendered and nothing else: no work item moves, no decision is recorded, and the three
   decisions are offered and refused on exactly the same terms whatever the filter is
   (ADR-0005, ADR-0008). A filter that narrowed the decision set would be policy on the page.
+- **A filter renders the diff too.** A narrowing that dropped the change would narrow what a
+  reviewer can judge, and would be the first thing on the board to differ between the filtered
+  and unfiltered views of the same work item. Asserted in
+  `A_filtered_board_still_renders_the_diff_and_still_refuses_a_fourth_decision`, which also
+  presses a fourth decision on the filtered board and gets the same refusal.
 - **A filter naming a project the factory does not serve shows nothing and says so.** An
   empty board is two different facts a reviewer cannot tell apart — this project has nothing
   waiting, or the factory has never heard of it — and the second would look like the first

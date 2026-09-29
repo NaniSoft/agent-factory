@@ -79,20 +79,33 @@ public enum RoundOutcome
 /// <param name="AgentNote">The agent's one optional sentence, or null.</param>
 /// <param name="Failure">The round runner's own classification, or null for a result.</param>
 /// <param name="Log">The end of what the round said, which is all a reviewer has when the payload is not readable.</param>
+/// <param name="Diff">
+/// The round's change, generated on the host from the tree the round left, and separately
+/// from the payload because it is a different observation: the payload is what the
+/// container recorded about itself, and this is <c>git diff</c> run against the lifted
+/// tree after the container was gone. It is carried even when the payload is missing or
+/// unreadable — that is the round a reviewer most needs to see something of — and it is
+/// null only when there was no tree to look at at all.
+/// </param>
 public sealed record RoundResult(
     RoundOutcome Outcome,
     string? ResultPayload,
     string? AgentNote,
     FailureClass? Failure,
-    string? Log)
+    string? Log,
+    AgentFactory.Results.HostDiff? Diff = null)
 {
     /// <summary>
     /// A round that came back with a result, whatever the round's own commands returned. A
     /// build whose tests failed is one of these: the container worked, and the failure is
     /// in the payload for a reviewer to read.
     /// </summary>
-    public static RoundResult Produced(string? payload, string? agentNote, string? log = null) =>
-        new(RoundOutcome.Produced, payload, agentNote, Failure: null, log);
+    public static RoundResult Produced(
+        string? payload,
+        string? agentNote,
+        string? log = null,
+        AgentFactory.Results.HostDiff? diff = null) =>
+        new(RoundOutcome.Produced, payload, agentNote, Failure: null, log, diff);
 
     /// <summary>
     /// A round that came back without a result, and what the round runner made of why.
@@ -100,8 +113,17 @@ public sealed record RoundResult(
     /// without it, and the classification says there will be no second attempt to produce
     /// something this time.
     /// </summary>
-    public static RoundResult Failed(FailureClass failure, string? log = null) =>
-        new(RoundOutcome.Failed, null, null, failure, log);
+    /// <remarks>
+    /// A diff is carried on this shape too, and that is the point of it being a field of
+    /// its own. A round that ran and then broke left a tree on the host whatever else is
+    /// missing, and what it managed to change before it broke is the one thing a reviewer
+    /// most wants to know about it.
+    /// </remarks>
+    public static RoundResult Failed(
+        FailureClass failure,
+        string? log = null,
+        AgentFactory.Results.HostDiff? diff = null) =>
+        new(RoundOutcome.Failed, null, null, failure, log, diff);
 
     /// <summary>
     /// A round that ran past the round timeout. Carries no class: the spec's own state

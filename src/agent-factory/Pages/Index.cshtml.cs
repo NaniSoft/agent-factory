@@ -87,6 +87,18 @@ public class IndexModel : PageModel
     public IReadOnlyList<DecisionRecord> DecisionsOf(Guid workItemId) => _store.Decisions(workItemId);
 
     /// <summary>
+    /// One round's change, as the board shows it, or null when that round has no diff on
+    /// record at all. Read from the round rather than generated here: the diff was
+    /// produced on the host from the tree the round left, at the end of the round, and a
+    /// board that re-ran git on every render would be a board whose review surface
+    /// depended on the machine it was served from still having the tree.
+    /// </summary>
+    public DiffOnTheBoard? DiffOf(RoundResultRecord round) => HowToReadTheDiff.Of(round);
+
+    /// <summary>What a round's diff left off the page, said plainly, or null when it is whole.</summary>
+    public string? WhatIsLeftOff(DiffOnTheBoard? diff) => HowToReadTheDiff.WhatIsLeftOff(diff);
+
+    /// <summary>
     /// The decisions offered on a work item in a given lane, read from the set rather
     /// than written out in the view, so the board's buttons and the factory's decisions
     /// cannot drift apart. Review offers all three; a parked work item offers the two

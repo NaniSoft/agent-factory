@@ -7,6 +7,10 @@ using AgentFactory.Projects;
 using AgentFactory.Results;
 using Microsoft.Extensions.Logging;
 
+// The host diff. The round's own tree is on the host because the host has to be able to
+// reach the commit once the container is gone (ADR-0006), and `git` against that tree is
+// how a reviewer gets the change itself rather than a bounded record of it.
+
 /// <summary>
 /// A round, run for real: one fresh worker container from the project's configured image,
 /// the agent driven inside it, and the result, the tree and the log lifted back out. One
@@ -188,14 +192,53 @@ public sealed class WorkerRoundRunner : INOpenCode
             round.IssueNumber,
             landing);
 
-        if (run.ResultFile is not { } resultFile)
+        // The deriver never returns without a result, so this is total: a missing, a
+        // truncated and an unreadable result file all come back as a DerivedResult
+        // carrying why it is not a record. Deriving before deciding what to do about the
+        // round is what lets the diff below be generated for all three of those shapes,
+        // rather than only for the one where the result file happened to parse — and the
+        // result file's own start commit is the best base for that diff.
+        var derived = _deriver.Derive(run.ResultFile, run.LogTail);
+
+        // The diff, generated here on the host and out of the tree that just came out of
+        // the container (ADR-0006). It is the host's own git against a directory on the
+        // host, so it is available with no network and no API, and it is generated
+        // whether or not there is a payload to put it beside: a round that broke before
+        // it could write a result file still left a tree, and what it managed to change
+        // is the one thing a reviewer most wants to see about it.
+        //
+        // The base is the commit the round started from, as the round's own record
+        // states it. Where there is no such record — a round whose result could not be
+        // read at all — the branch the round was given is used instead, which is right
+        // for a fresh clone: its history contains that branch as an ancestor whatever the
+        // round did on top of it.
+        var diff = await HostDiffReader.OfAsync(
+            run.RoundTree,
+            derived.Environment.StartHead,
+            round.BaseBranch,
+            derived.DiffTruncated,
+            cancellationToken).ConfigureAwait(false);
+
+        if (diff.UnavailableBecause is { } noDiff)
+        {
+            _logger.LogWarning(
+                "Round {Round} of {Project}#{Issue} leaves no diff on the board: {Reason}",
+                round.WorkItemId,
+                round.Project,
+                round.IssueNumber,
+                noDiff);
+        }
+
+        if (run.ResultFile is null)
         {
             // A round with no result is not a round with nothing: its log is the whole of
             // what there is to show, so it travels on the result rather than being lost in
-            // a log line. It is also permanent, and deliberately so — the container ran,
-            // and whatever stopped it from writing its result would stop a second container
-            // the same way. Note what this is *not*: the container failing to start, which is
-            // the transient shape of the same-looking failure and is classified above.
+            // a log line, and the diff travels with it because the tree is on the host
+            // whatever the container failed to write down. It is also permanent, and
+            // deliberately so — the container ran, and whatever stopped it from writing
+            // its result would stop a second container the same way. Note what this is
+            // *not*: the container failing to start, which is the transient shape of the
+            // same-looking failure and is classified above.
             _logger.LogWarning(
                 "Round {Round} of {Project}#{Issue} came back without a result: it ran and produced nothing, "
                     + "so another attempt would only be told the same thing. Its log ends: {Log}",
@@ -204,19 +247,19 @@ public sealed class WorkerRoundRunner : INOpenCode
                 round.IssueNumber,
                 run.LogTail);
 
-            return RoundResult.Failed(FailureClass.Permanent, run.LogTail);
+            return RoundResult.Failed(FailureClass.Permanent, run.LogTail, diff);
         }
-
-        var derived = _deriver.Derive(resultFile, run.LogTail);
 
         _logger.LogInformation(
             "Round {Round} of {Project}#{Issue} derived {Files} changed file(s) and {Commands} recorded command(s) "
-                + "from what its container observed.{Reading}",
+                + "from what its container observed, and the host generated a diff of {DiffFiles} file(s) from the "
+                    + "tree it left.{Reading}",
             round.WorkItemId,
             round.Project,
             round.IssueNumber,
             derived.FilesChanged.Count,
             derived.CommandsRun.Count,
+            DiffDocument.Parse(diff.Text).Files.Count,
             derived.UnreadableBecause is { } unreadable ? " It could not be read: " + unreadable : string.Empty);
 
         // Produced whatever the round's own commands returned, and whatever the result
@@ -227,7 +270,8 @@ public sealed class WorkerRoundRunner : INOpenCode
         return RoundResult.Produced(
             ResultPayload.Of(derived, run.LogTail),
             derived.AgentNote,
-            run.LogTail);
+            run.LogTail,
+            diff);
     }
 
     /// <summary>

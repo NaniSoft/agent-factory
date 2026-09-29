@@ -803,7 +803,11 @@ public sealed class Orchestrator
             run.StartedUtc,
             run.Attempts,
             result.Failure,
-            result.Log);
+            result.Log,
+            // Kept beside the payload and passed straight through. The loop's opinion is
+            // the swimlane and the retry decision; what the round produced is what the
+            // round produced, and the loop adds nothing to it and takes nothing away.
+            result.Diff);
 
         // A round that came back with a result is what a reviewer judges, so it goes to
         // Review. A round that did not is not merged over: it parks in Escalated, which a

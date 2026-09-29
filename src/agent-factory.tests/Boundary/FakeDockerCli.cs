@@ -29,6 +29,15 @@ public sealed class FakeDockerCli : IDockerCli
     /// </summary>
     public Dictionary<string, string> ContainerFiles { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Trees the container is holding as real directories on this host, by container path,
+    /// copied out byte for byte. The round's own tree is a git repository with a packfile
+    /// in it, and a fake that could only produce text files could not stand in for it —
+    /// the host's diff is <c>git diff</c> against that directory, so what a <c>cp</c>
+    /// leaves behind has to be a real repository to be worth anything (ADR-0006).
+    /// </summary>
+    public Dictionary<string, string> ContainerTrees { get; } = new(StringComparer.Ordinal);
+
     /// <summary>What an invocation answers. Defaults to a silent success.</summary>
     public Func<DockerCall, Task<DockerInvocation>> Handler { get; set; } =
         _ => Task.FromResult(new DockerInvocation(0, string.Empty));
@@ -77,6 +86,16 @@ public sealed class FakeDockerCli : IDockerCli
 
     private bool Copy(string from, string to)
     {
+        if (ContainerTrees.TryGetValue(from, out var realTree))
+        {
+            // Copied as a real directory, attributes and all, because that is what comes
+            // out of a container: a Linux tree with read-only object files in it, which is
+            // the shape the host's diff reader has to survive on a Windows host.
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(to)!);
+            CopyDirectory(realTree, to);
+            return true;
+        }
+
         if (ContainerFiles.TryGetValue(from, out var whole))
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(to)!);
@@ -102,6 +121,30 @@ public sealed class FakeDockerCli : IDockerCli
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// One real directory copied onto the host, read-only attributes and all. Attributes
+    /// are the point rather than an accident: a tree lifted out of a Linux container
+    /// arrives on Windows with read-only pack files, and the code that later reads or
+    /// cleans such a tree has to cope with that. A fake that quietly normalised them
+    /// would let a test pass against markup no reviewer would ever get.
+    /// </summary>
+    private static void CopyDirectory(string from, string to)
+    {
+        System.IO.Directory.CreateDirectory(to);
+
+        foreach (var file in System.IO.Directory.EnumerateFiles(from))
+        {
+            var destination = System.IO.Path.Combine(to, System.IO.Path.GetFileName(file));
+            File.Copy(file, destination);
+            File.SetAttributes(destination, File.GetAttributes(file));
+        }
+
+        foreach (var directory in System.IO.Directory.EnumerateDirectories(from))
+        {
+            CopyDirectory(directory, System.IO.Path.Combine(to, System.IO.Path.GetFileName(directory)));
+        }
     }
 
     /// <summary>One invocation, with the channel it reported on and the token it was given.</summary>

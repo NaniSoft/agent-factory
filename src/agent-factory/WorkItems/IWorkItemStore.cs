@@ -65,6 +65,15 @@ public interface IWorkItemStore
     /// only account of itself is its log, and a round that is not visible is the failure
     /// the whole rendering of results exists to prevent (story 29).
     /// </param>
+    /// <param name="diff">
+    /// The round's change, generated on the host from the tree the round left. Its own
+    /// column rather than part of the payload, because it is a different observation with
+    /// a different failure mode: the payload is the container's account of itself and can
+    /// be missing, truncated or unreadable, while this is <c>git diff</c> against a
+    /// directory on the host that exists whether or not the container managed to write
+    /// anything down. A board with only the payload shows a bounded prefix of a large
+    /// change and nothing at all for the round that broke.
+    /// </param>
     RoundResultRecord RecordRound(
         Guid workItemId,
         RoundOutcome outcome,
@@ -73,7 +82,8 @@ public interface IWorkItemStore
         DateTimeOffset startedUtc,
         int attempts = 1,
         FailureClass? failure = null,
-        string? log = null);
+        string? log = null,
+        Results.HostDiff? diff = null);
 
     /// <summary>Every round the work item has run, oldest first.</summary>
     IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId);

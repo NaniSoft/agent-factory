@@ -366,6 +366,105 @@ public class PolicyTests
     }
 
     [Fact]
+    public void The_review_surface_cannot_ask_gitHub_for_a_rounds_change()
+    {
+        // "The diff renders without depending on GitHub being reachable" is not only an
+        // availability property. A diff fetched from the same service that produced the
+        // change is a second opinion from the thing under review rather than evidence
+        // about it, and it is unavailable exactly when a reviewer most needs to know what
+        // an unattended round did.
+        //
+        // So it is structural rather than behavioural: the component that produces a
+        // round's diff holds nothing that could reach GitHub, and nothing in the process
+        // calls the GitHub seam on a code path a diff could be on. The seam is called from
+        // two places — intake, and the loop merging — and the board is neither.
+        // Named by owner and method rather than by declaring type: an async method's body
+        // compiles into a state machine, so the caller is `<Approve>d__18` and the method
+        // is `MoveNext` unless it is recovered the way `Method` recovers it.
+        var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
+            .Where(call => call.Called.DeclaringType?.Name == "IGitHub")
+            .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.All(readers, caller =>
+            Assert.True(
+                caller.StartsWith("Poller.", StringComparison.Ordinal) || caller.StartsWith("Orchestrator.", StringComparison.Ordinal),
+                $"only intake and the loop may ask GitHub anything, and {caller} does: a round's diff is generated on "
+                    + "the host from the tree the round left, and a board that fetched one from the API would be showing a "
+                    + "second opinion from the service that produced the change (ADR-0006)"));
+
+        // And the diff reader itself is a git process against a directory, with no client,
+        // no transport and no credential reader — checked as its own constructor, for the
+        // reason the deriver's is: a component that could reach the network could decide
+        // to.
+        Assert.Empty(typeof(HostDiffReader).GetConstructors());
+
+        foreach (var type in typeof(HostDiffReader).Assembly.GetTypes())
+        {
+            if (type != typeof(HostDiffReader) && type != typeof(HostDiff))
+            {
+                continue;
+            }
+
+            foreach (var constructor in type.GetConstructors())
+            {
+                Assert.DoesNotContain(
+                    constructor.GetParameters(),
+                    parameter => parameter.ParameterType.Name is "IGitHub" or "INOpenCode" or "ICredentialReader"
+                        or "HttpClient" or "HttpMessageHandler");
+            }
+        }
+    }
+
+    [Fact]
+    public void A_rounds_diff_is_generated_from_git_and_from_nothing_else()
+    {
+        // The claim the review surface rests on: the diff a reviewer judges is `git diff`
+        // against the tree the round left. So the component that produces it starts one
+        // process, the git binary, with the arguments a test can read — and it does not
+        // also read a result file, ask the GitHub seam, or take a credential. A reader
+        // that gained any of those would be a second source of truth about a change, and
+        // two sources of truth is how a reviewer ends up judging one change against
+        // another's account of it.
+        //
+        // The process arguments are checked by name because the three flags that make
+        // this safe are all in them, and each was a refusal rather than a convenience:
+        // `--no-ext-diff` and `--no-textconv` stop git running a program the tree's own
+        // configuration names, and `safe.directory` is what makes a tree created by uid
+        // 1000 inside a container readable at all on a Linux host.
+        Assert.Contains(
+            "HostDiffReader.GitAsync",
+            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Diagnostics.Process:Start"));
+
+        // The refusals, checked as the argument list rather than as source: they are the
+        // point of the component, so they are a value it exposes and a test can read.
+        // Without `--no-ext-diff` and `--no-textconv` git will run a program named by the
+        // tree's own configuration to produce the diff, and the tree is a repository this
+        // factory did not write.
+        var arguments = HostDiffReader.Arguments("abc1234");
+        Assert.Contains("--no-ext-diff", arguments);
+        Assert.Contains("--no-textconv", arguments);
+        Assert.Contains("--no-color", arguments);
+        Assert.Equal("abc1234", arguments[^1]);
+
+        // And the one configuration a diff cannot be read without: a tree created by uid
+        // 1000 inside a container is a repository git refuses to read on a Linux host, so
+        // without this the round's diff would be silently *absent* rather than wrong —
+        // which reads as a round that changed nothing.
+        Assert.Equal("1", HostDiffReader.GitEnvironment["GIT_CONFIG_COUNT"]);
+        Assert.Equal("safe.directory", HostDiffReader.GitEnvironment["GIT_CONFIG_KEY_0"]);
+        Assert.Equal("*", HostDiffReader.GitEnvironment["GIT_CONFIG_VALUE_0"]);
+
+        // Nothing in the component's own dependencies reaches a network or a credential.
+        Assert.Empty(typeof(HostDiffReader).GetConstructors());
+        Assert.DoesNotContain(
+            typeof(HostDiff).GetProperties(),
+            property => property.PropertyType.Name is "HttpClient" or "IGitHub" or "ICredentialReader");
+    }
+
+    [Fact]
     public void The_board_and_the_loop_gained_no_write_path_and_no_new_decision()
     {
         // The result work added a great deal of text to the board and a log column to the

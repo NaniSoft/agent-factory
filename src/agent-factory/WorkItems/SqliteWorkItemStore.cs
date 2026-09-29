@@ -2,6 +2,7 @@ namespace AgentFactory.WorkItems;
 
 using AgentFactory.Clock;
 using AgentFactory.Failures;
+using AgentFactory.Results;
 using AgentFactory.Rounds;
 using Microsoft.Data.Sqlite;
 
@@ -157,7 +158,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         DateTimeOffset startedUtc,
         int attempts = 1,
         FailureClass? failure = null,
-        string? log = null)
+        string? log = null,
+        HostDiff? diff = null)
     {
         var now = _clock.UtcNow;
 
@@ -182,9 +184,19 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
         using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
+
+        // Five columns for the diff rather than one column of JSON, and that is a
+        // deliberate choice against the tidier-looking alternative. This store is the
+        // store of record (ADR-0009): a row it cannot read back is an agent's work nobody
+        // can look at any more. JSON in a column has to be deserialised, and a
+        // deserialisation that fails — or worse, succeeds with a field missing — is the
+        // "results payload that parses but is missing the field the reviewer needs"
+        // failure the design names, imported into the one place that has to be reliable.
+        // Columns are read back as themselves, and a null in each of them is a plain
+        // absence rather than a shape to be guessed at.
         insert.CommandText = """
-            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log)
-            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc, $attempts, $failure, $log);
+            INSERT INTO round_results (work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log, diff, diff_base, diff_tree, diff_container_bounded, diff_unavailable)
+            VALUES ($workItemId, $roundNumber, $outcome, $resultPayload, $agentNote, $startedUtc, $completedUtc, $attempts, $failure, $log, $diff, $diffBase, $diffTree, $diffContainerBounded, $diffUnavailable);
             """;
         insert.Parameters.AddWithValue("$workItemId", workItemId.ToString("D"));
         insert.Parameters.AddWithValue("$roundNumber", roundNumber);
@@ -196,6 +208,11 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         insert.Parameters.AddWithValue("$attempts", Math.Max(1, attempts));
         insert.Parameters.AddWithValue("$failure", (object?)failure?.ToString() ?? DBNull.Value);
         insert.Parameters.AddWithValue("$log", (object?)log ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$diff", (object?)diff?.Text ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$diffBase", (object?)diff?.Base ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$diffTree", (object?)diff?.Tree ?? DBNull.Value);
+        insert.Parameters.AddWithValue("$diffContainerBounded", diff?.ContainerBounded == true ? 1 : 0);
+        insert.Parameters.AddWithValue("$diffUnavailable", (object?)diff?.UnavailableBecause ?? DBNull.Value);
         insert.ExecuteNonQuery();
 
         using var bump = connection.CreateCommand();
@@ -222,7 +239,8 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
             now,
             Math.Max(1, attempts),
             failure,
-            log);
+            log,
+            diff);
     }
 
     public IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId)
@@ -230,7 +248,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log
+            SELECT work_item_id, round_number, outcome, result_payload, agent_note, started_utc, completed_utc, attempts, failure, log, diff, diff_base, diff_tree, diff_container_bounded, diff_unavailable
             FROM round_results
             WHERE work_item_id = $workItemId
             ORDER BY round_number;
@@ -251,10 +269,40 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 Timestamp(reader.GetString(6)),
                 reader.IsDBNull(7) ? 1 : reader.GetInt32(7),
                 reader.IsDBNull(8) ? null : Enum.Parse<FailureClass>(reader.GetString(8)),
-                reader.IsDBNull(9) ? null : reader.GetString(9)));
+                reader.IsDBNull(9) ? null : reader.GetString(9),
+                ReadDiff(reader, 10)));
         }
 
         return rounds;
+    }
+
+    /// <summary>
+    /// One round's diff, read back out of the five columns it was written into, or null
+    /// when the row has none of them — a round recorded before this column existed, or a
+    /// round whose container never produced a tree.
+    /// </summary>
+    /// <remarks>
+    /// A row with a diff but no tree is still a diff: the tree is where a reviewer can go
+    /// for the parts the board did not render, and its absence does not unmake the text.
+    /// Conversely a row whose only diff column is set is the "there was no diff and here is
+    /// why" shape, which is the one a round that broke before it could write anything down
+    /// arrives in, and it is read back as that rather than as a round that changed
+    /// nothing.
+    /// </remarks>
+    private static HostDiff? ReadDiff(SqliteDataReader reader, int first)
+    {
+        var text = reader.IsDBNull(first) ? null : reader.GetString(first);
+        var base_ = reader.IsDBNull(first + 1) ? null : reader.GetString(first + 1);
+        var tree = reader.IsDBNull(first + 2) ? null : reader.GetString(first + 2);
+        var bounded = !reader.IsDBNull(first + 3) && reader.GetInt64(first + 3) != 0;
+        var unavailable = reader.IsDBNull(first + 4) ? null : reader.GetString(first + 4);
+
+        if (text is null && unavailable is null)
+        {
+            return null;
+        }
+
+        return new HostDiff(text ?? string.Empty, base_ ?? string.Empty, tree ?? string.Empty, bounded, unavailable);
     }
 
     public void RecordMergeFailure(Guid workItemId, FailureClass failure, DateTimeOffset? retryAfterUtc)
@@ -531,6 +579,19 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 attempts       INTEGER NOT NULL DEFAULT 1,
                 failure        TEXT    NULL,
                 log            TEXT    NULL,
+
+                -- The round's change, as the host generated it from the tree the round
+                -- left. Five columns rather than one of JSON, so that a row is read back
+                -- as itself and a missing field is a null rather than a shape to guess
+                -- at. `diff_unavailable` is the "there is no diff and here is why" shape,
+                -- which is different from an empty diff: a round that changed nothing and
+                -- a round whose tree never came out are not the same fact.
+                diff                 TEXT    NULL,
+                diff_base            TEXT    NULL,
+                diff_tree            TEXT    NULL,
+                diff_container_bounded INTEGER NOT NULL DEFAULT 0,
+                diff_unavailable     TEXT    NULL,
+
                 PRIMARY KEY (work_item_id, round_number)
             );
 
@@ -565,6 +626,17 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         AddColumnIfMissing(connection, "round_results", "attempts", "INTEGER NOT NULL DEFAULT 1");
         AddColumnIfMissing(connection, "round_results", "failure", "TEXT NULL");
         AddColumnIfMissing(connection, "round_results", "log", "TEXT NULL");
+
+        // A round recorded before the diff existed has no diff and is not retrofitted with
+        // one: the tree it would have been read out of was not kept per round, and a
+        // fabricated empty diff would say a round changed nothing when in fact nobody
+        // looked. Such a round reads back with no diff at all, which the board renders as
+        // "not recorded" rather than as an absence of change.
+        AddColumnIfMissing(connection, "round_results", "diff", "TEXT NULL");
+        AddColumnIfMissing(connection, "round_results", "diff_base", "TEXT NULL");
+        AddColumnIfMissing(connection, "round_results", "diff_tree", "TEXT NULL");
+        AddColumnIfMissing(connection, "round_results", "diff_container_bounded", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "round_results", "diff_unavailable", "TEXT NULL");
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string declaration)

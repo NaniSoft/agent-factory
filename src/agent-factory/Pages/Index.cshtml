@@ -156,13 +156,53 @@
 
     @* Auto-refresh: a board a reviewer has to refresh by hand is a board they stop trusting. The
         filter rides through a reload, because a board that forgets which project you asked
-        for is a board you have to set up again every five seconds. *@
+        for is a board you have to set up again every five seconds.
+
+        A fold that closes itself every five seconds is not a fold, though. A reviewer reading
+        a diff opens the files they care about, and the reload is going to happen underneath
+        them whether or not they are ready for it. So which sections a reviewer has opened is
+        remembered in the tab and restored on the way back in.
+
+        The key is rendered by the board rather than assembled in the script, because the
+        board is the only thing that knows which work item and which round a section belongs
+        to — and because a key that is <em>one</em> attribute is a key the script cannot get
+        subtly wrong. It is the work item, the round and the file's path: all three, so that
+        opening a file in round 1 does not also open round 2's copy of a file of the same
+        name, which is a different change.
+
+        Which is all the JavaScript on this board does besides the reload itself. It writes
+        nothing to the server, has no endpoint of its own and cannot change a work item: the
+        board's only write path is the reviewer's three decisions, and this is not one
+        (ADR-0005, ADR-0008). *@
     <script>
         (function () {
             const seconds = @FactoryConstants.BoardAutoRefreshSeconds;
             const project = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Project ?? ""));
             const url = project ? "/?project=" + encodeURIComponent(project) : "/";
-            window.setInterval(function () { window.location.replace(url); }, seconds * 1000);
+            const storage = "agent-factory:open-diffs";
+            const sections = "details[data-open-key]";
+
+            try {
+                (window.sessionStorage.getItem(storage) || "").split("\n").filter(Boolean).forEach(function (key) {
+                    const section = document.querySelector(sections + '[data-open-key="' + key + '"]');
+                    if (section) { section.open = true; }
+                });
+            } catch (ignored) {
+                // A browser with no session storage still refreshes. It just forgets.
+            }
+
+            window.setInterval(function () {
+                try {
+                    const open = Array.prototype.map.call(
+                        document.querySelectorAll(sections + "[open]"),
+                        function (section) { return section.dataset.openKey; });
+                    window.sessionStorage.setItem(storage, open.join("\n"));
+                } catch (ignored) {
+                    // As above: a fold that cannot be remembered is a fold, not a fault.
+                }
+
+                window.location.replace(url);
+            }, seconds * 1000);
         })();
     </script>
 </body>
@@ -224,7 +264,9 @@
                             data-failure="@(round.Failure?.ToString() ?? string.Empty)"
                             data-attempts="@round.Attempts"
                             data-has-result="@(round.ResultPayload is { Length: > 0 } ? "true" : "false")"
-                            data-has-log="@(round.Log is { Length: > 0 } ? "true" : "false")">
+                            data-has-log="@(round.Log is { Length: > 0 } ? "true" : "false")"
+                            data-has-diff="@(round.HasADiff ? "true" : "false")"
+                            data-diff-state="@((Model.DiffOf(round)?.State.ToString() ?? "none").ToLowerInvariant())">
                             <span class="round-number">round @round.RoundNumber</span>
                             <span class="outcome">@round.Outcome</span>
                             @if (round.Attempts > 1)
@@ -237,14 +279,134 @@
                             {
                                 <span class="failure">@failure.ToString().ToLowerInvariant() failure</span>
                             }
-                            @* The result: the files changed, the commands run, what each
-                                returned, and the diff, all derived by observing the round's
-                                container. It is derived text rather than a rendered view of a
-                                parsed object, and that is deliberate — the board has no opinion
-                                about any part of it, and neither has anything to interpret. *@
+
+                            @* The change itself, and the first thing on the card. This is the
+                                diff a reviewer judges: git's own output, generated on the host
+                                from the tree the round left, one entry per file with the counts
+                                a reviewer needs before opening anything, and git's text for each
+                                file underneath it unchanged. It comes from a column on the round
+                                rather than out of the payload, because the payload is the
+                                container's account of itself and is bounded — a board built on it
+                                would show a prefix of a large change and read as though it were
+                                all of it (story 34, ADR-0006, ADR-0011). *@
+                            @{
+                                var diff = Model.DiffOf(round);
+                            }
+                            @if (diff is { State: DiffState.Shown } or { State: DiffState.Empty })
+                            {
+                                <section class="diff"
+                                         data-diff="round @round.RoundNumber"
+                                         data-state="@diff.State.ToString().ToLowerInvariant()"
+                                         data-files="@diff.Files.Count"
+                                         data-total-files="@diff.TotalFiles"
+                                         data-omitted-files="@diff.OmittedFiles"
+                                         data-omitted-lines="@diff.OmittedLines"
+                                         data-tree="@diff.Tree">
+                                    <h4 class="diff-heading">
+                                        the change, from the tree this round left
+                                    </h4>
+                                    @if (diff.State == DiffState.Empty)
+                                    {
+                                        <p class="diff-empty" data-diff-empty="round @round.RoundNumber">
+                                            Empty. Nothing on disk differs from the commit the round started at.
+                                        </p>
+                                    }
+                                    else
+                                    {
+                                        <p class="diff-counts" data-diff-counts="round @round.RoundNumber">
+                                            @diff.Files.Count of @diff.TotalFiles file(s) shown,
+                                            @diff.TotalFiles file(s) in all.
+                                        </p>
+                                        @if (Model.WhatIsLeftOff(diff) is { } leftOff)
+                                        {
+                                            @* The bound is on whole files, never mid-hunk, and what was
+                                                left off is counted rather than absorbed. A diff that
+                                                stops without saying how much it stopped at is
+                                                indistinguishable from a diff of a smaller change,
+                                                which is the failure this whole rendering exists to
+                                                prevent. *@
+                                            <p class="diff-omitted" data-diff-omitted="round @round.RoundNumber">@leftOff</p>
+                                        }
+                                        @if (diff.BoundedElsewhere is { } bounded)
+                                        {
+                                            <p class="diff-bounded" data-diff-bounded="round @round.RoundNumber">@bounded</p>
+                                        }
+                                        <ol class="diff-files">
+                                            @for (var at = 0; at < diff.Files.Count; at++)
+                                            {
+                                                var file = diff.Files[at];
+                                                var isOpen = diff.IsOpenAt(at);
+                                                <li class="diff-file">
+                                                    @* Open for the first file and folded for the rest, so a card
+                                                        shows the shape of the change and one file's actual
+                                                        content without being a wall of text. Every file is
+                                                        in the page either way: folded is one click, not
+                                                        summarised away. *@
+                                                    <details class="diff-file-details"
+                                                             data-diff-file="@file.Path"
+                                                             data-open-key="@($"{workItem.Id:N}/{round.RoundNumber}/{file.Path}")"
+                                                             data-change="@file.Change.ToString().ToLowerInvariant()"
+                                                             data-added="@file.Added"
+                                                             data-removed="@file.Removed"
+                                                             data-binary="@(file.Binary ? "true" : "false")"
+                                                             data-open="@(isOpen ? "true" : "false")"
+                                                             open="@(isOpen ? "open" : null)">
+                                                        <summary>
+                                                            <span class="path">@file.Path</span>
+                                                            <span class="change">@file.Change.ToString().ToLowerInvariant()</span>
+                                                            @if (file.PreviousPath is { Length: > 0 } from)
+                                                            {
+                                                                <span class="from">from @from</span>
+                                                            }
+                                                            @if (file.Binary)
+                                                            {
+                                                                @* Git writes no readable content for a binary change. That
+                                                                    is a fact about the change rather than a gap in the
+                                                                    record, and it is said on the line rather than shown
+                                                                    as an empty body. *@
+                                                                <span class="counts">binary, so no line counts</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="counts">+@file.Added −@file.Removed</span>
+                                                            }
+                                                        </summary>
+                                                        <pre class="diff-text">@file.Text</pre>
+                                                    </details>
+                                                </li>
+                                            }
+                                        </ol>
+                                    }
+                                </section>
+                            }
+                            else if (diff is { } missing)
+                            {
+                                @* A diff that could not be generated says so, and says why. An
+                                    absent section would read as a round that changed nothing, which
+                                    is a different and much worse claim. *@
+                                <section class="diff diff-unavailable"
+                                         data-diff="round @round.RoundNumber"
+                                         data-state="unavailable"
+                                         data-tree="@diff.Tree">
+                                    <h4 class="diff-heading">the change, from the tree this round left</h4>
+                                    <p class="diff-none" data-diff-unavailable="round @round.RoundNumber">
+                                        There is no diff for this round: @missing.UnavailableBecause
+                                    </p>
+                                </section>
+                            }
+
+                            @* What the round recorded about itself: the files it changed as its own
+                                git saw them, the commands it ran and what each returned, and the
+                                agent's own sentence. This is the container's account and it is
+                                kept as the container's account — the diff above is a separate
+                                observation, not a replacement for this one. *@
                             @if (round.ResultPayload is { Length: > 0 })
                             {
-                                <pre class="result" data-result="round @round.RoundNumber">@round.ResultPayload</pre>
+                                <details class="result-wrapper" data-result-wrapper="round @round.RoundNumber"
+                                         open="@(diff is null ? "open" : null)">
+                                    <summary class="result-heading">what the round's container recorded about itself</summary>
+                                    <pre class="result" data-result="round @round.RoundNumber">@round.ResultPayload</pre>
+                                </details>
                             }
                             @if (round.AgentNote is { Length: > 0 })
                             {
