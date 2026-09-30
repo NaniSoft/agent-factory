@@ -212,12 +212,15 @@ public class EndingTests
     [Fact]
     public async Task A_work_item_merged_by_a_reviewer_says_so_and_one_merged_by_silence_says_that_instead()
     {
+        // The two ways to Done, on one board. The silence half needs the timeout live, so
+        // this host opts in — the factory's default is off, and the default's own test is
+        // in SilenceTests.
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().Merging();
         var agent = new FakeNOpenCode()
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Review.cs +4 -0", "Second attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
 
         // One merged because a reviewer read it, and one merged because nobody did. Both
         // are Done, because Done means merged either way — and the two say different

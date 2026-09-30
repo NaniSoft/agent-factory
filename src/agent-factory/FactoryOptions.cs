@@ -2,13 +2,14 @@ namespace AgentFactory;
 
 /// <summary>
 /// The factory's own settings: where the project files live, where the store lives,
-/// and where the board is published. None of it is per project — project files are
-/// the only per-project configuration, and there is no other.
+/// where the board is published, and whether silence may merge. None of it is per
+/// project — project files are the only per-project configuration, and there is no other.
 /// </summary>
 public sealed record FactoryOptions(
     string FactoriesDirectory,
     string DatabasePath,
-    Uri BoardUrl)
+    Uri BoardUrl,
+    bool AutoMerge = false)
 {
     /// <summary>
     /// The board is published on port 5000 and bound to loopback. Loopback is a named
@@ -33,6 +34,8 @@ public sealed record FactoryOptions(
         return new FactoryOptions(
             FactoriesDirectory: configuration["Factory:FactoriesDirectory"] ?? Path.Combine(root, "factories"),
             DatabasePath: configuration["Factory:DatabasePath"] ?? Path.Combine(root, "data", "agent-factory.db"),
-            BoardUrl: configuration["Factory:BoardUrl"] is { Length: > 0 } url ? new Uri(url) : DefaultBoardUrl);
+            BoardUrl: configuration["Factory:BoardUrl"] is { Length: > 0 } url ? new Uri(url) : DefaultBoardUrl,
+            AutoMerge: configuration["Factory:AutoMerge"] is { Length: > 0 } autoMerge
+                && autoMerge.Equals("true", StringComparison.OrdinalIgnoreCase));
     }
 }

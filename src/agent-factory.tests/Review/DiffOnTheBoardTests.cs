@@ -915,7 +915,7 @@ public class DiffOnTheBoardTests
             "the round's log",
             AChangeTo("src/Index.cs")));
 
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, autoMerge: true);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
 

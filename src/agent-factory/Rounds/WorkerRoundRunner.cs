@@ -82,7 +82,16 @@ public sealed class WorkerRoundRunner : INOpenCode
     /// itself, inside its own run, rather than by a line here for the same reason.
     /// </para>
     /// </remarks>
-    public const string RoundScript = """
+    /// <summary>
+    /// The script is LF-only whatever line endings the checkout used: a file built on
+    /// Windows carries CRLF into this string, and a CRLF line in a shell script is a
+    /// carriage return in every argument on it — a redirect to a file whose name ends in
+    /// CR, a prompt ending in a character no reviewer typed. The first Docker tests to
+    /// run on a Windows checkout failed on exactly that, in filenames, so the
+    /// normalization lives here, at the definition, rather than in every hand that
+    /// passes the script onward.
+    /// </summary>
+    public static readonly string RoundScript = """
         set -uo pipefail
         out="${AGENT_FACTORY_OUT:-/out}"
         cd "$AGENT_FACTORY_WORK"
@@ -90,7 +99,7 @@ public sealed class WorkerRoundRunner : INOpenCode
         run -o 'the brief this round was given' cat "$out/brief.md"
         run -o 'the agent, building and testing the change' \
             opencode run --standalone --auto -m "$AGENT_FACTORY_MODEL" --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"
-        """;
+        """.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     /// <summary>
     /// The one message the factory sends the agent. It is fixed too, and it points at the

@@ -5,6 +5,7 @@ using AgentFactory.Credentials;
 using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
+using AgentFactory.Tests.Boundary;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -310,6 +311,10 @@ public class AgentRoundTests
         {
             ["AGENT_FACTORY_BRIEF"] = brief ?? RoundBrief.For(ARound()),
             ["AGENT_FACTORY_AGENT_PROMPT"] = WorkerRoundRunner.AgentPrompt,
+            // The model is part of the round's contract now (#38): the script reads it and
+            // the round runs under `set -u`, so a boundary that forgets it is a round that
+            // dies at the agent line rather than one that runs without a model.
+            ["AGENT_FACTORY_MODEL"] = ProjectFile.Model,
         };
 
         if (fetchTheRepository)
@@ -340,6 +345,11 @@ public class AgentRoundTests
         // `shell` is the factory's own mode, which runs the script under the recording
         // wrapper and then collects; `exec` runs one command through the wrapper and
         // collects too. Both go through the image's own entrypoint, which is the point.
+        // A script written into a CRLF checkout carries CR into every line of itself, so
+        // it is normalized at the boundary here for the same reason RoundScript is at its
+        // definition: the container sees the script the author wrote, not the checkout's
+        // line endings.
+        script = script.Replace("\r\n", "\n", StringComparison.Ordinal);
         var command = script.StartsWith("set -uo", StringComparison.Ordinal)
             ? new[] { "shell", "-c", script }
             : new[] { "exec", "bash", "-c", script };

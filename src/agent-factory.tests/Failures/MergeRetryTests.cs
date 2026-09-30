@@ -325,7 +325,7 @@ public class MergeRetryTests
             FailureClass.Transient,
             "the API returned 503");
         var agent = new FakeNOpenCode().Producing("src/Index.cs +12 -3", "Added the endpoint.");
-        await using var host = await FactoryHost.StartAsync(root, clock, agent, github);
+        await using var host = await FactoryHost.StartAsync(root, clock, agent, github, autoMerge: true);
         var workItem = await InReview(host);
 
         clock.Advance(FactoryConstants.FeedbackThreshold);

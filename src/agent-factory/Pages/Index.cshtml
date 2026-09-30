@@ -11,14 +11,28 @@
 <body>
     <header>
         <h1>Agent Factory</h1>
-        @* The feedback threshold, stated on the board rather than buried in code. Ignoring a
-            work item merges it, which is the more dangerous of the two endings, so a reviewer
-            who is not watching is told what their silence is worth before it happens. *@
-        <p class="feedback-threshold" data-feedback-threshold="threshold" data-hours="@FactoryConstants.FeedbackThreshold.TotalHours">
-            A work item left in <strong>Review</strong> for @FactoryConstants.FeedbackThresholdText
-            is <strong>merged</strong> without a review. Ignoring a work item merges it; actively
-            declining one protects the repository. A work item out of rounds is
-            <strong>escalated</strong>, never merged.
+        @* The feedback threshold, stated on the board rather than buried in code — along
+            with whether it is live. A reviewer must never wonder whether the absence of
+            their decision can ship a change, so the mode is named in the same breath as
+            the threshold it governs. *@
+        <p class="feedback-threshold"
+           data-feedback-threshold="threshold"
+           data-hours="@FactoryConstants.FeedbackThreshold.TotalHours"
+           data-merges-unattended="@(Model.MergesUnattended ? "on" : "off")">
+            @if (Model.MergesUnattended)
+            {
+                <text>A work item left in <strong>Review</strong> for @FactoryConstants.FeedbackThresholdText
+                is <strong>merged</strong> without a review. Ignoring a work item merges it; actively
+                declining one protects the repository. A work item out of rounds is
+                <strong>escalated</strong>, never merged.</text>
+            }
+            else
+            {
+                <text>Auto-merge is <strong>off</strong>: a work item left in <strong>Review</strong>
+                waits for a decision, however long it takes. Nothing merges unattended; actively
+                declining one protects the repository. A work item out of rounds is
+                <strong>escalated</strong>, never merged.</text>
+            }
         </p>
 
         <p class="served-projects">
@@ -283,8 +297,11 @@
 
         // When this card's silence would ship it, on the card itself rather than only in
         // the header, because a timeout a reviewer cannot see per work item is a timeout
-        // they cannot act on while it still matters.
+        // they cannot act on while it still matters. With auto-merge off there is nothing
+        // a countdown could say, so the attribute is not written at all — an empty
+        // countdown would read as a promise waiting for a value.
         var mergesAt = Model.AutoMergeAt(workItem);
+        var autoMergeAttribute = mergesAt is { } shipsAt ? $@" data-auto-merge=""{shipsAt:O}""" : string.Empty;
         <li class="work-item"
             data-work-item="@workItem.Id"
             data-project="@workItem.Project"
@@ -294,8 +311,7 @@
             data-rounds="@rounds.Count"
             data-decisions="@decisions.Count"
             data-merge-attempts="@workItem.MergeAttempts"
-            data-cause="@cause"
-            data-auto-merge="@(mergesAt?.ToString("O") ?? string.Empty)">
+            data-cause="@cause"@Html.Raw(autoMergeAttribute)>
             <span class="project">@workItem.Project</span>
             <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
             <span class="base-branch">base @workItem.BaseBranch</span>

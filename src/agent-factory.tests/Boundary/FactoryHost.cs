@@ -204,10 +204,11 @@ public sealed class FactoryHost : IAsyncDisposable
         FactoryRoot root,
         TestClock? clock = null,
         FakeNOpenCode? agent = null,
-        FakeGitHub? github = null) =>
+        FakeGitHub? github = null,
+        bool autoMerge = false) =>
         StartAsync(
             root,
-            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0"), autoMerge),
             new TestSubstitutions(clock, agent, github));
 
     public static Task<FactoryHost> StartAsync(
@@ -234,10 +235,11 @@ public sealed class FactoryHost : IAsyncDisposable
         FactoryMetrics metrics,
         TestClock? clock = null,
         FakeNOpenCode? agent = null,
-        FakeGitHub? github = null) =>
+        FakeGitHub? github = null,
+        bool autoMerge = false) =>
         StartAsync(
             root,
-            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0"), autoMerge),
             new TestSubstitutions(clock, agent, github, Metrics: metrics, Log: log));
 
     /// <summary>Starts the factory the way its own entry point does: options from configuration.</summary>

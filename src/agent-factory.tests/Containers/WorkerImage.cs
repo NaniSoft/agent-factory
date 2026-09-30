@@ -1,5 +1,7 @@
 namespace AgentFactory.Tests.Containers;
 
+using AgentFactory.Tests.Boundary;
+
 using System.Diagnostics;
 
 /// <summary>
@@ -71,34 +73,42 @@ public static class WorkerImage
             return unreachable;
         }
 
-        // A credential is looked for in the environment under the name a project file
-        // would declare. Its *value* is never read here or logged: this asks whether the
-        // CLI can reach a provider, not what the provider is called.
-        const string keyName = "NEXUS_ANTHROPIC_API_KEY";
+        // A credential is looked for in the environment under the canonical name the round
+        // actually injects (#38) — the name the provider's tooling reads. Its *value* is
+        // never read here or logged: this asks whether the CLI can reach the provider, not
+        // what the provider is called.
+        const string keyName = "ANTHROPIC_API_KEY";
         var configured = Environment.GetEnvironmentVariable(keyName);
 
         // Through the image's own entrypoint rather than around it, so the probe is asked
-        // the same question a round asks: can the CLI, as uid 1000, in this image, reach a
-        // provider and come back with an answer.
+        // the same question a round asks: can the CLI, as uid 1000, in this image, reach
+        // the provider the project's model names and come back with an answer. The model
+        // is the project's, and it is stated — a probe without one answers for whichever
+        // credential-free default the CLI ships with, which is how a machine with no key
+        // at all once passed this probe and failed the round it was probing for.
+        var pass = configured is { Length: > 0 }
+            ? new[] { "run", "--rm", "-e", keyName, Tag }
+            : new[] { "run", "--rm", Tag };
+
         var answered = Docker(
-            "run",
-            "--rm",
-            Tag,
-            "exec",
-            "bash",
-            "-c",
-            "opencode run --standalone --log-level none 'Reply with the single word OK and nothing else.' 2>&1");
+            pass
+                .Append("exec")
+                .Append("bash")
+                .Append("-c")
+                .Append($"opencode run --standalone --log-level none -m {ProjectFile.Model} "
+                    + "'Reply with the single word OK and nothing else.' 2>&1")
+                .ToArray());
 
         if (answered is null || !answered.Contains("OK", StringComparison.OrdinalIgnoreCase))
         {
             return configured is { Length: > 0 }
-                ? $"the OpenCode CLI in {Tag} could not reach a provider even with {keyName} configured, "
+                ? $"the OpenCode CLI in {Tag} could not reach {ProjectFile.Model} even with {keyName} configured, "
                     + "so a round cannot be driven with the agent here. The test that needs an agent is about the "
                     + "factory's derivation, which is covered hermetically and by the container tests; this one is "
                     + "about the agent actually running"
                 : $"no LLM credential is configured in this environment ({keyName} is not set) and the OpenCode CLI "
-                    + $"in {Tag} has no provider it can reach without one, so a round cannot be driven with the agent "
-                    + "here. The test that needs an agent is about the factory's derivation, which is covered "
+                    + $"in {Tag} cannot reach {ProjectFile.Model} without one, so a round cannot be driven with the "
+                    + "agent here. The test that needs an agent is about the factory's derivation, which is covered "
                     + "hermetically and by the container tests; this one is about the agent actually running";
         }
 

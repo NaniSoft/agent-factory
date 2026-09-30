@@ -92,7 +92,7 @@ public class ExhaustionTests
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().Merging();
         var agent = ThreeRounds();
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await Exhausted(host);
 
         // Forty-eight hours is where the factory merges a work item nobody reviewed. An
@@ -174,7 +174,7 @@ public class ExhaustionTests
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().Merging();
         var agent = SixRounds();
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await Exhausted(host);
 
         // Declined from Escalated, so the lane it was reached from is the new one: parking
@@ -280,7 +280,7 @@ public class ExhaustionTests
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().RefusingToMerge("branch protection would not let it through");
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await InReview(host);
 
         // The reviewer approves and the merge does not land. Where that leaves the work
@@ -331,7 +331,7 @@ public class ExhaustionTests
         // Not across a restart, and not once the feedback threshold has passed: a parked
         // work item is outside the timeout's reach in both.
         host.Clock.Advance(FactoryConstants.FeedbackThreshold + TimeSpan.FromDays(1));
-        await using (var restarted = await FactoryHost.StartAsync(root, agent: agent, github: github))
+        await using (var restarted = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true))
         {
             await restarted.Settle();
             Assert.Single(github.Merges);

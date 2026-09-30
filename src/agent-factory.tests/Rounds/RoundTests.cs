@@ -271,11 +271,12 @@ public class RoundTests
         //
         // The sixth dependency is `FactoryMetrics` and it is not a sixth boundary: it holds
         // no clock, no transport, no credential reader, no store, no seam and no options,
-        // and it counts over an in-process API. `PolicyTests` asserts that list by hand and
-        // names it as the change this assertion made, so a reader is not left wondering what
-        // arrived and why.
+        // and it counts over an in-process API. The seventh, `FactoryOptions`, is the
+        // auto-merge switch (#36) — settings, not a seam: nothing to call, nothing behind
+        // it. `PolicyTests` asserts that list by hand and names each change as it was made,
+        // so a reader is not left wondering what arrived and why.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics"],
+            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics", "FactoryOptions"],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()

@@ -52,6 +52,7 @@ public sealed class Orchestrator
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
     private readonly FactoryMetrics _metrics;
+    private readonly FactoryOptions _options;
 
     /// <summary>
     /// The rounds this process is inside, by the work item each is an attempt at. A set
@@ -108,7 +109,8 @@ public sealed class Orchestrator
         IGitHub github,
         IClock clock,
         ILogger<Orchestrator> logger,
-        FactoryMetrics metrics)
+        FactoryMetrics metrics,
+        FactoryOptions options)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
@@ -116,6 +118,7 @@ public sealed class Orchestrator
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     /// <summary>
@@ -561,6 +564,17 @@ public sealed class Orchestrator
     /// </remarks>
     private async Task<StepResult?> MergeWhatNobodyReviewed()
     {
+        // The timeout is a setting with a default, and the default is off (#36): on the
+        // deployment the factory actually ships as, a work item waits in Review however
+        // long it takes, because the reviewer who chose this factory chose "nothing merges
+        // unattended" over "the pipeline never stalls". The threshold's machinery above is
+        // untouched and the board renders which mode is live; turning the setting on
+        // restores exactly the designed behavior.
+        if (!_options.AutoMerge)
+        {
+            return null;
+        }
+
         var ignored = _store.List().FirstOrDefault(WaitedLongEnough);
         if (ignored is null)
         {

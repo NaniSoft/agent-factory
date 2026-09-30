@@ -864,7 +864,7 @@ public class PolicyTests
         // but the four things it was given. What it can now do is *count*, which is a
         // narrower thing than any of the five it already could.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics"],
+            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics", "FactoryOptions"],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()

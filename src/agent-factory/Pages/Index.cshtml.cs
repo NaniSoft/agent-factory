@@ -31,6 +31,7 @@ public class IndexModel : PageModel
     private readonly Orchestrator _loop;
     private readonly Poller _intake;
     private readonly ProjectLoadReport _projects;
+    private readonly FactoryOptions _options;
     private readonly ILogger<IndexModel> _logger;
 
     public IndexModel(
@@ -38,14 +39,21 @@ public class IndexModel : PageModel
         Orchestrator loop,
         Poller intake,
         ProjectLoadReport projects,
+        FactoryOptions options,
         ILogger<IndexModel> logger)
     {
         _store = store;
         _loop = loop;
         _intake = intake;
         _projects = projects;
+        _options = options;
         _logger = logger;
     }
+
+    /// <summary>Whether silence can merge. The board states the live mode next to the
+    /// threshold, because a reviewer must never wonder whether the absence of their
+    /// decision can ship a change (#36).</summary>
+    public bool MergesUnattended => _options.AutoMerge;
 
     /// <summary>The set the factory is actually serving: exactly the files that validated.</summary>
     public IReadOnlyList<Project> Projects => _projects.Projects;
@@ -161,12 +169,13 @@ public class IndexModel : PageModel
 
     /// <summary>
     /// When a work item waiting in Review will be merged without one, or empty if it is
-    /// not waiting on a reviewer at all. Rendered on the card rather than only in the
-    /// header, because a timeout the reviewer cannot see per work item is a timeout they
-    /// cannot act on while it still matters (ADR-0008).
+    /// not waiting on a reviewer at all — or if auto-merge is off, when nothing a clock
+    /// says will ever merge it. Rendered on the card rather than only in the header,
+    /// because a timeout the reviewer cannot see per work item is a timeout they cannot
+    /// act on while it still matters (ADR-0008).
     /// </summary>
     public DateTimeOffset? AutoMergeAt(WorkItem workItem) =>
-        workItem.Swimlane == Swimlane.Review && workItem.ReviewStartedUtc is { } since
+        _options.AutoMerge && workItem.Swimlane == Swimlane.Review && workItem.ReviewStartedUtc is { } since
             ? since + FactoryConstants.FeedbackThreshold
             : null;
 

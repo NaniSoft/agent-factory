@@ -7,9 +7,12 @@ using AgentFactory.WorkItems;
 
 /// <summary>
 /// The other way a work item stops looping without a human finishing it: nobody looking.
-/// A work item left in Review past the feedback threshold is merged, because a pipeline
-/// held by a reviewer who is asleep is a pipeline that has stopped, and the design says
-/// so plainly rather than inferring it (ADR-0008).
+/// A work item left in Review past the feedback threshold is merged when auto-merge is
+/// on, because a pipeline held by a reviewer who is asleep is a pipeline that has
+/// stopped, and the design says so plainly rather than inferring it (ADR-0008). The
+/// model-reference map's decision (#36) made the timeout a setting with a default, and
+/// the default is <em>off</em>: on this deployment a work item waits in Review however
+/// long it takes, and the board says which mode is live.
 /// </summary>
 /// <remarks>
 /// The merge is a merge. It goes through the same <c>IGitHub</c> seam an approve does and
@@ -29,7 +32,7 @@ public class SilenceTests
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().Merging();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await InReview(host);
 
         var waitingSince = host.Store.Get(workItem.Id)!.ReviewStartedUtc;
@@ -80,7 +83,7 @@ public class SilenceTests
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await InReview(host);
 
         // Nobody reviewed it and there is no merger behind the seam, which is the state
@@ -118,7 +121,7 @@ public class SilenceTests
         var agent = new FakeNOpenCode()
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Review.cs +4 -0", "Second attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
 
         var ignored = await InReview(host, 42);
         var declined = await InReview(host, 43);
@@ -174,7 +177,7 @@ public class SilenceTests
         var agent = new FakeNOpenCode()
             .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.")
             .Yielding(RoundOutcome.Produced, "src/Index.cs +14 -3", "Second attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github, autoMerge: true);
         var workItem = await InReview(host);
 
         // Nearly the whole threshold passes with the work item waiting on a reviewer,
@@ -221,7 +224,7 @@ public class SilenceTests
         var clock = new TestClock();
 
         Guid id;
-        await using (var first = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github))
+        await using (var first = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github, autoMerge: true))
         {
             id = (await InReview(first)).Id;
             clock.Advance(FactoryConstants.FeedbackThreshold - TimeSpan.FromHours(1));
@@ -232,7 +235,7 @@ public class SilenceTests
         // The wait is a fact about the work item, not about a process's memory, so a
         // restart neither forgets the reviewer was already given the threshold nor merges
         // early to catch up.
-        await using (var second = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github))
+        await using (var second = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github, autoMerge: true))
         {
             await second.Settle();
             Assert.Equal(Swimlane.Review, second.Store.Get(id)!.Swimlane);
@@ -244,7 +247,7 @@ public class SilenceTests
         }
 
         // And a further restart does not merge it a second time.
-        await using (var third = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github))
+        await using (var third = await FactoryHost.StartAsync(root, clock: clock, agent: agent, github: github, autoMerge: true))
         {
             await third.Settle();
             Assert.Single(github.Merges);
@@ -257,7 +260,7 @@ public class SilenceTests
     {
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, autoMerge: true);
         await InReview(host);
 
         // The threshold is code and only code: forty-eight hours, named once, on the one
@@ -297,6 +300,55 @@ public class SilenceTests
             expected.ToString("O"),
             System.Net.WebUtility.HtmlDecode(
                 board.Rendered("data-work-item", id, "data-auto-merge")));
+    }
+
+    [Fact]
+    public async Task With_auto_merge_off_the_default_a_work_item_left_in_review_waits_for_a_reviewer()
+    {
+        // The default the live deployment runs under (#36). The timeout exists and is
+        // tested above, but it is a setting with a default, and the default is off: the
+        // factory never ships a change nobody decided on, whatever the clock says. A
+        // stalled pipeline is what a single reviewer chose over an unreviewed merge.
+        using var root = FactoryRoot.Create();
+        var github = new FakeGitHub().Merging();
+        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
+        var workItem = await InReview(host);
+
+        // Far past where the threshold would have fired — four days, against a threshold
+        // of two. Nothing happens, and nothing will ever happen on its own.
+        host.Clock.Advance(FactoryConstants.FeedbackThreshold + TimeSpan.FromDays(2));
+        await host.Settle();
+
+        Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
+        Assert.Empty(github.Merges);
+
+        // And the board says which mode is live, in the same breath as the threshold — a
+        // reviewer must never wonder whether the absence of their decision can merge. Off,
+        // no card carries a countdown, because there is nothing for a countdown to say.
+        var board = await Board.ReadAsync(host.Board);
+        Assert.Equal("off", board.Rendered("data-feedback-threshold", "threshold", "data-merges-unattended"));
+        Assert.Contains("waits for a decision", board.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("data-auto-merge", board.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task With_auto_merge_on_the_board_says_what_silence_is_worth()
+    {
+        // The opt-in mode, and the board's other sentence. The per-card countdown is the
+        // on-mode's rendering obligation: a reviewer who leaves a work item waiting must
+        // be able to see, on the card, when their silence would ship it.
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
+        await using var host = await FactoryHost.StartAsync(root, agent: agent, autoMerge: true);
+        var workItem = await InReview(host);
+
+        var board = await Board.ReadAsync(host.Board);
+        Assert.Equal("on", board.Rendered("data-feedback-threshold", "threshold", "data-merges-unattended"));
+
+        // The countdown is on the card, where the reviewer who is deciding is looking —
+        // its exact value is the pinned test's business, this is only the mode's.
+        Assert.NotEmpty(board.Rendered("data-work-item", workItem.Id.ToString(), "data-auto-merge"));
     }
 
     /// <summary>A work item with one round behind it, sitting in Review where a reviewer can decide.</summary>
