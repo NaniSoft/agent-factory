@@ -87,7 +87,7 @@ public class WorkerRoundRunnerTests
     }
 
     [Fact]
-    public async Task A_round_is_handed_the_projects_llm_credential_and_never_its_github_one()
+    public async Task A_round_is_handed_the_projects_llm_credential_under_the_name_the_provider_reads()
     {
         // The sharp line this ticket has to keep. Two credentials are named in the project
         // file and they are not the same kind of thing: the LLM key is what the agent
@@ -104,24 +104,31 @@ public class WorkerRoundRunnerTests
 
         var create = harness.Docker.TheOnly("create");
 
-        // The LLM key is in, because the agent cannot reach a provider without it. Its
-        // value is present exactly once, in one argument, and nowhere else.
-        Assert.Contains("NEXUS_ANTHROPIC_API_KEY=llm-secret-value", create);
+        // The LLM key is in, because the agent cannot reach a provider without it — and it
+        // is in under the name the provider's tooling actually reads, derived from the
+        // model reference, not under the project's own name for it. The research behind the
+        // model-reference decision (#38) measured that opencode looks for the canonical
+        // name and nothing else: the project's name for its key is invisible to the agent.
+        Assert.Contains("ANTHROPIC_API_KEY=llm-secret-value", create);
         Assert.Equal(1, create.Count(argument => argument.Contains("llm-secret-value", StringComparison.Ordinal)));
+        Assert.DoesNotContain("NEXUS_ANTHROPIC_API_KEY", create);
 
         // The GitHub key is out, and the check is that its *value* was never even read:
         // the runner has no way to hand over what it never picked up, which is what makes
-        // ADR-0006 structural rather than a matter of care.
+        // ADR-0006 structural rather than a matter of care. The LLM key is read by the
+        // project's own name for it — the reader's contract — and re-emitted under the
+        // canonical one.
         Assert.DoesNotContain(create, argument => argument.Contains("github-secret-value", StringComparison.Ordinal));
         Assert.DoesNotContain("NEXUS_GITHUB_TOKEN", credentials.Asked);
+        Assert.Equal(["NEXUS_ANTHROPIC_API_KEY"], credentials.Asked);
     }
 
     [Fact]
     public async Task A_round_is_handed_the_projects_own_environment_for_the_agents_benefit_and_nothing_else()
     {
         // Everything the runner sets is either the round's own machinery or a value derived
-        // from the work item. A test that read the names alone would miss a sixth
-        // environment variable handing something over.
+        // from the work item or the project. A test that read the names alone would miss a
+        // seventh environment variable handing something over.
         var credentials = new FakeCredentialReader().Having("NEXUS_ANTHROPIC_API_KEY", "llm-secret-value");
         using var harness = AFactory(credentials: credentials);
 
@@ -129,7 +136,9 @@ public class WorkerRoundRunnerTests
 
         var handed = harness.Docker.TheOnly("create")
             .Where(argument => argument.StartsWith("AGENT_FACTORY_", StringComparison.Ordinal)
-                || argument.StartsWith("NEXUS_", StringComparison.Ordinal))
+                || argument.StartsWith("NEXUS_", StringComparison.Ordinal)
+                || argument.StartsWith("ANTHROPIC_API_KEY=", StringComparison.Ordinal)
+                || argument.StartsWith("OPENCODE_", StringComparison.Ordinal))
             .Select(argument => argument.Split('=', 2)[0])
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -140,8 +149,10 @@ public class WorkerRoundRunnerTests
                 "AGENT_FACTORY_AGENT_PROMPT",
                 "AGENT_FACTORY_BASE_REF",
                 "AGENT_FACTORY_BRIEF",
+                "AGENT_FACTORY_MODEL",
                 "AGENT_FACTORY_REPO_URL",
-                "NEXUS_ANTHROPIC_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "OPENCODE_DISABLE_PROJECT_CONFIG",
             },
             handed);
     }
@@ -160,8 +171,46 @@ public class WorkerRoundRunnerTests
         await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
 
         var create = harness.Docker.TheOnly("create");
+        Assert.DoesNotContain("ANTHROPIC_API_KEY", create);
         Assert.DoesNotContain("NEXUS_ANTHROPIC_API_KEY", create);
         Assert.Equal(["NEXUS_ANTHROPIC_API_KEY"], credentials.Asked);
+    }
+
+    [Fact]
+    public async Task A_round_carries_the_projects_model_reference_to_the_agent()
+    {
+        // The model-reference decision (#38): the project states the full reference and it
+        // reaches the CLI as `-m`, verbatim. The research measured that opencode refuses a
+        // bare provider name and silently falls back to its own default when told nothing —
+        // a round without a model is a round building with whatever the CLI felt like.
+        using var harness = AFactory();
+
+        await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
+
+        var create = harness.Docker.TheOnly("create");
+
+        // It travels as an environment variable, like the brief: the script stays fixed,
+        // the value is quoted on the way in, and a model reference with characters that
+        // mean something to a shell arrives as words.
+        Assert.Contains($"AGENT_FACTORY_MODEL={ProjectFile.Model}", create);
+        Assert.Contains("-m \"$AGENT_FACTORY_MODEL\"", WorkerRoundRunner.RoundScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_round_configures_the_agent_itself_and_the_tree_it_checks_out_says_nothing()
+    {
+        // The other half of the model-reference decision (#38). A round tree's own
+        // `opencode.json` is honored by the CLI and can set the provider endpoint, which
+        // turns the round's credential into whatever server that file names. The factory
+        // assumes its workloads are untrusted — they are written by agents — so the tree
+        // is not asked to behave; it is not consulted at all.
+        using var harness = AFactory();
+
+        await harness.Runner.RunRoundAsync(ARound(), CancellationToken.None);
+
+        Assert.Contains(
+            harness.Docker.TheOnly("create"),
+            argument => argument.Contains("OPENCODE_DISABLE_PROJECT_CONFIG=1", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -208,10 +257,12 @@ public class WorkerRoundRunnerTests
 
         // `opencode run` is the non-interactive form (ADR-0004), and the brief reaches it
         // as a *file* rather than as a command line, so nothing a reviewer wrote can be
-        // read as anything but words however the CLI handles it.
+        // read as anything but words however the CLI handles it. The model arrives as
+        // `-m`, named from an environment variable for the same reason.
         Assert.Contains("opencode run", WorkerRoundRunner.RoundScript, StringComparison.Ordinal);
         Assert.Contains("--standalone", WorkerRoundRunner.RoundScript, StringComparison.Ordinal);
         Assert.Contains("--file \"$out/brief.md\"", WorkerRoundRunner.RoundScript, StringComparison.Ordinal);
+        Assert.Contains("-m \"$AGENT_FACTORY_MODEL\"", WorkerRoundRunner.RoundScript, StringComparison.Ordinal);
 
         // `--auto` is a deliberate choice and worth being explicit about: without it the
         // CLI stops and asks a human to approve every edit, and there is no human inside a
@@ -652,7 +703,7 @@ public class WorkerRoundRunnerTests
                     project,
                     RepoUrl,
                     image,
-                    "anthropic",
+                    ProjectFile.Model,
                     "NEXUS_GITHUB_TOKEN",
                     "NEXUS_ANTHROPIC_API_KEY",
                     $"{project}.yaml"),

@@ -89,7 +89,7 @@ public sealed class WorkerRoundRunner : INOpenCode
         printf '%s' "$AGENT_FACTORY_BRIEF" > "$out/brief.md"
         run -o 'the brief this round was given' cat "$out/brief.md"
         run -o 'the agent, building and testing the change' \
-            opencode run --standalone --auto --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"
+            opencode run --standalone --auto -m "$AGENT_FACTORY_MODEL" --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"
         """;
 
     /// <summary>
@@ -393,8 +393,18 @@ public sealed class WorkerRoundRunner : INOpenCode
     /// what makes ADR-0006 structural rather than a matter of care: the value is never in
     /// this component's hands, so a round cannot be given one by accident or by a later
     /// edit that adds it. The LLM key is read because the agent cannot reach a provider
-    /// without it, and it is put in under the name the project file gave — a project
-    /// declares a name, and the name is the same on both sides of the container boundary.
+    /// without it — read by the project's own name for it, the reader's contract — and
+    /// then put in under the *canonical* name the provider's tooling actually reads,
+    /// derived from the model reference. The project's name for the key stops at the
+    /// reader; the agent sees the canonical one, because the model-reference research
+    /// (#38) measured that opencode looks for nothing else.
+    /// <para>
+    /// The round also configures the agent itself and leaves the tree it checks out
+    /// nothing to say: <c>OPENCODE_DISABLE_PROJECT_CONFIG=1</c>, because a tree-controlled
+    /// <c>opencode.json</c> can set the provider endpoint, and an endpoint the tree chose
+    /// is the round's credential leaving for wherever the tree pointed it. The factory
+    /// assumes its workloads are untrusted — they are written by agents.
+    /// </para>
     /// </remarks>
     private Dictionary<string, string> EnvironmentFor(Round round, Project project)
     {
@@ -406,16 +416,25 @@ public sealed class WorkerRoundRunner : INOpenCode
             ["AGENT_FACTORY_BASE_REF"] = round.BaseBranch,
             ["AGENT_FACTORY_BRIEF"] = RoundBrief.For(round),
             ["AGENT_FACTORY_AGENT_PROMPT"] = AgentPrompt,
+            // The model is the project's to state (#38), and it travels as a variable so
+            // the script stays fixed and the reference is never shell syntax.
+            ["AGENT_FACTORY_MODEL"] = project.LlmModel,
+            // A tree that could configure the agent could point its credential anywhere.
+            ["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1",
         };
 
-        if (_credentials.Read(project.LlmKeyName) is { Length: > 0 } key)
+        var canonical = LlmProviders.CanonicalEnvironmentVariableFor(project.LlmModel);
+
+        if (_credentials.Read(project.LlmKeyName) is { Length: > 0 } key && canonical is { } name)
         {
-            environment[project.LlmKeyName] = key;
+            environment[name] = key;
 
             _logger.LogInformation(
-                "A round of {Project} is being handed {Key} for the life of its container. The name, never the value.",
+                "A round of {Project} is being handed {Key} for the life of its container, under the canonical name {Name}. "
+                    + "The names, never the value.",
                 project.Name,
-                project.LlmKeyName);
+                project.LlmKeyName,
+                name);
         }
         else
         {
@@ -423,10 +442,12 @@ public sealed class WorkerRoundRunner : INOpenCode
             // factory that refused here would be deciding for itself that the agent
             // cannot work without a key, and the agent is the thing that knows. What the
             // round does about it is in the round's own log, and the result records
-            // which credentials it was actually handed.
+            // which credentials it was actually handed. (The canonical name is never
+            // null here — the loader refuses a model reference the table does not know —
+            // so the else is the missing credential and only that.)
             _logger.LogWarning(
                 "A round of {Project} is being handed no LLM credential: the project names {Key} and this "
-                    + "process's environment does not have it. The round runs anyway and whatever the agent says "
+                    + "process has no value for it. The round runs anyway and whatever the agent says "
                     + "about that is in the round's own log.",
                 project.Name,
                 project.LlmKeyName);

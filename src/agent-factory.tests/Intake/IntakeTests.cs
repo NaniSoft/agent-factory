@@ -316,7 +316,7 @@ public class IntakeTests
                 worker:
                   image: ghcr.io/nanisoft/agent-factory-worker:1
                 llm:
-                  provider: anthropic
+                  model: anthropic/claude-sonnet-4-5
                 keys:
                   github: BROKEN_GITHUB_TOKEN
                   llm: BROKEN_ANTHROPIC_API_KEY

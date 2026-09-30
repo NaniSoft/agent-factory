@@ -36,14 +36,14 @@
                         <li data-served-project="@project.Name"
                             data-repo-url="@project.RepoUrl"
                             data-worker-image="@project.WorkerImage"
-                            data-llm-provider="@project.LlmProvider"
+                            data-llm-model="@project.LlmModel"
                             data-github-key="@project.GitHubKeyName"
                             data-llm-key="@project.LlmKeyName"
                             title="@project.SourceFile">
                             <strong>@project.Name</strong>
                             <span>@project.RepoUrl</span>
                             <span>worker @project.WorkerImage</span>
-                            <span>llm @project.LlmProvider</span>
+                            <span>llm @project.LlmModel</span>
                             <span>keys @project.GitHubKeyName, @project.LlmKeyName</span>
                         </li>
                     }

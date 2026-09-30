@@ -3,6 +3,9 @@ namespace AgentFactory.Tests.Boundary;
 /// <summary>The one shape a project file is allowed to have, written out by a test.</summary>
 public static class ProjectFile
 {
+    /// <summary>The model the example project builds with — a full reference, never a bare provider name.</summary>
+    public const string Model = "anthropic/claude-sonnet-4-5";
+
     public const string Valid = """
         name: nexus
         repo:
@@ -10,7 +13,7 @@ public static class ProjectFile
         worker:
           image: ghcr.io/nanisoft/agent-factory-worker:1
         llm:
-          provider: anthropic
+          model: anthropic/claude-sonnet-4-5
         keys:
           github: NEXUS_GITHUB_TOKEN
           llm: NEXUS_ANTHROPIC_API_KEY
@@ -28,7 +31,7 @@ public static class ProjectFile
         worker:
           image: ghcr.io/nanisoft/agent-factory-worker:1
         llm:
-          provider: anthropic
+          model: anthropic/claude-sonnet-4-5
         keys:
           github: {{name.ToUpperInvariant()}}_GITHUB_TOKEN
           llm: {{name.ToUpperInvariant()}}_ANTHROPIC_API_KEY

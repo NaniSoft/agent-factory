@@ -8,7 +8,7 @@ public sealed record Project(
     string Name,
     string RepoUrl,
     string WorkerImage,
-    string LlmProvider,
+    string LlmModel,
     string GitHubKeyName,
     string LlmKeyName,
     string SourceFile);

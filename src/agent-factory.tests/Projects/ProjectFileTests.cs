@@ -19,7 +19,7 @@ public class ProjectFileTests
 
         Assert.Equal("https://github.com/NaniSoft/nexus", board.Rendered("data-served-project", "nexus", "data-repo-url"));
         Assert.Equal("ghcr.io/nanisoft/agent-factory-worker:1", board.Rendered("data-served-project", "nexus", "data-worker-image"));
-        Assert.Equal("anthropic", board.Rendered("data-served-project", "nexus", "data-llm-provider"));
+        Assert.Equal(ProjectFile.Model, board.Rendered("data-served-project", "nexus", "data-llm-model"));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class ProjectFileTests
           worker:
             image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
-            provider: anthropic
+            model: anthropic/claude-sonnet-4-5
           keys:
             github: NEXUS_GITHUB_TOKEN
           """, "Partial" },
@@ -87,7 +87,7 @@ public class ProjectFileTests
           worker:
             image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
-            provider:
+            model:
           keys:
             github: NEXUS_GITHUB_TOKEN
             llm: NEXUS_ANTHROPIC_API_KEY
@@ -104,13 +104,21 @@ public class ProjectFileTests
           worker:
             image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
-            provider: anthropic
+            model: anthropic/claude-sonnet-4-5
           keys:
             github: NEXUS_GITHUB_TOKEN
             llm: NEXUS_ANTHROPIC_API_KEY
           """, "Invalid" },
         { ProjectFile.Valid.Replace("https://github.com/NaniSoft/nexus", "NaniSoft/nexus"), "Invalid" },
         { ProjectFile.Valid.Replace("NEXUS_GITHUB_TOKEN", "nexus github token"), "Invalid" },
+
+        // The model is a full reference, and the factory has to know the provider it
+        // names: a bare model name has no provider to derive the credential's canonical
+        // name from, and an unknown provider would hand the agent a key under a name
+        // nothing reads — the silent failure the model-reference decision (#38) refuses.
+        { ProjectFile.Valid.Replace("model: anthropic/claude-sonnet-4-5", "model: claude-sonnet-4-5"), "Invalid" },
+        { ProjectFile.Valid.Replace("model: anthropic/claude-sonnet-4-5", "model: alien-ai/x1"), "Invalid" },
+        { ProjectFile.Valid.Replace("model: anthropic/claude-sonnet-4-5", "provider: anthropic"), "Invalid" },
     };
 
     [Fact]
@@ -163,7 +171,7 @@ public class ProjectFileTests
                 worker:
                   image: ghcr.io/nanisoft/agent-factory-worker:1
                 llm:
-                  provider: anthropic
+                  model: anthropic/claude-sonnet-4-5
                 keys:
                   github: NEXUS_GITHUB_TOKEN
                   llm: NEXUS_ANTHROPIC_API_KEY
@@ -177,7 +185,7 @@ public class ProjectFileTests
                     image: ghcr.io/nanisoft/agent-factory-worker:1
                   image: ghcr.io/nanisoft/agent-factory-worker:1
                 llm:
-                  provider: anthropic
+                  model: anthropic/claude-sonnet-4-5
                 keys:
                   github: NEXUS_GITHUB_TOKEN
                   llm: NEXUS_ANTHROPIC_API_KEY

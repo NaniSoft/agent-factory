@@ -90,7 +90,7 @@ public sealed class Merging : IDisposable
             Name: "nexus",
             RepoUrl: _remote.Path,
             WorkerImage: "ghcr.io/nanisoft/agent-factory-worker:1",
-            LlmProvider: "anthropic",
+            LlmModel: "anthropic/claude-sonnet-4-5",
             GitHubKeyName: KeyName,
             LlmKeyName: "NEXUS_ANTHROPIC_API_KEY",
             SourceFile: "nexus.yaml");

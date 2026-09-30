@@ -11,7 +11,7 @@ using YamlDotNet.RepresentationModel;
 /// </summary>
 /// <remarks>
 /// The schema is exactly <c>name</c>, <c>repo.url</c>, <c>worker.image</c>,
-/// <c>llm.provider</c>, <c>keys.github</c> and <c>keys.llm</c>. Nothing further is
+/// <c>llm.model</c>, <c>keys.github</c> and <c>keys.llm</c>. Nothing further is
 /// accepted: no prompts, no per-issue overrides, no board configuration, no plugin
 /// list. Credentials are referenced by environment variable name and are never read
 /// here, so a project record holds names and no values.
@@ -24,7 +24,7 @@ internal static class ProjectFileLoader
 
     private static readonly string[] RepoFields = ["url"];
     private static readonly string[] WorkerFields = ["image"];
-    private static readonly string[] LlmFields = ["provider"];
+    private static readonly string[] LlmFields = ["model"];
     private static readonly string[] KeyFields = ["github", "llm"];
 
     public static ProjectLoadReport Load(string factoriesDirectory, ILogger logger)
@@ -113,14 +113,14 @@ internal static class ProjectFileLoader
         foreach (var project in report.Projects)
         {
             logger.LogInformation(
-                "Serving project {Name} from {File}: repository {Repository}, worker image {Image}, LLM provider {Provider}, "
+                "Serving project {Name} from {File}: repository {Repository}, worker image {Image}, LLM model {Model}, "
                     + "GitHub credential named {GitHubKey}, LLM credential named {LlmKey}. Names, not values — this loader "
                     + "never reads a credential.",
                 project.Name,
                 project.SourceFile,
                 project.RepoUrl,
                 project.WorkerImage,
-                project.LlmProvider,
+                project.LlmModel,
                 project.GitHubKeyName,
                 project.LlmKeyName);
         }
@@ -216,7 +216,7 @@ internal static class ProjectFileLoader
         var name = Scalar(fileName, "name", fields["name"]);
         var repoUrl = Scalar(fileName, "repo.url", repo);
         var workerImage = Scalar(fileName, "worker.image", worker);
-        var llmProvider = Scalar(fileName, "llm.provider", llm);
+        var llmModel = Scalar(fileName, "llm.model", llm);
         var githubKey = Scalar(fileName, "keys.github", keys);
         var llmKey = Scalar(fileName, "keys.llm", keys);
 
@@ -225,6 +225,18 @@ internal static class ProjectFileLoader
         {
             throw Refused(fileName, ProjectRejectionReason.Invalid,
                 "repo.url is not an absolute http or https URL");
+        }
+
+        // The model is a full reference, and the factory has to know the provider it names:
+        // the canonical credential name is derived from the prefix, and a provider the
+        // factory does not know would send the agent a key under a name nothing reads — the
+        // silent `Model unavailable` the model-reference decision (#38) refuses to risk.
+        // Both refusals land here, at load, where the board renders them.
+        if (LlmProviders.CanonicalEnvironmentVariableFor(llmModel) is null)
+        {
+            throw Refused(fileName, ProjectRejectionReason.Invalid,
+                "llm.model is not a provider/model reference for a provider the factory knows "
+                + "(for example anthropic/claude-sonnet-4-5)");
         }
 
         if (!IsEnvironmentVariableName(githubKey))
@@ -239,7 +251,7 @@ internal static class ProjectFileLoader
                 "keys.llm is not the name of an environment variable, and credentials are referenced by name");
         }
 
-        return new Project(name, repoUrl, workerImage, llmProvider, githubKey, llmKey, fileName);
+        return new Project(name, repoUrl, workerImage, llmModel, githubKey, llmKey, fileName);
     }
 
     private static YamlMappingNode Group(string fileName, string field, string[] allowed, YamlNode node)

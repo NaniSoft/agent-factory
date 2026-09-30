@@ -125,9 +125,9 @@ cancelled round leaves nothing holding a socket to the daemon.
 round's brief — the issue, the project, and the reviewer's own words from the round before
 — is composed by `Rounds/RoundBrief.cs`, written outside the working tree, and handed to
 the OpenCode CLI as a **file**: the command line is `opencode run --standalone --auto
---file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"`, and both the brief and the prompt
-are the factory's own, with the reviewer's words quoted in and never expanded. Three details
-there are deliberate:
+-m "$AGENT_FACTORY_MODEL" --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"`, and both
+the brief and the prompt are the factory's own, with the reviewer's words quoted in and never
+expanded. Four details there are deliberate:
 
 - **`--auto` is required, not a convenience.** Without it the CLI stops and waits for a
   human to approve each edit, and there is no human inside a worker container. What it
@@ -137,6 +137,13 @@ there are deliberate:
 - **`--standalone`** gives the round a private server that dies with the process, rather
   than the CLI's background service. The worker README names that service as a loopback
   listener; this way there is not one.
+- **The model travels as `-m "$AGENT_FACTORY_MODEL"`, and project config is switched off.**
+The project states the full `provider/model` reference (#38) and the factory passes it through
+verbatim; `OPENCODE_DISABLE_PROJECT_CONFIG=1` is set because a round tree's own `opencode.json`
+can set the provider endpoint, and a tree-chosen endpoint is the round's credential leaving for
+wherever the tree pointed it. The credential itself is re-emitted under the canonical name the
+provider's tooling reads (`ANTHROPIC_API_KEY`), derived from the model prefix — the project's
+own name for the key stops at `ICredentialReader`.
 - **The brief is the issue, not the issue number.** `Round` carries `IssueTitle` and
   `IssueBody` and the orchestrator fills both from the work item. A round handed a number
   has to go and look up what it means, and a brief that does not carry the maintainer's
