@@ -111,11 +111,11 @@ recording wrapper, no `worker-round`. `CONTEXT.md` carries the term.
 - **Validation failures render where the human acts on them**, from the same
   `ProjectLoadReport` the board already shows; the UI invents no validation of
   its own beyond required-field checks.
-- **The loader reads once at startup** (loader research, ticket #28). The
-  factory gains a reload action on the projects page that rebuilds the
-  `ProjectLoadReport` registration — the honest seam the snapshot architecture
-  lacked — and the page says plainly that a change is live after reload.
-  Restart remains the fallback and the page says that too. A live-reload seam is honest fog on the map rather than a page that pretends.
+- **The loader reads once at startup** (loader research, ticket #28), and the
+  page says so plainly: a file written there is served after a restart of the
+  factory. A live-reload seam would be a rework of the snapshot's registration
+  — five consumers hold the report by value — and is honest fog on the map
+  rather than a page that pretends.
 - **The credentials form is write-only** per the secrets contract. The board
   remains the only surface where work is approved; projects are configured
   there too, but decisions are never made anywhere else.
