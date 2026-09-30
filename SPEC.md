@@ -115,7 +115,7 @@ recording wrapper, no `worker-round`. `CONTEXT.md` carries the term.
   factory gains a reload action on the projects page that rebuilds the
   `ProjectLoadReport` registration — the honest seam the snapshot architecture
   lacked — and the page says plainly that a change is live after reload.
-  Restart remains the fallback and the page says that too.
+  Restart remains the fallback and the page says that too. A live-reload seam is honest fog on the map rather than a page that pretends.
 - **The credentials form is write-only** per the secrets contract. The board
   remains the only surface where work is approved; projects are configured
   there too, but decisions are never made anywhere else.

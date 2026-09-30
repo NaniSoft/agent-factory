@@ -1,0 +1,63 @@
+# The agent factory, as one deployment.
+#
+#   docker compose up
+#
+# and the board is at http://127.0.0.1:5000.
+#
+# ---------------------------------------------------------------------------
+# THE MACHINE-ONLY LIMIT, NAMED WHERE IT IS DECIDED (#30)
+#
+# The board mapping is pinned to 127.0.0.1 on purpose: only this machine can
+# open the board, and only this machine can decide what merges. There is no
+# login, because there is no second machine to ask who you are. Reaching the
+# board from anywhere else is a deliberate flip of two things — this mapping to
+# 0.0.0.0, and a token check on the board's writes — never an accident.
+#
+# ---------------------------------------------------------------------------
+# THE ROOTFUL DEVIATION, NAMED WHERE IT IS ACCEPTED (ADR-0012)
+#
+# ADR-0012 requires rootless Docker where the factory runs for real. This
+# deployment runs on Docker Desktop, which reports no rootless marker, and the
+# deviation is the named, bounded one: worker containers get no `-v`, publish no
+# port, run as uid 1000, and hold one scoped credential for one round — the
+# compensating controls the worker image enforces and its smoke test proves.
+# The socket is mounted because worker and workspace containers are siblings on
+# the host daemon, not children of this one.
+#
+# ---------------------------------------------------------------------------
+# PREREQUISITE
+#
+# The worker image must exist on this machine's daemon before a round can run:
+#
+#   docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
+#
+# The factory says loudly when a round's image is absent; compose does not
+# pre-pull it, because the image is built from this repository rather than
+# fetched from a registry.
+
+services:
+  factory:
+    build: .
+    container_name: agent-factory
+    ports:
+      # Loopback only, host-side; the app binds 0.0.0.0 inside so the mapping works.
+      - "127.0.0.1:5000:5000"
+    volumes:
+      # Project files: what the board's projects page writes and the loader reads.
+      - ./factories:/app/factories
+      # Credential values: one file per credential, the name is the file (#32).
+      # Beside the project files, which is where the factory derives it to be.
+      - ./secrets:/app/secrets
+      # The store of record, and the rounds' lifted trees beside it.
+      - factory-data:/app/data
+      # The host daemon, for sibling worker and workspace containers. Rootful on
+      # Docker Desktop — the bounded deviation named at the top of this file.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Auto-merge is a factory-level setting with a default, and the default is
+      # off (#36): a work item waits in Review until a human decides. The board
+      # renders which mode is live.
+      Factory__AutoMerge: "false"
+
+volumes:
+  factory-data:

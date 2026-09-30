@@ -1,0 +1,16 @@
+# What an application image does not need. The worker image has its own context
+# in worker/, with its own ignore rules; this one is for the factory process.
+.git
+.claude
+data
+secrets
+factories
+research
+**/bin
+**/obj
+**/*.md
+**/*.log
+Dockerfile
+docker-compose.yml
+.dockerignore
+worker/
