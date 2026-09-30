@@ -322,13 +322,15 @@ public class DecisionTests
 
         // The process serves exactly one endpoint, and it is the board page. Anything a
         // human — or anything at all — can reach arrives through it, because there is
-        // nothing else addressable: no API beside the page, no second form, no endpoint
-        // a work item could be moved through other than the one a reviewer presses. A
+        // Nothing else addressable beside the two pages: the board, and the projects
+        // surface (#33), which writes project files and secrets and moves no work item. A
         // Razor page's route pattern carries no raw text of its own, so the endpoint is
-        // named rather than spelled as a URL; the board it is, is at "/". A middleware
-        // that wrote without going through routing would not be on this list, and there
-        // is none; what the list does prove is that nothing else is reachable.
-        Assert.Equal(["/Index"], host.Routes());
+        // named rather than spelled as a URL. A middleware that wrote without going
+        // through routing would not be on this list, and there is none; what the list does
+        // prove is that nothing else is reachable. The raw pattern is the pages-root-
+        // relative template, which is why the projects page's is "Projects" and the
+        // board's is "/Index".
+        Assert.Equal(["/Index", "Projects"], host.Routes());
 
         // And the board itself has two writes: the reviewer's decision, which is the only
         // write that moves a work item, and the review workspace's open (#35), which moves

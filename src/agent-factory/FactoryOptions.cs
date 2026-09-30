@@ -27,6 +27,17 @@ public sealed record FactoryOptions(
         Path.GetDirectoryName(Path.GetFullPath(DatabasePath)) ?? "data",
         "rounds");
 
+    /// <summary>
+    /// Where credential values live when they are not in the environment: one file per
+    /// credential, the name is the file (#32). Beside the project files, because the two
+    /// are written by the same surface — the board's projects page — and mounted from the
+    /// same kind of volume on a deployment. A name, never a value, travels anywhere else
+    /// in the process.
+    /// </summary>
+    public string SecretsDirectory => Path.Combine(
+        Path.GetDirectoryName(Path.GetFullPath(FactoriesDirectory)) ?? "factories",
+        "secrets");
+
     public static FactoryOptions FromConfiguration(IConfiguration configuration, string contentRoot)
     {
         var root = FactoryPaths.ResolveRoot(configuration, contentRoot);

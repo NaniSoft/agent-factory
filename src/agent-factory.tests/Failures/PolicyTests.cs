@@ -410,14 +410,20 @@ public class PolicyTests
         var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
             .Where(call => call.Called.DeclaringType?.Name == "ICredentialReader"
                 && call.Called.Name == "Read"
-                && call.Caller?.DeclaringType != typeof(ICredentialReader))
+                && call.Caller?.DeclaringType != typeof(ICredentialReader)
+                // The composite reader's own call to the environment reader is the
+                // boundary delegating to itself, not a third consumer: what this scan
+                // guards is who turns a name into a value, and the composite is where
+                // that happens (#32).
+                && call.Caller?.DeclaringType != typeof(CompositeCredentialReader))
             .Select(call => $"{call.Caller?.DeclaringType?.Name}.{call.Caller?.Name}")
             .Distinct()
             .Order(StringComparer.Ordinal)
             .ToList();
 
         // Two, and both are the ones the design names: the round that is starting, and the
-        // host that ships what it produced.
+        // host that ships what it produced. The composite (#32) is the boundary itself, not
+        // a third one — filtered above, named here.
         Assert.Equal(["GitHubClient.TokenFor", "WorkerRoundRunner.EnvironmentFor"], readers);
 
         // The container half, and it is the half that has not moved. A worker's environment

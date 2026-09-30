@@ -79,7 +79,14 @@ public static class FactoryApp
         // LLM key (which goes in) and the GitHub key (which does not) is one method call
         // away from being checkable rather than merely intended (ADR-0006).
         builder.Services.AddSingleton<RoundResultDeriver>();
-        builder.Services.TryAddSingleton<ICredentialReader>(ProcessEnvironment.The);
+        // The reader is the composite: environment first, the secrets directory second (#32) —
+        // the directory the board's credentials form writes into, read at use time so a
+        // rotation needs no restart.
+        builder.Services.AddSingleton(services => new CompositeCredentialReader(
+            ProcessEnvironment.The,
+            services.GetRequiredService<FactoryOptions>().SecretsDirectory));
+        builder.Services.TryAddSingleton<ICredentialReader>(services =>
+            services.GetRequiredService<CompositeCredentialReader>());
 
         // The agent seam now has an implementation, so it is registered as one rather than
         // refused: a round runs in a real container from the project's configured image,
