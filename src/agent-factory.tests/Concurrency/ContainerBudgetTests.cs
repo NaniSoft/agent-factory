@@ -456,10 +456,12 @@ public class ContainerBudgetTests
         // factory's "nothing waits" rule. What is forbidden is anything *inside* the policy:
         // the poller's interval, the round timeout, the retry backoffs and the feedback
         // threshold are all TimeSpans compared against IClock, and PolicyTests says so by
-        // IL scan. The driver is the exception, named there and here.
+        // IL scan. The driver is the exception, named there and here. ReviewWorkspaces is
+        // the fourth dependency and no new clock: its sweep is the tick's guest, compared
+        // against the same IClock, never waiting on its own.
         Assert.Equal(TimeSpan.FromSeconds(5), FactoryConstants.HeartbeatInterval);
         Assert.Equal(
-            ["ILogger`1", "Orchestrator", "Poller"],
+            ["ILogger`1", "Orchestrator", "Poller", "ReviewWorkspaces"],
             typeof(FactoryDriver)
                 .GetConstructors()
                 .Single()

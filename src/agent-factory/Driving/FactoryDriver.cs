@@ -2,6 +2,7 @@ namespace AgentFactory.Driving;
 
 using AgentFactory.Loop;
 using AgentFactory.Polling;
+using AgentFactory.Workspaces;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -42,12 +43,18 @@ public sealed class FactoryDriver : BackgroundService
 {
     private readonly Poller _intake;
     private readonly Orchestrator _loop;
+    private readonly ReviewWorkspaces _workspaces;
     private readonly ILogger<FactoryDriver> _logger;
 
-    public FactoryDriver(Poller intake, Orchestrator loop, ILogger<FactoryDriver> logger)
+    public FactoryDriver(
+        Poller intake,
+        Orchestrator loop,
+        ReviewWorkspaces workspaces,
+        ILogger<FactoryDriver> logger)
     {
         _intake = intake ?? throw new ArgumentNullException(nameof(intake));
         _loop = loop ?? throw new ArgumentNullException(nameof(loop));
+        _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -92,6 +99,7 @@ public sealed class FactoryDriver : BackgroundService
         {
             await _intake.StepAsync();
             await _loop.SettleAsync();
+            await _workspaces.SweepAsync(CancellationToken.None);
         }
         catch (OperationCanceledException)
         {

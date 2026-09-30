@@ -22,6 +22,9 @@ public sealed class FakeDockerCli : IDockerCli
     /// <summary>Every line the fake reported to the caller's progress channel, in order.</summary>
     public List<string> Lines { get; } = [];
 
+    /// <summary>Forgets the calls so far, keeping the files and trees the container holds.</summary>
+    public void Reset() => _calls.Clear();
+
     /// <summary>
     /// The files the container is pretending to hold, by container path. A <c>cp</c> of a
     /// path that is a prefix of one of these lifts the tree under it, the way the real
@@ -71,9 +74,25 @@ public sealed class FakeDockerCli : IDockerCli
         // remembered a path.
         if (call.Arguments.FirstOrDefault() == "cp")
         {
-            // `docker cp` takes `container:path` on the way out and a host path on the
-            // way in. A container name cannot contain a colon, so the first one is the
-            // boundary between them.
+            // The direction is told by the shape of the first path, because a host path on
+            // Windows carries a drive letter and a container reference never carries a
+            // backslash: `container:path, host` is the way out, `host, container:path` the
+            // way in — the review workspace's tree arriving. The fake cannot hold what
+            // arrived, but it can refuse what is not on the host, the way the real command
+            // does.
+            var firstIsHostPath = call.Arguments[1].Contains('\\', StringComparison.Ordinal)
+                || !call.Arguments[1].Contains(':', StringComparison.Ordinal);
+            if (firstIsHostPath)
+            {
+                var source = call.Arguments[1];
+                if (!File.Exists(source) && !Directory.Exists(source))
+                {
+                    return new DockerInvocation(1, $"no such file or directory: {source}");
+                }
+
+                return await Handler(call);
+            }
+
             var from = call.Arguments[1].Split(':', 2)[1];
             if (!Copy(from, call.Arguments[2]))
             {

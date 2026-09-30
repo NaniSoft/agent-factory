@@ -32,6 +32,7 @@ public class IndexModel : PageModel
     private readonly Poller _intake;
     private readonly ProjectLoadReport _projects;
     private readonly FactoryOptions _options;
+    private readonly Workspaces.ReviewWorkspaces _workspaces;
     private readonly ILogger<IndexModel> _logger;
 
     public IndexModel(
@@ -40,6 +41,7 @@ public class IndexModel : PageModel
         Poller intake,
         ProjectLoadReport projects,
         FactoryOptions options,
+        Workspaces.ReviewWorkspaces workspaces,
         ILogger<IndexModel> logger)
     {
         _store = store;
@@ -47,7 +49,24 @@ public class IndexModel : PageModel
         _intake = intake;
         _projects = projects;
         _options = options;
+        _workspaces = workspaces;
         _logger = logger;
+    }
+
+    /// <summary>What the board shows about a work item's review workspace, or null when
+    /// there is nothing to show: no workspace has been asked for, or none is wanted.</summary>
+    public Workspaces.ReviewWorkspaces.View? WorkspaceFor(Guid workItemId) => _workspaces.ViewFor(workItemId);
+
+    /// <summary>
+    /// The reviewer asked to open a workspace. Spawning is the board's one write that is
+    /// not a decision, and it changes nothing about the work item — the answer is rendered
+    /// on the card, whatever it was, so the reviewer is never left wondering whether the
+    /// click was lost.
+    /// </summary>
+    public async Task<IActionResult> OnPostOpenWorkspaceAsync(Guid workItemId)
+    {
+        await _workspaces.OpenAsync(workItemId, HttpContext.RequestAborted);
+        return RedirectToPage();
     }
 
     /// <summary>Whether silence can merge. The board states the live mode next to the

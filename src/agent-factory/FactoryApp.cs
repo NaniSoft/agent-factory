@@ -147,6 +147,7 @@ public static class FactoryApp
         // a step rather than deciding anything itself — the budget is enforced where the
         // rounds are counted, in the loop, so a tick with a full budget does nothing.
         builder.Services.AddSingleton<FactoryDriver>();
+        builder.Services.AddSingleton<Workspaces.ReviewWorkspaces>();
         if (drivingTheMachine)
         {
             builder.Services.AddHostedService(services => services.GetRequiredService<FactoryDriver>());
@@ -166,6 +167,14 @@ public static class FactoryApp
         builder.Services.AddRazorPages();
 
         var app = builder.Build();
+
+        // A workspace container outlives the process that started it: it is on the
+        // daemon, and the registry that knew its port died with the process. Anything
+        // still wearing this factory's workspace prefix is this factory's own and is
+        // taken away here, at start, before a reviewer can be shown a link to a
+        // workspace nobody holds the truth about any more.
+        _ = app.Services.GetRequiredService<Workspaces.ReviewWorkspaces>()
+            .SweepOrphansAsync(app.Lifetime.ApplicationStopping);
 
         // Resolved here rather than on the first board render, so configuration is read
         // at start the way it is meant to be.

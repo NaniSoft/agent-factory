@@ -176,4 +176,31 @@ public static class FactoryConstants
     /// instead of sleeping, and so a slow pass cannot become a fast one.
     /// </summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The host ports a review workspace may be published on, loopback only. A code
+    /// constant and not configuration, like everything else here — the exposure decision
+    /// (#30) put the range in the factory rather than in a compose file, so a workspace is
+    /// never reachable past the machine that decided to open it. Exhaustion is a rendered
+    /// state on the card, never silence.
+    /// </summary>
+    public const int WorkspacePortFloor = 7100;
+
+    /// <summary>The last host port of the workspace range, inclusive.</summary>
+    public const int WorkspacePortCeiling = 7199;
+
+    /// <summary>
+    /// The port code-server listens on inside a review workspace. Nothing outside the
+    /// container's own publish decides it, so the whole mapping is one fact the factory
+    /// states twice at most: here and in the create it composes.
+    /// </summary>
+    public const int CodeServerPort = 6800;
+
+    /// <summary>
+    /// How long a review workspace lives from spawn. A fixed lifetime rather than an idle
+    /// detection, because nothing inside a workspace can report idleness without new
+    /// machinery: it ends on the reviewer's decision, on a new round starting, or here —
+    /// and re-opening one is a click that always reflects the current tree (#31).
+    /// </summary>
+    public static readonly TimeSpan WorkspaceLifetime = TimeSpan.FromHours(4);
 }

@@ -84,6 +84,14 @@ The disposable container one round runs in, carrying code-server and the agent. 
 exists for exactly one round; nothing survives it.
 _Avoid_: sandbox, agent container, build container, environment, workspace
 
+**Review workspace**:
+A second kind of container, not a round: one a reviewer opens from the board while a
+work item is in Review. It shares the project's image — code-server and the project's
+toolchain — on a copy of the latest round's tree, holds no credential, and is reachable
+from the reviewer's machine only. It ends on the decision, on the next round, or at a
+fixed lifetime; re-opening one is a click.
+_Avoid_: workspace (alone — say which kind), IDE, editor, dev server, round
+
 **Reviewer**:
 The human who makes decisions on the board.
 _Avoid_: user, approver, operator, maintainer

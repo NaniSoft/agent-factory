@@ -330,10 +330,11 @@ public class DecisionTests
         // is none; what the list does prove is that nothing else is reachable.
         Assert.Equal(["/Index"], host.Routes());
 
-        // And the board itself has two handlers: one that reads, and one that writes. The
-        // one that writes is the decision, so a handler that moved something would have
-        // to appear here to be reachable at all.
-        Assert.Equal(["OnGet", "OnPostDecision"], host.BoardHandlers());
+        // And the board itself has two writes: the reviewer's decision, which is the only
+        // write that moves a work item, and the review workspace's open (#35), which moves
+        // nothing — it starts a container for the reviewer to look through. Anything else
+        // that changed a work item would have to appear here to be reachable at all.
+        Assert.Equal(["OnGet", "OnPostDecision", "OnPostOpenWorkspaceAsync"], host.BoardHandlers());
 
         // And the page does not move work items itself. Which swimlane a decision means
         // is the loop's policy, and a page that moved work items would be a second state

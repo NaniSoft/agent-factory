@@ -300,7 +300,9 @@
         // they cannot act on while it still matters. With auto-merge off there is nothing
         // a countdown could say, so the attribute is not written at all — an empty
         // countdown would read as a promise waiting for a value.
-        var mergesAt = Model.AutoMergeAt(workItem);
+        var workspace = Model.WorkspaceFor(workItem.Id);
+
+var mergesAt = Model.AutoMergeAt(workItem);
         var autoMergeAttribute = mergesAt is { } shipsAt ? $@" data-auto-merge=""{shipsAt:O}""" : string.Empty;
         <li class="work-item"
             data-work-item="@workItem.Id"
@@ -538,6 +540,42 @@
                         </li>
                     }
                 </ol>
+            }
+            @if (workItem.Swimlane == Swimlane.Review)
+            {
+                @* The review workspace: a second kind of container, and the board's one
+                    write that is not a decision. What it is and what it may not do is on
+                    the card, because a reviewer deciding whether to open one should not
+                    have to trust the link blindly. *@
+                var link = workspace?.Url;
+                @if (workspace is { Error: { Length: > 0 } problem })
+                {
+                    <p class="workspace-error" data-workspace-error="@workItem.Id">the workspace could not be opened: @problem</p>
+                }
+                @if (link is { } url)
+                {
+                    <p class="workspace" data-workspace="@workItem.Id" data-workspace-url="@url">
+                        <a href="@url">the review workspace</a>
+                        @if (workspace?.Remaining is { } left)
+                        {
+                            <span data-workspace-remaining="@(Math.Max(0, (int)left.TotalMinutes)) minutes">ends in @(Math.Max(0, (int)left.TotalMinutes)) minutes</span>
+                        }
+                        — code-server on a copy of the round's tree, with the project's toolchain. No
+                        credential inside, nothing here pushes, and it is reachable from this machine only;
+                        the loopback is the gate. It ends on your decision, on the next round, or when its
+                        lifetime runs out.
+                    </p>
+                }
+                else if (workspace is not { Error: { Length: > 0 } })
+                {
+                    <form class="open-workspace" data-open-workspace="@workItem.Id" method="post"
+                          action="/?handler=OpenWorkspace@(Model.Project is { Length: > 0 } filter ? $"&project={Uri.EscapeDataString(filter)}" : "")">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="workItemId" value="@workItem.Id" />
+                        <button type="submit">open the review workspace</button>
+                        <span class="workspace-note">code-server + the project's toolchain on a copy of this round's tree; this machine only; no credential inside</span>
+                    </form>
+                }
             }
             @{
                 // The only form on the board, and the only write path there is. Rendered
