@@ -15,8 +15,13 @@ WORKDIR /app
 # daemon through the mounted socket and never runs one of its own. That the CLI
 # comes from Docker's own repository rather than the distro's `docker.io` package
 # is what keeps this image carrying no dockerd.
+#
+# git is not optional: the host reads the round's diff with `git` against the
+# lifted tree, and the merger pushes with it (ADR-0006). The first live round in
+# the container found this the honest way — "there is no git on this machine's
+# PATH", rendered on the card rather than swallowed.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg git \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \

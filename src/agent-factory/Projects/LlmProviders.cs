@@ -16,7 +16,9 @@ namespace AgentFactory.Projects;
 /// <c>anthropic</c> and <c>openai</c> are measured against the pinned CLI (research on
 /// branch <c>research/opencode-model-config</c>); <c>google</c> is the name in the
 /// provider registry that CLI reads and is worth one measured confirmation before it
-/// matters to anyone.
+/// matters to anyone; <c>opencode</c> is the gateway the CLI itself serves — the live
+/// deployment's reviewer holds a key there, and the free model it publishes is how the
+/// first rounds were demonstrated.
 /// </para>
 /// </remarks>
 public static class LlmProviders
@@ -27,6 +29,7 @@ public static class LlmProviders
             ["anthropic"] = "ANTHROPIC_API_KEY",
             ["openai"] = "OPENAI_API_KEY",
             ["google"] = "GOOGLE_GENERATIVE_AI_API_KEY",
+            ["opencode"] = "OPENCODE_API_KEY",
         };
 
     /// <summary>

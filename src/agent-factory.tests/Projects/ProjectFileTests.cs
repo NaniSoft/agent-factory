@@ -122,6 +122,36 @@ public class ProjectFileTests
     };
 
     [Fact]
+    public async Task A_model_on_opencodes_own_gateway_is_a_known_provider()
+    {
+        // The reviewer builds with an OpenCode gateway key, so the project names
+        // opencode/<model> — the provider the CLI itself serves, whose credential the
+        // factory must re-emit under the name that gateway reads.
+        using var root = FactoryRoot.Create().WithProjectFile(
+            "hello.yaml",
+            ProjectFile.Valid.Replace("name: nexus", "name: hello")
+                .Replace("model: anthropic/claude-sonnet-4-5", "model: opencode/claude-sonnet-4-6")
+                .Replace("NEXUS_ANTHROPIC_API_KEY", "HELLO_OPENCODE_API_KEY"));
+        await using var host = await FactoryHost.StartAsync(root);
+
+        var board = await Board.ReadAsync(host.Board);
+
+        // Served, not refused — and the credential name the project declared is the one
+        // the record carries, exactly as declared.
+        Assert.Equal("hello", board.ValuesOf("data-served-project").Single());
+        Assert.Equal(
+            "HELLO_OPENCODE_API_KEY",
+            board.Rendered("data-served-project", "hello", "data-llm-key"));
+        Assert.Empty(await RefusedReasons(host));
+    }
+
+    private static async Task<string> RefusedReasons(FactoryHost host)
+    {
+        var board = await Board.ReadAsync(host.Board);
+        return board.Html.Contains("data-refused-file", StringComparison.Ordinal) ? "refused" : string.Empty;
+    }
+
+    [Fact]
     public async Task A_refused_project_file_is_reported()
     {
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", "name: nexus\n");
