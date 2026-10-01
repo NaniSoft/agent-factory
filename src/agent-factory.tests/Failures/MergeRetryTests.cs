@@ -195,6 +195,7 @@ public class MergeRetryTests
             .FailingTransiently();
         await using var host = await FactoryHost.StartAsync(root, clock, agent, github);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         clock.Advance(TimeSpan.FromSeconds(10));
@@ -392,6 +393,8 @@ public class MergeRetryTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 

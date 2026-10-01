@@ -86,6 +86,7 @@ public class CredentialFreeObservabilityTests
         {
             host.Agent.Producing("the change", "a note");
             await host.PollAsync();
+        await host.PromoteBacklogAsync();
             await host.RunTheMachineAsync();
 
             var work = Assert.Single(host.Store.List());
@@ -222,6 +223,7 @@ public class CredentialFreeObservabilityTests
         host.GitHub.WithRepository(Repo, "main", new OpenIssue(42, "decide about this", "please", [], []));
         host.Agent.Producing("the change", "a note");
         await host.PollAsync();
+        await host.PromoteBacklogAsync();
         await host.RunTheMachineAsync();
 
         var work = Assert.Single(host.Store.List());

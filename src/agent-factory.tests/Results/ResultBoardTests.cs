@@ -28,6 +28,7 @@ public class ResultBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -62,7 +63,8 @@ public class ResultBoardTests
             "worker-round: cloning https://github.com/octocat/Hello-World.git @ master\nround log line: the round's own output"));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted.Id);
 
         await host.Settle();
 
@@ -92,6 +94,7 @@ public class ResultBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -119,7 +122,8 @@ public class ResultBoardTests
             log: "fatal: the collector was killed"));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted2 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted2.Id);
 
         await host.Settle();
 
@@ -147,7 +151,8 @@ public class ResultBoardTests
             log: "the round said it read the tree and stopped"));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted3 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted3.Id);
 
         await host.Settle();
 
@@ -175,6 +180,7 @@ public class ResultBoardTests
         {
             workItemId = first.Store
                 .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem.Id;
+            await first.PromoteAsync(workItemId);
             await first.Settle();
         }
 
@@ -200,7 +206,8 @@ public class ResultBoardTests
         var agent = new FakeNOpenCode().Producing(ResultPayload.Of(withKey));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted4 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted4.Id);
 
         await host.Settle();
         Assert.Contains("NEXUS_ANTHROPIC_API_KEY", (await Board.ReadAsync(host.Board)).Read("Review"), StringComparison.Ordinal);
@@ -210,7 +217,8 @@ public class ResultBoardTests
         using var second = FactoryRoot.Create();
         var bare = new FakeNOpenCode().Producing(ResultPayload.Of(Derived()));
         await using var without = await FactoryHost.StartAsync(second, agent: bare);
-        without.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var replaced = without.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await without.PromoteAsync(replaced.Id);
 
         await without.Settle();
         Assert.Contains(

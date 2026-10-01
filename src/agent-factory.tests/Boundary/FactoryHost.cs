@@ -74,6 +74,31 @@ public sealed class FactoryHost : IAsyncDisposable
     public Task Settle() => _app.Services.GetRequiredService<Orchestrator>().SettleAsync();
 
     /// <summary>
+    /// The reviewer's acceptance, asked of the real orchestrator the way the board's own
+    /// button is: the gate (#40) is production behavior, so a test that wants a work item
+    /// built asks for it the way production does rather than moving the lane by hand.
+    /// </summary>
+    public Task<bool> PromoteAsync(Guid workItemId) =>
+        _app.Services.GetRequiredService<Orchestrator>().PromoteAsync(workItemId);
+
+    /// <summary>
+    /// A reviewer who accepted everything waiting in Backlog. Intake tests are fed through
+    /// the poller, so the work items' ids belong to the test before it can name them; this
+    /// asks the real orchestrator once per item, exactly as a per-card button would.
+    /// </summary>
+    public async Task PromoteBacklogAsync()
+    {
+        var waiting = Store.List()
+            .Where(item => item.Swimlane == Swimlane.Backlog)
+            .Select(item => item.Id)
+            .ToList();
+        foreach (var id in waiting)
+        {
+            await PromoteAsync(id);
+        }
+    }
+
+    /// <summary>
     /// Steps the machine until it is holding no rounds, and says so rather than returning
     /// early. <see cref="Settle"/> stops the moment a round is still running, which is
     /// right when the round is a fake and completes inside the call and wrong when the

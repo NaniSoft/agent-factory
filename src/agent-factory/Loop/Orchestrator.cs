@@ -171,7 +171,7 @@ public sealed class Orchestrator
         return await ApplyADecision()
             ?? await MergeWhatNobodyReviewed()
             ?? await RetryAParkedMerge()
-            ?? (AcceptIntoFrontier() || StartARound() ? StepResult.Moved : StepResult.Idle);
+            ?? (StartARound() ? StepResult.Moved : StepResult.Idle);
     }
 
     /// <summary>
@@ -640,44 +640,42 @@ public sealed class Orchestrator
         ?.Feedback ?? string.Empty;
 
     /// <summary>
-    /// A work item is accepted out of Backlog into Frontier, and acceptance is automatic
-    /// and is never gated on a human: the board is where a reviewer acts, through the
-    /// three decisions, not by holding intake (ADR-0007).
+    /// Accepts a work item out of Backlog into Frontier, because a reviewer asked for it
+    /// from the board. This is the gate the live proof (#37) proved was missing: pointing
+    /// the factory at a repository with 810 open issues built every one of them, because
+    /// acceptance used to be automatic — the design's own sentence, "the board is where a
+    /// human decides what is worth building", was true of nothing.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Frontier is the waiting room, and this is where the shape #3 left behind is
-    /// generalised. There used to be one slot, and a slot was a boolean — no round in
-    /// flight <em>and</em> nothing in Frontier — so acceptance was refused whenever either
-    /// was occupied, and every work item past Backlog was alone in the build. A budget of
-    /// two says the same thing with a count: a work item may be waiting in Frontier
-    /// without occupying a container, and what the budget governs is the number of rounds
-    /// actually started rather than the number of work items queued.
+    /// ADR-0007 is untouched: the poller stays indiscriminate, and every open issue still
+    /// becomes a work item. What changed is the step the old comment justified away — the
+    /// human decides from the board, and the loop applies it, the same division as the
+    /// three decisions. The action is not one of the three: it moves nothing that was
+    /// built, and a work item in Backlog has no result to approve or decline.
     /// </para>
     /// <para>
-    /// That is why acceptance is not gated on the budget here. Gating it would move the
-    /// wait into Backlog and leave the two lanes meaning the same thing, and it would
-    /// make a work item's place in the queue depend on how many containers happened to be
-    /// free — the opposite of "a work item waits in Frontier rather than starting without
-    /// a slot". A reviewer watching a long build wants to see the next work item already
-    /// queued behind it, not still in Backlog as though nothing had been accepted.
+    /// Refusal is the honest answer for a work item not waiting in Backlog: it is already
+    /// in the build, or past it, and accepting it again would say nothing true. The caller
+    /// — the page — renders the refusal rather than leaving a reviewer wondering whether
+    /// their click was lost.
     /// </para>
     /// </remarks>
-    private bool AcceptIntoFrontier()
+    public async Task<bool> PromoteAsync(Guid workItemId)
     {
-        var next = _store.List().FirstOrDefault(item => item.Swimlane == Swimlane.Backlog);
-        if (next is null)
+        var workItem = _store.List().FirstOrDefault(item => item.Id == workItemId);
+        if (workItem is not { Swimlane: Swimlane.Backlog })
         {
             return false;
         }
 
-        _store.Move(next.Id, Swimlane.Frontier);
+        _store.Move(workItemId, Swimlane.Frontier);
         _logger.LogInformation(
-            "Accepted {Project}#{Issue} into Frontier, where it waits for a worker container.",
-            next.Project,
-            next.IssueNumber);
+            "A reviewer accepted {Project}#{Issue} into Frontier, where it waits for a worker container.",
+            workItem.Project,
+            workItem.IssueNumber);
 
-        return true;
+        return await Task.FromResult(true);
     }
 
     /// <summary>

@@ -56,6 +56,7 @@ public class MetricTests
             new OpenIssue(2, "two", "build this", [], []));
 
         await host.PollAsync();
+        await host.PromoteBacklogAsync();
         Assert.Equal(2, host.Store.List().Count);
         Assert.Equal(2, measurements.Count(FactoryMetrics.IssuesProcessedName));
 
@@ -72,6 +73,7 @@ public class MetricTests
         {
             host.Clock.Advance(FactoryConstants.PollInterval);
             await host.PollAsync();
+        await host.PromoteBacklogAsync();
         }
 
         Assert.Equal(3, host.Store.List().Count);
@@ -110,6 +112,7 @@ public class MetricTests
             .FailingPermanently();
 
         await host.PollAsync();
+        await host.PromoteBacklogAsync();
         await host.RunTheMachineAsync();
 
         Assert.Equal(1, measurements.Count(FactoryMetrics.RoundsName, nameof(RoundOutcome.Produced)));
@@ -183,6 +186,7 @@ public class MetricTests
         host.Agent.Producing("one").Producing("two").Producing("three");
 
         await host.PollAsync();
+        await host.PromoteBacklogAsync();
         await host.RunTheMachineAsync();
 
         var work = host.Store.List().ToList();
@@ -239,6 +243,7 @@ public class MetricTests
 
         host.Agent.Producing("the change", "a note");
         await host.PollAsync();
+        await host.PromoteBacklogAsync();
         await host.RunTheMachineAsync();
 
         // The vocabulary, as the closed set names it.

@@ -542,6 +542,18 @@ var mergesAt = Model.AutoMergeAt(workItem);
                     }
                 </ol>
             }
+            @if (workItem.Swimlane == Swimlane.Backlog)
+            {
+                @* The gate (#40): intake puts every issue here, and nothing is built until
+                    a reviewer accepts it. This is the design's "the board is where a human
+                    decides what is worth building", made into a button. *@
+                <form class="build" data-build="@workItem.Id" method="post"
+                      action="/?handler=Build@(Model.Project is { Length: > 0 } filter ? $"&project={Uri.EscapeDataString(filter)}" : "")">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="workItemId" value="@workItem.Id" />
+                    <button type="submit">build this</button>
+                </form>
+            }
             @if (workItem.Swimlane == Swimlane.Review)
             {
                 @* The review workspace: a second kind of container, and the board's one

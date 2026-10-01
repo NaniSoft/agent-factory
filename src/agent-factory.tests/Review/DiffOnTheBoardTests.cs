@@ -75,7 +75,8 @@ public class DiffOnTheBoardTests
         docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = ResultFile(tree.StartHead);
 
         await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, docker);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted.Id);
 
         // Not Settle: the real round runner copies a tree off disk and runs git against
         // it, so the round is genuinely in flight across calls and the machine has to be
@@ -161,6 +162,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, docker);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.RunTheMachineAsync();
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Try it differently."))
@@ -233,6 +235,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -279,7 +282,8 @@ public class DiffOnTheBoardTests
             AChangeTo()));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted2 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted2.Id);
 
         await host.Settle();
 
@@ -314,6 +318,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         using (await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Again."))
@@ -347,7 +352,8 @@ public class DiffOnTheBoardTests
 
         await using (var first = await FactoryHost.StartAsync(root, agent: agent))
         {
-            first.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+            var replaced = first.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await first.PromoteAsync(replaced.Id);
             await first.Settle();
         }
 
@@ -372,7 +378,8 @@ public class DiffOnTheBoardTests
             AChangeTo()));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted3 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted3.Id);
 
         await host.Settle();
 
@@ -402,6 +409,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -433,7 +441,8 @@ public class DiffOnTheBoardTests
             "the round's log"));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted4 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted4.Id);
 
         await host.Settle();
 
@@ -465,7 +474,8 @@ public class DiffOnTheBoardTests
 
         var refusing = new RefusingGitHub();
         await using var host = await FactoryHost.StartAsync(root, agent, github: refusing);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted5 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted5.Id);
 
         await host.Settle();
 
@@ -523,6 +533,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Again.");
@@ -574,7 +585,8 @@ public class DiffOnTheBoardTests
             AChangeTo(Enumerable.Range(1, 12).Select(n => $"src/File{n:00}.cs").ToArray())));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted6 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted6.Id);
 
         await host.Settle();
 
@@ -645,7 +657,8 @@ public class DiffOnTheBoardTests
             AChangeTo(many)));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted7 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted7.Id);
 
         await host.Settle();
 
@@ -704,7 +717,8 @@ public class DiffOnTheBoardTests
                 UnavailableBecause: null)));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted8 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted8.Id);
 
         await host.Settle();
 
@@ -751,7 +765,8 @@ public class DiffOnTheBoardTests
                 UnavailableBecause: null)));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted9 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted9.Id);
 
         await host.Settle();
 
@@ -796,6 +811,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Not like that.");
@@ -846,6 +862,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Try again.");
@@ -881,7 +898,8 @@ public class DiffOnTheBoardTests
             AChangeTo("src/Index.cs")));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted10 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted10.Id);
 
         await host.Settle();
 
@@ -918,6 +936,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent, autoMerge: true);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -965,7 +984,8 @@ public class DiffOnTheBoardTests
             AChangeTo("src/Index.cs")));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main");
+        var promoted11 = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(promoted11.Id);
 
         await host.Settle();
 
@@ -993,6 +1013,7 @@ public class DiffOnTheBoardTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 

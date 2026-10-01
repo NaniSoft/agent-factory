@@ -52,9 +52,9 @@ public class ContainerBudgetTests
         var agent = new FakeNOpenCode().Stuck().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var first = Take(host, Nexus, 42, "nexus");
-        var second = Take(host, Nexus, 43, "nexus");
-        var third = Take(host, Nexus, 44, "nexus");
+        var first = await Take(host, Nexus, 42, "nexus");
+        var second = await Take(host, Nexus, 43, "nexus");
+        var third = await Take(host, Nexus, 44, "nexus");
 
         await host.Settle();
 
@@ -92,7 +92,7 @@ public class ContainerBudgetTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         for (var issue = 1; issue <= 5; issue++)
         {
-            Take(host, Nexus, issue, "nexus");
+            await Take(host, Nexus, issue, "nexus");
         }
 
         // Drained a wave at a time: five work items, a budget of two, and a queue behind
@@ -146,8 +146,8 @@ public class ContainerBudgetTests
         var agent = new FakeNOpenCode().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var slow = Take(host, Alpha, 1, "alpha");
-        var quick = Take(host, Nexus, 1, "nexus");
+        var slow = await Take(host, Alpha, 1, "alpha");
+        var quick = await Take(host, Nexus, 1, "nexus");
 
         await host.Settle();
 
@@ -182,10 +182,10 @@ public class ContainerBudgetTests
         var agent = new FakeNOpenCode().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var first = Take(host, Alpha, 1, "alpha");
-        var second = Take(host, Alpha, 2, "alpha");
-        var third = Take(host, Alpha, 3, "alpha");
-        var elsewhere = Take(host, Nexus, 1, "nexus");
+        var first = await Take(host, Alpha, 1, "alpha");
+        var second = await Take(host, Alpha, 2, "alpha");
+        var third = await Take(host, Alpha, 3, "alpha");
+        var elsewhere = await Take(host, Nexus, 1, "nexus");
 
         await host.Settle();
 
@@ -211,8 +211,8 @@ public class ContainerBudgetTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        Take(host, Nexus, 1, "nexus");
-        Take(host, Nexus, 2, "nexus");
+        await Take(host, Nexus, 1, "nexus");
+        await Take(host, Nexus, 2, "nexus");
 
         await host.Settle();
 
@@ -242,13 +242,13 @@ public class ContainerBudgetTests
             .Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock, agent, github);
 
-        var approved = Take(host, Nexus, 42, "nexus");
+        var approved = await Take(host, Nexus, 42, "nexus");
         await host.Settle();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, approved.Id));
 
         // Two more work items, and the budget fills with rounds that do not come back.
-        Take(host, Nexus, 43, "nexus");
-        Take(host, Nexus, 44, "nexus");
+        await Take(host, Nexus, 43, "nexus");
+        await Take(host, Nexus, 44, "nexus");
         await host.Settle();
 
         Assert.Equal(2, host.RoundsInFlight);
@@ -288,7 +288,7 @@ public class ContainerBudgetTests
             .Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock, agent, github);
 
-        var parked = Take(host, Nexus, 42, "nexus");
+        var parked = await Take(host, Nexus, 42, "nexus");
         await host.Settle();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, parked.Id));
 
@@ -302,8 +302,8 @@ public class ContainerBudgetTests
         Assert.Single(github.Merges);
 
         // The budget fills, and then the backoff passes.
-        Take(host, Nexus, 43, "nexus");
-        Take(host, Nexus, 44, "nexus");
+        await Take(host, Nexus, 43, "nexus");
+        await Take(host, Nexus, 44, "nexus");
         await host.Settle();
         Assert.Equal(2, host.RoundsInFlight);
 
@@ -332,12 +332,12 @@ public class ContainerBudgetTests
             .Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
 
-        var waiting = Take(host, Nexus, 42, "nexus");
+        var waiting = await Take(host, Nexus, 42, "nexus");
         await host.Settle();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, waiting.Id));
 
-        Take(host, Nexus, 43, "nexus");
-        Take(host, Nexus, 44, "nexus");
+        await Take(host, Nexus, 43, "nexus");
+        await Take(host, Nexus, 44, "nexus");
         await host.Settle();
         Assert.Equal(2, host.RoundsInFlight);
 
@@ -353,7 +353,7 @@ public class ContainerBudgetTests
 
         // A decline is the same: a decision about a change that has already been read does
         // not wait for a container, and does not consume one.
-        var other = Take(host, Nexus, 45, "nexus");
+        var other = await Take(host, Nexus, 45, "nexus");
         host.Store.Move(other.Id, Swimlane.Review);
         using (await Board.DecideAsync(host.Board, other.Id, "reject"))
         {
@@ -374,15 +374,16 @@ public class ContainerBudgetTests
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Stuck().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        Take(host, Nexus, 42, "nexus");
-        Take(host, Nexus, 43, "nexus");
-        var third = Take(host, Nexus, 44, "nexus");
+        await Take(host, Nexus, 42, "nexus");
+        await Take(host, Nexus, 43, "nexus");
+        var third = await Take(host, Nexus, 44, "nexus");
 
         // One tick, with work to do and a free budget. The tick settles the machine, so it
         // fills the budget rather than starting one round and stopping: that is what a
         // heartbeat is for, and the two that start here are two real rounds against two
         // real work items.
         await host.Tick();
+        await host.PromoteBacklogAsync();
 
         Assert.Equal(2, agent.AskedFor.Count);
         Assert.Equal(2, agent.PeakConcurrency);
@@ -432,12 +433,19 @@ public class ContainerBudgetTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
 
         // One tick: the poll interval has not been waited for by anyone, and the first pass
-        // is due the moment the factory comes up, so the issue is taken, built and lands
-        // in Review without a reviewer or a click having done anything.
+        // is due the moment the factory comes up, so the issue is taken — into Backlog,
+        // where the gate (#40) holds it until a reviewer accepts it.
         await host.Tick();
 
         Assert.Equal([Nexus], github.Polled);
         var workItem = Assert.Single(host.Store.List());
+        Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
+        Assert.Empty(agent.AskedFor);
+
+        // The reviewer's acceptance, and the next tick builds what was accepted: intake
+        // and building are two acts now, and the tick drives both.
+        await host.PromoteAsync(workItem.Id);
+        await host.Tick();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, workItem.Id));
         Assert.Single(agent.AskedFor);
 
@@ -582,9 +590,14 @@ public class ContainerBudgetTests
     /// </summary>
     private static string ContainerNameFor(Guid workItemId) => $"agent-factory-round-{workItemId:N}";
 
-    private static WorkItem Take(FactoryHost host, string repoUrl, int issueNumber, string project) => host.Store
-        .Intake(project, repoUrl, issueNumber, $"Issue {issueNumber}", IssueBody, "main")
-        .WorkItem;
+    private static async Task<WorkItem> Take(FactoryHost host, string repoUrl, int issueNumber, string project)
+    {
+        var workItem = host.Store
+            .Intake(project, repoUrl, issueNumber, $"Issue {issueNumber}", IssueBody, "main")
+            .WorkItem;
+        await host.PromoteAsync(workItem.Id);
+        return workItem;
+    }
 
     private static Swimlane SwimlaneOf(FactoryHost host, Guid id) => host.Store.Get(id)!.Swimlane;
 }

@@ -63,6 +63,14 @@ public class TraceabilityTests
         await host.Tick();
 
         var work = Assert.Single(host.Store.List());
+        await host.PromoteAsync(work.Id);
+
+        // Acceptance is what starts the build. The first step starts attempt 1; the second
+        // is the loop learning it failed transiently, which is when the retry's backoff
+        // begins — two steps, because a machine settled here would spin on a backoff only
+        // the clock can end.
+        await host.Step();
+        await host.Step();
 
         // The clock moves rather than the test sleeping, because the backoff is a comparison
         // against `IClock` and not a wait — which is the property that makes this whole
@@ -179,6 +187,7 @@ public class TraceabilityTests
 
         await host.Tick();
         var work = Assert.Single(host.Store.List());
+        await host.PromoteAsync(work.Id);
 
         for (var round = 1; round <= FactoryConstants.RoundCeiling; round++)
         {

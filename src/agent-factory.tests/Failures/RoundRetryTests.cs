@@ -38,6 +38,7 @@ public class RoundRetryTests
             .Producing("src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         // The first attempt fails transiently, which is not the same thing as a round that
         // ran and failed: the round has not ended, so the work item stays where it is,
@@ -99,6 +100,7 @@ public class RoundRetryTests
             .FailingTransiently();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         // The number is written out rather than read from the constant.
         Assert.Equal(3, FactoryConstants.TransientRetryAttempts);
@@ -155,6 +157,7 @@ public class RoundRetryTests
         var agent = new FakeNOpenCode().FailingPermanently();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 
@@ -199,6 +202,7 @@ public class RoundRetryTests
             "I could not make the tests pass.");
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 
@@ -245,6 +249,7 @@ public class RoundRetryTests
         var agent = new FakeNOpenCode().Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
@@ -286,6 +291,7 @@ public class RoundRetryTests
         var agent = new FakeNOpenCode().Throwing("something went wrong inside the seam");
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 
@@ -324,8 +330,11 @@ public class RoundRetryTests
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
 
         var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(first.Id);
         var second = host.Store.Intake("nexus", RepoUrl, 43, "Another work item", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(second.Id);
         var third = host.Store.Intake("nexus", RepoUrl, 44, "A work item with no container", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(third.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
 
@@ -383,7 +392,7 @@ public class RoundRetryTests
             .Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
 
-        var exhausted = TakeOne(host, 42);
+        var exhausted = await TakeOne(host, 42);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         clock.Advance(TimeSpan.FromSeconds(10));
@@ -392,20 +401,20 @@ public class RoundRetryTests
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, exhausted.Id));
 
-        var permanent = TakeOne(host, 43);
+        var permanent = await TakeOne(host, 43);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, permanent.Id));
 
-        var produced = TakeOne(host, 44);
+        var produced = await TakeOne(host, 44);
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, produced.Id));
 
-        var threw = TakeOne(host, 45);
+        var threw = await TakeOne(host, 45);
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, threw.Id));
 
-        var stuck = TakeOne(host, 46);
+        var stuck = await TakeOne(host, 46);
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         clock.Advance(FactoryConstants.RoundTimeout + TimeSpan.FromSeconds(1));
         await host.SettleWithin(TimeSpan.FromSeconds(30));
@@ -467,6 +476,7 @@ public class RoundRetryTests
             .FailingTransiently();
         await using var host = await FactoryHost.StartAsync(root, clock, agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.SettleWithin(TimeSpan.FromSeconds(30));
         clock.Advance(TimeSpan.FromSeconds(10));
@@ -564,9 +574,14 @@ public class RoundRetryTests
             FactoryConstants.RetryBackoff(FactoryConstants.TransientRetryAttempts + 1));
     }
 
-    private static WorkItem TakeOne(FactoryHost host, int issueNumber) => host.Store
-        .Intake("nexus", RepoUrl, issueNumber, $"Issue {issueNumber}", IssueBody, "main")
-        .WorkItem;
+    private static async Task<WorkItem> TakeOne(FactoryHost host, int issueNumber)
+    {
+        var workItem = host.Store
+            .Intake("nexus", RepoUrl, issueNumber, $"Issue {issueNumber}", IssueBody, "main")
+            .WorkItem;
+        await host.PromoteAsync(workItem.Id);
+        return workItem;
+    }
 
     private static string CauseOf(Board board, WorkItem workItem) =>
         board.Rendered("data-work-item", workItem.Id.ToString(), "data-cause");

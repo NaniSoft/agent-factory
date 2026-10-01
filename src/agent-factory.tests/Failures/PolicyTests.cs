@@ -659,12 +659,13 @@ public class PolicyTests
 
         Assert.Equal([Decision.Approve, Decision.Reject], Decisions.OfferedIn(Swimlane.Escalated));
 
-        // The board's write path is still the reviewer's form, plus exactly one other: the
-        // review workspace's open (#35), which is a write that never touches the work item —
-        // it starts a container for the reviewer to look at, and the loop stays the only
-        // component that applies policy. A page that could write a result itself would be a
-        // page with an opinion; a page that can start a viewer for a reviewer is not.
-        Assert.Equal(["OnGet", "OnPostDecision", "OnPostOpenWorkspaceAsync"], typeof(Pages.IndexModel)
+        // The board's write path is still the reviewer's form, plus exactly two others,
+        // neither of which decides built work: the review workspace's open (#35), which
+        // starts a container for the reviewer to look at, and the Backlog gate's build
+        // (#40), which asks the loop to accept a work item into the build. The loop stays
+        // the only component that applies policy; a page with an opinion of its own would
+        // be a page that could write a result itself.
+        Assert.Equal(["OnGet", "OnPostBuildAsync", "OnPostDecision", "OnPostOpenWorkspaceAsync"], typeof(Pages.IndexModel)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(method => method.Name.StartsWith("On", StringComparison.Ordinal))
             .Select(method => method.Name)

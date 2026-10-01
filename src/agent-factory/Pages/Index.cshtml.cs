@@ -69,6 +69,18 @@ public class IndexModel : PageModel
         return RedirectToPage();
     }
 
+    /// <summary>
+    /// The reviewer accepted a Backlog work item into the build — the gate (#40). The
+    /// orchestrator applies it, the same component that applies every other transition, and
+    /// the refusal (the item was not waiting in Backlog) is rendered by the loop's own
+    /// refusal surface rather than swallowed.
+    /// </summary>
+    public async Task<IActionResult> OnPostBuildAsync(Guid workItemId)
+    {
+        await _loop.PromoteAsync(workItemId);
+        return RedirectToPage();
+    }
+
     /// <summary>Whether silence can merge. The board states the live mode next to the
     /// threshold, because a reviewer must never wonder whether the absence of their
     /// decision can ship a change (#36).</summary>

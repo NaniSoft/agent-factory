@@ -265,6 +265,7 @@ public class ApproveTests
 
         var stuck = await InReview(host, 42);
         var next = host.Store.Intake("nexus", RepoUrl, 43, "Another work item", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(next.Id);
 
         using (await Board.DecideAsync(host.Board, stuck.Id, "approve"))
         {
@@ -312,6 +313,8 @@ public class ApproveTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 

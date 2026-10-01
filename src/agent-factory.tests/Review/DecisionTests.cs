@@ -332,11 +332,12 @@ public class DecisionTests
         // board's is "/Index".
         Assert.Equal(["/Index", "Projects"], host.Routes());
 
-        // And the board itself has two writes: the reviewer's decision, which is the only
-        // write that moves a work item, and the review workspace's open (#35), which moves
-        // nothing — it starts a container for the reviewer to look through. Anything else
-        // that changed a work item would have to appear here to be reachable at all.
-        Assert.Equal(["OnGet", "OnPostDecision", "OnPostOpenWorkspaceAsync"], host.BoardHandlers());
+        // And the board itself has three writes: the reviewer's decision — the only one
+        // that finishes built work — the review workspace's open (#35), which moves
+        // nothing, and the Backlog gate's build (#40), whose move is the loop's own
+        // acceptance. Anything else that changed a work item would have to appear here to
+        // be reachable at all.
+        Assert.Equal(["OnGet", "OnPostBuildAsync", "OnPostDecision", "OnPostOpenWorkspaceAsync"], host.BoardHandlers());
 
         // And the page does not move work items itself. Which swimlane a decision means
         // is the loop's policy, and a page that moved work items would be a second state
@@ -430,6 +431,8 @@ public class DecisionTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 

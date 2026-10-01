@@ -39,19 +39,19 @@ public class ProjectBoardTests
             .Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var nexus = Take(host, Nexus, 42, "nexus", "A work item on nexus");
-        var alpha = Take(host, Alpha, 7, "alpha", "A work item on alpha");
+        var nexus = await Take(host, Nexus, 42, "nexus", "A work item on nexus");
+        var alpha = await Take(host, Alpha, 7, "alpha", "A work item on alpha");
         await host.Settle();
 
         // Two more work items, one per project, and both rounds are ones that will not come
         // back — so they take both containers and the two after them genuinely wait. Taken
         // after the first pair have been built so the budget is empty when they arrive.
-        var building = Take(host, Alpha, 8, "alpha", "A long build on alpha");
-        var alsoBuilding = Take(host, Nexus, 43, "nexus", "Another long build on nexus");
+        var building = await Take(host, Alpha, 8, "alpha", "A long build on alpha");
+        var alsoBuilding = await Take(host, Nexus, 43, "nexus", "Another long build on nexus");
         await host.Settle();
 
-        var queued = Take(host, Nexus, 44, "nexus", "Waiting for a container on nexus");
-        var alsoQueued = Take(host, Alpha, 9, "alpha", "Also waiting for a container on alpha");
+        var queued = await Take(host, Nexus, 44, "nexus", "Waiting for a container on nexus");
+        var alsoQueued = await Take(host, Alpha, 9, "alpha", "Also waiting for a container on alpha");
         await host.Settle();
 
         // One of each project is in Review, one of each is building and one of each is
@@ -99,8 +99,8 @@ public class ProjectBoardTests
             .Producing("src/Other.cs +4 -0", "Alpha change.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var nexus = Take(host, Nexus, 42, "nexus", "A work item on nexus");
-        var alpha = Take(host, Alpha, 7, "alpha", "A work item on alpha");
+        var nexus = await Take(host, Nexus, 42, "nexus", "A work item on nexus");
+        var alpha = await Take(host, Alpha, 7, "alpha", "A work item on alpha");
         await host.Settle();
 
         // Unfiltered, both are there and neither project is in force.
@@ -142,8 +142,8 @@ public class ProjectBoardTests
             .Producing("src/Other.cs +4 -0", "A second nexus change.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
 
-        var nexus = Take(host, Nexus, 42, "nexus", "A work item on nexus");
-        var other = Take(host, Nexus, 43, "nexus", "Another work item on nexus");
+        var nexus = await Take(host, Nexus, 42, "nexus", "A work item on nexus");
+        var other = await Take(host, Nexus, 43, "nexus", "Another work item on nexus");
         await host.Settle();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, nexus.Id));
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, other.Id));
@@ -219,8 +219,8 @@ public class ProjectBoardTests
         using var root = TwoProjects();
         var agent = new FakeNOpenCode().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        Take(host, Nexus, 42, "nexus", "One long build on nexus");
-        Take(host, Alpha, 7, "alpha", "One long build on alpha");
+        await Take(host, Nexus, 42, "nexus", "One long build on nexus");
+        await Take(host, Alpha, 7, "alpha", "One long build on alpha");
 
         // Nothing started yet, and the board says zero rather than leaving it to be guessed.
         var before = await Board.ReadAsync(host.Board);
@@ -248,7 +248,7 @@ public class ProjectBoardTests
         var agent = new FakeNOpenCode().Producing("src/Index.cs +12 -3", "A change.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
 
-        var gone = Take(host, "https://github.com/NaniSoft/retired", 5, "retired", "Built by a project that has since gone");
+        var gone = await Take(host, "https://github.com/NaniSoft/retired", 5, "retired", "Built by a project that has since gone");
         await host.Settle();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, gone.Id));
 
@@ -267,7 +267,7 @@ public class ProjectBoardTests
         using var root = TwoProjects();
         var agent = new FakeNOpenCode().Producing("src/Index.cs +12 -3", "Nexus change.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        Take(host, Nexus, 42, "nexus", "A work item on nexus");
+        await Take(host, Nexus, 42, "nexus", "A work item on nexus");
         await host.Settle();
 
         var board = await Board.ReadForAsync(host.Board, "a project nobody serves");
@@ -289,9 +289,14 @@ public class ProjectBoardTests
         .WithProjectFile("alpha.yaml", ProjectFile.For("alpha", Alpha))
         .WithProjectFile("nexus.yaml", ProjectFile.For("nexus", Nexus));
 
-    private static WorkItem Take(FactoryHost host, string repoUrl, int issueNumber, string project, string title) => host.Store
-        .Intake(project, repoUrl, issueNumber, title, IssueBody, "main")
-        .WorkItem;
+    private static async Task<WorkItem> Take(FactoryHost host, string repoUrl, int issueNumber, string project, string title)
+    {
+        var workItem = host.Store
+            .Intake(project, repoUrl, issueNumber, title, IssueBody, "main")
+            .WorkItem;
+        await host.PromoteAsync(workItem.Id);
+        return workItem;
+    }
 
     private static Swimlane SwimlaneOf(FactoryHost host, Guid id) => host.Store.Get(id)!.Swimlane;
 }

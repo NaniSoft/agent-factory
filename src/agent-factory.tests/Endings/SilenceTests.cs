@@ -358,6 +358,8 @@ public class SilenceTests
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
 
+        await host.PromoteAsync(workItem.Id);
+
         await host.Settle();
 
         Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);

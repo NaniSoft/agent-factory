@@ -247,6 +247,7 @@ public class ExhaustionTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);
@@ -345,6 +346,8 @@ public class ExhaustionTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 

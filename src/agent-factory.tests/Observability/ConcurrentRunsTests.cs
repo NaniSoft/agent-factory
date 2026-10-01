@@ -60,6 +60,7 @@ public class ConcurrentRunsTests
         // records those two work items then leave.
         await host.PollAsync();
         Assert.Equal(2, host.Store.List().Count);
+        await host.PromoteBacklogAsync();
 
         // Both rounds are held open at once. `Stuck` is the fake's way of saying the round
         // does not come back on its own, and two of them with a budget of two is the most
@@ -170,6 +171,7 @@ public class ConcurrentRunsTests
         await using var host = await FactoryHost.RecordingWithTheRealRoundAsync(root, docker, log, counters);
         var work = host.Store
             .Intake(Nexus, NexusRepo, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await host.PromoteAsync(work.Id);
 
         // Not Settle: the real round runner copies a tree off disk and runs git against it,
         // so the round is genuinely in flight across calls and the machine has to be stepped

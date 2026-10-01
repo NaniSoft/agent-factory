@@ -151,6 +151,7 @@ public class EndingTests
         var failed = host.Store
             .Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+        await host.PromoteAsync(failed.Id);
         await host.Settle();
         Assert.Equal(Swimlane.Escalated, host.Store.Get(failed.Id)!.Swimlane);
 
@@ -160,6 +161,7 @@ public class EndingTests
         var timedOut = host.Store
             .Intake("nexus", RepoUrl, 43, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+        await host.PromoteAsync(timedOut.Id);
         await host.Step();
         await host.Step();
         host.Clock.Advance(FactoryConstants.RoundTimeout + TimeSpan.FromMinutes(1));
@@ -326,6 +328,8 @@ public class EndingTests
         var workItem = host.Store
             .Intake("nexus", RepoUrl, issueNumber, "A work item, end to end", IssueBody, "main")
             .WorkItem;
+
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 

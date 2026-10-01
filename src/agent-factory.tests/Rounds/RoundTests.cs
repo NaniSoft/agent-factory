@@ -26,12 +26,14 @@ public class RoundTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
+        // The gate (#40): Backlog is where intake leaves it, and a settle does not move
+        // it — acceptance is a reviewer's act and a transition of its own.
+        await host.Settle();
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
-
-        // One step, one transition, asserted as it happens rather than slept through.
-        Assert.True(await host.Step());
+        Assert.True(await host.PromoteAsync(workItem.Id));
         Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, workItem.Id));
 
+        // One step, one transition, asserted as it happens rather than slept through.
         Assert.True(await host.Step());
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
 
@@ -54,8 +56,11 @@ public class RoundTests
         var agent = new FakeNOpenCode().Stuck().Stuck().Stuck();
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var first = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(first.Id);
         var second = host.Store.Intake("nexus", RepoUrl, 43, "A round, with the agent faked", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(second.Id);
         var third = host.Store.Intake("nexus", RepoUrl, 44, "Waiting for a container", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(third.Id);
 
         // The budget fills, and the third work item is accepted and queued — not held back
         // in Backlog as though nothing had been accepted, and not started without a
@@ -86,6 +91,7 @@ public class RoundTests
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -114,6 +120,7 @@ public class RoundTests
             .Yielding(RoundOutcome.Produced, "round three result", "third note");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         // Three rounds, each one started by a reviewer asking for changes on the board:
         // the decision is what puts the work item back in the build, so this is the same
@@ -148,6 +155,7 @@ public class RoundTests
         var agent = new FakeNOpenCode().Stuck();
         await using var host = await FactoryHost.StartAsync(root, clock: clock, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
         Assert.Equal(Swimlane.InProgress, SwimlaneOf(host, workItem.Id));
@@ -185,6 +193,7 @@ public class RoundTests
         {
             var workItem = first.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
             workItemId = workItem.Id;
+            await first.PromoteAsync(workItemId);
             await first.Settle();
         }
 
@@ -203,6 +212,7 @@ public class RoundTests
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
@@ -226,6 +236,7 @@ public class RoundTests
         var agent = new FakeNOpenCode().Throwing("the container died mid-round");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
+        await host.PromoteAsync(workItem.Id);
 
         await host.Settle();
 
