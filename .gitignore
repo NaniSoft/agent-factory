@@ -6,6 +6,8 @@
 .env
 .env.local
 *.log
+# Credential values live here as one file per name (#32) — never a committed artifact.
+secrets/
 
 # The build.
 [Bb]in/
