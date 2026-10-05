@@ -63,6 +63,7 @@ deviation is bounded by these properties rather than left open. See
 docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
 bash worker/smoke-test.sh            # build if needed, then prove it works
 bash worker/smoke-test.sh --self-check   # prove the proof can fail
+bash worker/offline-test.sh          # the scripts themselves, with no Docker at all
 ```
 
 ## What is inside
@@ -258,6 +259,39 @@ The test's own fixture is itself a project image — the base plus a project, de
 as [`docs/deriving-a-project-image.md`](docs/deriving-a-project-image.md) describes. The
 repository is baked in rather than mounted because a worker container gets no host paths,
 so the test would otherwise have no way to have a repository at all.
+
+## The offline test
+
+```bash
+bash worker/offline-test.sh               # 129 checks
+```
+
+**This one needs no Docker.** It runs `bin/run`, `bin/worker-collect` and `bin/worker-round`
+straight out of the repository, over real git repositories it builds itself, and reads back
+what they wrote. `bash`, `git` and nothing else: no daemon, no image, no network, no model.
+
+It exists because of #41. Between the image's first commit and that ticket, three of the four
+files this `Dockerfile` copies were not in the repository — the wrapper, the collector and
+the entrypoint, which between them are the whole of what the image does in a round. Nothing
+caught it, and the reason is worth keeping: **an image built outside git makes its inputs
+invisible to everything that reads the tree.** The image existed on the machine that had it,
+so every question of the form "is the image there?" was answered yes. The one test that
+would have caught it needs a daemon, and a machine with no daemon never ran it.
+
+So the build's inputs got a check that does not need the daemon — both in C#
+(`src/agent-factory.tests/Containers/WorkerImageInputsTests.cs`, which reads this
+`Dockerfile`'s own `COPY` lines and asserts each source is in the tree, and asks `git
+check-ignore` whether anything under `worker/bin/` is excluded again) and in the scripts
+themselves, which is what this suite exercises.
+
+What it can check is the half that goes wrong silently: the exit codes the wrapper returns,
+what it records, in what order, with which numbers, whether a command's failure is kept
+distinct from the round's own (#22), whether a credential name is recorded and its value is
+not, and whether the host can read the result back. What it cannot check is what the
+*image* installs — that these scripts are executable, that `opencode` and `code-server` are
+present, that the container mounts no host path and publishes no port, that `docker cp`
+lifts the result out. Those are properties of a built image. Both suites are needed; this
+one is the one you can run anywhere.
 
 ## Deployment posture
 

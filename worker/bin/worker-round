@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#
+# The round entrypoint.
+#
+# One container is one round, and the container's lifetime is the round's boundary
+# (ADR-0001), so the entrypoint does the collecting rather than leaving it to the host.
+# The host has exactly two ways out of a round (ADR-0010): this image writes one result
+# file, and the container log carries live progress.
+#
+#   worker-round agent run "<issue text>"   drive the OpenCode CLI non-interactively
+#   worker-round exec  ./scripts/verify.sh run one command through the wrapper
+#   worker-round shell -c 'make test'       run a shell script through the wrapper
+#   worker-round collect                    write the result from a round that has ended
+#   worker-round help                       this text
+#
+# Two things are deliberately here rather than in the caller:
+#
+#   * The tree is fetched **before** the agent runs, and the commit it fetched at is
+#     captured before anything touches the tree. That commit is the base the round's diff
+#     is measured from, so capturing it afterwards would measure the change against
+#     itself.
+#
+#   * The collector runs whatever the round did. A round that ends by `exit 1` from inside
+#     its own script still gets a result file, and the exit code is *in* it — the exit
+#     code of `docker run` is about the container, and this script's own is 0 whenever a
+#     result file was written and 70 when it was not.
+
+set -uo pipefail
+
+# Deliberately *not* sourcing worker/lib/json.sh: this script emits no JSON. The collector
+# does, and it sources the helpers itself. An entrypoint that failed to start because a
+# library it never called was missing would be an entrypoint refusing to run a round over a
+# file it has no use for.
+
+work="${AGENT_FACTORY_WORK:-/work}"
+out="${AGENT_FACTORY_OUT:-/out}"
+result="${AGENT_FACTORY_RESULT:-$out/result.json}"
+repo="${AGENT_FACTORY_REPO_URL:-}"
+base="${AGENT_FACTORY_BASE_REF:-main}"
+
+usage() {
+    # This file's own header, which is the only place the modes are written down — read
+    # rather than duplicated, because a usage message maintained in two places is a usage
+    # message that is wrong in one of them. Only the indented mode lines, so a change to
+    # the prose around them cannot leak into the output.
+    sed -n 's/^# \{3\}worker-round /worker-round /p' "$0"
+}
+
+# `/out` is outside `/work` so that a result cannot appear in the diff the reviewer is
+# being asked to judge (ADR-0011, worker/README.md). The check is on the path as written,
+# before anything is fetched or run: a round that spends ninety minutes and then refuses
+# to write its result would have produced work nobody can look at, and the refusal would
+# have cost all of it.
+case "$result" in
+    "$work"|"$work"/*)
+        printf 'worker-round: the result path %s is inside the working tree %s.\n' "$result" "$work" >&2
+        printf 'worker-round: a result written there shows up in the change a reviewer is judging, so this round will not write one.\n' >&2
+        exit 64
+        ;;
+esac
+
+# --- fetch the tree ------------------------------------------------------------
+#
+# Over the network, because a worker container is given no host path to put one in
+# (ADR-0010, ADR-0012). A tree already in /work is left alone: a project image may bake
+# its repository in, and re-cloning over it would throw away a deliberate arrangement.
+if [ -n "$repo" ] && [ -z "$(ls -A "$work" 2>/dev/null)" ]; then
+    printf 'worker-round: cloning %s @ %s into %s\n' "$repo" "$base" "$work"
+
+    # The credentials the round holds are for the model, not for this repository
+    # (ADR-0006), so the clone is unauthenticated and a private repository is simply not
+    # something a round can fetch. Said rather than left to git's own error.
+    if ! git clone --branch "$base" --single-branch "$repo" "$work" 2>&1; then
+        printf 'worker-round: could not clone %s @ %s. A round holds no credential that can write to a remote, so this is expected for a private repository (ADR-0006).\n' \
+            "$repo" "$base"
+        exit 66
+    fi
+
+    printf 'worker-round: cloned %s\n' "$repo"
+fi
+
+# Both directories have to be there, and neither has to be already there. Refused rather
+# than carried on from: a round that ran in `/` because `/work` was missing would produce a
+# result describing a repository that does not exist.
+for required in "$work" "$out"; do
+    mkdir -p "$required" 2>/dev/null && continue
+    printf 'worker-round: cannot use %s, so this round cannot run\n' "$required" >&2
+    exit 73
+done
+
+# The base commit, captured before the agent touches anything. This is the commit the
+# round's diff is measured from, and it is why a committed change and an uncommitted one
+# both appear in it.
+start_head=''
+if git -C "$work" rev-parse --git-dir >/dev/null 2>&1; then
+    start_head="$(git -C "$work" rev-parse HEAD 2>/dev/null)"
+    printf 'worker-round: startHead=%s\n' "$start_head"
+fi
+
+# The base is handed to the collector through the environment rather than as an argument,
+# because `collect` can also be run on its own afterwards — and a collector that could
+# only work with an argument would not be able to answer for a round that has already
+# ended.
+export AGENT_FACTORY_START_HEAD="$start_head"
+
+# --- run the round -------------------------------------------------------------
+
+round_exit=0
+
+cd "$work" || exit 73
+
+case "${1:-help}" in
+    agent)
+        shift
+        sub="${1:-run}"
+        shift || true
+        [ "$sub" = 'run' ] || { printf 'worker-round: agent has one subcommand, run\n' >&2; exit 64; }
+
+        # The agent is run *through the wrapper*, which is what puts it in the round's own
+        # record of what it ran: the argv a reviewer reads is the argv that actually
+        # happened, including the model the project named (#38).
+        run -o 'the agent, building and testing the change' opencode run "$@"
+        round_exit=$?
+        ;;
+
+    exec)
+        shift
+        [ $# -gt 0 ] || { printf 'worker-round: exec needs a command\n' >&2; exit 64; }
+        run -o 'a command' "$@"
+        round_exit=$?
+        ;;
+
+    shell)
+        shift
+        [ "${1:-}" = '-c' ] || { printf 'worker-round: shell needs -c and a script\n' >&2; exit 64; }
+        shift
+        [ $# -gt 0 ] || { printf 'worker-round: shell needs a script\n' >&2; exit 64; }
+        run -o "the round" bash -c "$*"
+        round_exit=$?
+        ;;
+
+    collect)
+        # A round that has already ended by some other route: collect, and report whether
+        # there is now something the host can read.
+        worker-collect
+        exit $?
+        ;;
+
+    help|--help|-h)
+        usage
+        exit 0
+        ;;
+
+    *)
+        printf 'worker-round: unknown mode %s\n\n' "$1" >&2
+        usage >&2
+        exit 64
+        ;;
+esac
+
+# --- collect, whatever happened ------------------------------------------------
+
+export AGENT_FACTORY_ROUND_EXIT_CODE="$round_exit"
+
+printf 'worker-round: roundExitCode=%d\n' "$round_exit"
+
+# The exit code is written into the result file rather than returned, because a shell's
+# exit status is its last command's: returning it here would make the *collector*'s status
+# the round's, and a collector that failed to write anything would look exactly like a
+# round that failed. `docker run`'s exit code is about the container; this file is where
+# the round's own answer is (#22).
+worker-collect
+collect_exit=$?
+
+if [ -s "$result" ]; then
+    printf 'worker-round: result=%s\n' "$result"
+    exit 0
+fi
+
+# The collector's own status is named, because "nothing was written" has two very different
+# causes — a result path that could not be written, and a collector that fell over — and
+# this log is the only account either will leave. The exit code is still 70 for both: the
+# host asks whether there is something to read, not why there is not.
+printf 'worker-round: result=%s was not written (the collector exited %s), so this container has nothing for the host to read\n' \
+    "$result" "$collect_exit" >&2
+exit 70

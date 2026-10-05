@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+#
+# The recording shell wrapper.
+#
+# It runs a command, records what it ran, what came back and what it exited with, and
+# **exits with the command's own exit code** so a caller can never mistake a wrapper
+# failure for a real one.
+#
+#   run [-C DIR] [-e KEY=VALUE]... [-o LABEL] [--] COMMAND [ARG...]
+#
+#   run pnpm test
+#   run -o 'the unit tests' ./scripts/test.sh
+#
+# ADR-0011 makes this the only account of what a round ran that the factory believes.
+# Nothing here interprets anything: the exit code is copied, not judged, and the factory
+# has no field that says which of these commands were "tests" — the repository's own
+# scripts decide what tested means.
+#
+# Two properties are load-bearing and are the reason this is a wrapper rather than a
+# pipeline the caller composes:
+#
+#   * Output is streamed, not buffered. ADR-0010 makes `docker logs` the channel
+#     carrying a round's live progress, so a 90-minute round must not look silent until
+#     it ends. Each stream is teed to the log and to a temporary file at once.
+#
+#   * Wrappers nest. A round that runs a script which itself calls `run` records both,
+#     and the sequence number is assigned when the record is *written* so it increases
+#     down the file whichever way the commands were nested.
+
+set -uo pipefail
+
+. /usr/local/lib/agent-factory/json.sh
+
+# --- arguments ----------------------------------------------------------------
+
+label=''
+dir=''
+envs=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -C) [ $# -ge 2 ] || { printf 'run: -C needs a directory\n' >&2; exit 64; }
+            dir="$2"; shift 2 ;;
+        -e) [ $# -ge 2 ] || { printf 'run: -e needs KEY=VALUE\n' >&2; exit 64; }
+            envs+=("$2"); shift 2 ;;
+        -o) [ $# -ge 2 ] || { printf 'run: -o needs a label\n' >&2; exit 64; }
+            label="$2"; shift 2 ;;
+        --) shift; break ;;
+        -*) printf 'run: unknown option %s\n' "$1" >&2; exit 64 ;;
+        *)  break ;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+    printf 'run: no command given\n' >&2
+    exit 64
+fi
+
+argv=("$@")
+
+# --- where the record goes ----------------------------------------------------
+
+out="${AGENT_FACTORY_OUT:-/out}"
+log="${AGENT_FACTORY_COMMAND_LOG:-$out/commands.ndjson}"
+
+# A wrapper that cannot write its record is still a wrapper: the command must run and
+# must return its own exit code. Say it once and carry on, because a round's command log
+# being unwritable is a fact the factory will discover from the result file's own
+# `commandRecords` count rather than from a wrapper that refused to run the work.
+recording=1
+if ! mkdir -p "$(dirname "$log")" 2>/dev/null || ! : >> "$log" 2>/dev/null; then
+    printf 'worker-run: cannot write the command log at %s, so this command will run unrecorded\n' "$log" >&2
+    recording=0
+fi
+
+# The sequence counter is a file rather than a variable because wrappers nest: an inner
+# `run` has to see the outer one's number, and the outer one assigned its record only
+# after the inner one wrote its own. Assigned at write time, it increases down the file
+# either way — which is the property the deriver relies on when it reads the records in
+# order.
+seqfile="$out/.run-seq"
+
+# --- capture ------------------------------------------------------------------
+
+capture=1
+[ "${AGENT_FACTORY_CAPTURE_OUTPUT:-1}" = '0' ] && capture=0
+
+tail_bytes="${AGENT_FACTORY_OUTPUT_TAIL_BYTES:-4000}"
+
+stdout_file=''
+stderr_file=''
+if [ "$capture" = 1 ]; then
+    stdout_file="$(mktemp "${TMPDIR:-/tmp}/run-out.XXXXXX")" || capture=0
+    [ "$capture" = 1 ] || stdout_file=''
+    if [ "$capture" = 1 ]; then
+        stderr_file="$(mktemp "${TMPDIR:-/tmp}/run-err.XXXXXX")" || capture=0
+        [ "$capture" = 1 ] || stderr_file=''
+    fi
+fi
+
+cleanup() {
+    [ -n "$stdout_file" ] && rm -f "$stdout_file"
+    [ -n "$stderr_file" ] && rm -f "$stderr_file"
+    return 0
+}
+trap cleanup EXIT
+
+started="$(json_now)"
+start_ms="$(json_epoch_ms)"
+
+# --- the command itself --------------------------------------------------------
+
+# `cd` first when asked, and the environment additions are passed through `env` rather
+# than `export`ed, so they belong to this command and do not leak into the next one the
+# wrapper records.
+if [ ${#envs[@]} -gt 0 ]; then
+    launcher=(env "${envs[@]}")
+else
+    launcher=(env)
+fi
+
+code=0
+if [ -n "$dir" ]; then
+    if ! cd "$dir" 2>/dev/null; then
+        printf 'run: cannot enter %s\n' "$dir" >&2
+        code=66
+    fi
+fi
+
+if [ "$code" -eq 0 ]; then
+    if [ "$capture" = 1 ]; then
+        "${launcher[@]}" "${argv[@]}" > >(tee "$stdout_file") 2> >(tee "$stderr_file" >&2)
+        code=$?
+        # The process substitutions are asynchronous, and without this the tails are read
+        # before the last of the output has been written. That is a race that would show
+        # up as a short tail on a chatty command and nowhere else.
+        wait
+    else
+        "${launcher[@]}" "${argv[@]}"
+        code=$?
+    fi
+fi
+
+ended_ms="$(json_epoch_ms)"
+duration=$(( ended_ms - start_ms ))
+
+# --- the record ----------------------------------------------------------------
+
+if [ "$recording" = 1 ]; then
+    # Zero is "no command has been recorded yet", so the first one is 1. Starting from 1
+    # here and adding would make a round's first command claim to be its second, which is
+    # the kind of thing that reads as a missing record.
+    seq=0
+    if [ -r "$seqfile" ]; then
+        read -r seq < "$seqfile" 2>/dev/null || seq=0
+        case "$seq" in ''|*[!0-9]*) seq=0 ;; esac
+    fi
+    seq=$(( seq + 1 ))
+    printf '%s\n' "$seq" > "$seqfile" 2>/dev/null
+
+    stdout_bytes=0
+    stderr_bytes=0
+    stdout_tail=''
+    stderr_tail=''
+
+    if [ "$capture" = 1 ]; then
+        stdout_bytes=$(wc -c < "$stdout_file" 2>/dev/null | tr -d ' ') || stdout_bytes=0
+        stderr_bytes=$(wc -c < "$stderr_file" 2>/dev/null | tr -d ' ') || stderr_bytes=0
+        stdout_tail=$(tail -c "$tail_bytes" "$stdout_file" 2>/dev/null)
+        stderr_tail=$(tail -c "$tail_bytes" "$stderr_file" 2>/dev/null)
+    fi
+
+    # One line, one write, appended. A result file is JSON *lines* precisely so that a
+    # record written while another is being read costs that record and not the file, and a
+    # single `printf` is what keeps a record from ever arriving in halves.
+    {
+        printf '{"kind":"command","seq":%d,"label":%s,"argv":%s,"cwd":%s,"env":%s,"startedAt":%s,' \
+            "$seq" "$(json_lit "$label")" "$(json_string_array "${argv[@]}")" \
+            "$(json_lit "$PWD")" "$(json_string_array "${envs[@]}")" "$(json_lit "$started")"
+        printf '"durationMs":%d,"exitCode":%d,"captured":%s,"stdoutBytes":%d,"stderrBytes":%d,' \
+            "$duration" "$code" "$([ "$capture" = 1 ] && printf true || printf false)" \
+            "${stdout_bytes:-0}" "${stderr_bytes:-0}"
+        printf '"stdoutTail":%s,"stderrTail":%s}\n' \
+            "$(printf '%s' "$stdout_tail" | json_string)" \
+            "$(printf '%s' "$stderr_tail" | json_string)"
+    } >> "$log" 2>/dev/null
+fi
+
+# The command's own exit code, always. This is the whole of the wrapper's contract with
+# its caller, and a wrapper that returned something else would make every exit code in
+# the result file a statement about the wrapper.
+exit "$code"

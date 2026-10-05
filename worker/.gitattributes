@@ -1,0 +1,15 @@
+# The image's shell scripts are LF whatever the checkout used.
+#
+# A CRLF line in a shell script is a carriage return in every argument on it: a redirect
+# to a file whose name ends in CR, a prompt ending in a character nobody typed, and a
+# `#!/usr/bin/env bash` that the kernel will not recognise. The first Docker tests to run
+# on a Windows checkout failed on exactly that, in filenames.
+#
+# Named by path because the three the image installs have no extension, so a `*.sh` rule
+# would not reach them.
+bin/run            text eol=lf
+bin/worker-collect text eol=lf
+bin/worker-round   text eol=lf
+lib/json.sh        text eol=lf
+
+*.sh               text eol=lf
