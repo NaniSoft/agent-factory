@@ -42,6 +42,15 @@ items. The poller is deliberately indiscriminate (see ADR-0007), so this is expe
 rather than a misconfiguration. The factory must not be given a token that can write to
 this repository until its merge path is trustworthy — see ADR-0006.
 
+The rule protects **this** repository and says nothing about any other repository the
+factory can reach, which is how a committed project file became a live hazard (#23):
+`factories/nexus.yaml` was committed, validated, and named a real repository, so a
+checkout with the matching credential in its environment would poll that repository and,
+given a work item, open and merge real pull requests into it. **This repository therefore
+commits no project file.** The examples are in `worker/examples/`, outside the directory
+the loader reads; see `factories/README.md`. The thing to watch for is a token scoped to
+write to whatever repository the factory is pointed at, whichever repository that is.
+
 ## Wayfinding operations
 
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.

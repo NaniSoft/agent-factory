@@ -373,6 +373,40 @@ holds nothing, yielding between steps, and fails loudly rather than hanging.
 item, round and path — and **nothing executes the script**. So the suite proves the key is
 right and the restore is written against it; it does not prove a browser reopened anything.
 
+## The board, styled
+
+`wwwroot/board.css` is the board's stylesheet, and `Index.cshtml` links it as `/board.css`
+rather than `~/board.css` because the tilde form resolves against the *content root* — a
+factory data directory, and in the test host a temporary one — while the stylesheet is
+published beside the entry assembly. `FactoryApp` names that directory explicitly rather than
+leaving it to the content root, and says so in a warning when it is not there: a link to a
+file that is not present renders as a board that is merely plain, which is how #25 presented
+in the first place.
+
+`Review/BoardStylesheetTests.cs` holds it to the rule the ticket set, and the rule is a
+refusal rather than a preference: **the stylesheet renders what the markup already says and
+hides nothing a reviewer is owed.** It is therefore asserted three ways rather than by
+screenshot, because a stylesheet cannot be reviewed as one:
+
+- Every state the board distinguishes has a rule of its own — intake's three
+  (`never-polled`, `polled`, `failing`), a diff's four (`shown`, `empty`, `unfinished`,
+  `unavailable`), a round's two outcomes, a file's three changes, the three decisions. And
+  the four diff states are additionally checked to **not** declare the same properties, which
+  is the form that would catch the real mistake: one rule that grouped several states would
+  leave each state "having a rule" while two of them rendered alike.
+- Nothing is hidden outright — no `display: none`, no `visibility: hidden` — and the
+  selectors for what was left off a bounded diff, that the container bounded its own copy, a
+  round's classification and a refusal are all required to be styled at all. The one bound in
+  the file is `max-height` on a scrollable `<pre>`, so a ninety-minute log does not push the
+  next card off the page and is still reachable.
+- The folds are left alone. Unstyled `<details>` still fold, and that is what the diff's
+  presentation decision depends on, so no rule may set `display` on a `<details>` or a
+  `<summary>`.
+
+And one check is about correspondence rather than taste: **every class in a selector appears
+in the board's own markup**, read off the view sources rather than off one render, because a
+board with one work item in Review renders no diff file and no failure classification at all.
+
 ## The round's files
 
 `FactoryOptions.RoundsDirectory` is where a round's lifted-out result file and tree land,
@@ -620,7 +654,7 @@ file at all, which is the round a reviewer most wants to see something of. The c
 bounded copy is still recorded (`DerivedResult.DiffTruncated`) and the card **says** when it
 was bounded, because a reviewer who notices two observations of one change is owed the answer.
 
-Three properties of the reader are deliberate and each is a refusal rather than a
+Four properties of the reader are deliberate and each is a refusal rather than a
 convenience:
 
 - **`--no-ext-diff` and `--no-textconv`.** The tree is a repository this factory did not
@@ -631,9 +665,26 @@ convenience:
   read a repository it does not own — which would leave the diff silently *absent* rather
   than wrong. It is injected through the environment so that reading a round's diff never
   modifies a round's tree.
+- **`core.autocrlf=false`**, which is #26 and the one that was missing. This host had
+  autocrlf on, so git printed "LF will be replaced by CRLF the next time Git touches it" for
+  every file in the change, and the bytes on the card depended on the machine rendering it.
+  The round committed inside a Linux container where autocrlf is off, so off is the setting
+  that compares the agent's bytes with themselves — and it is what makes this section's claim
+  ("a reviewer can hold the card against their own `git diff` and get the same bytes") a
+  property rather than a habit. Pinned as an argument for the same reason `safe.directory` is
+  injected: reading a round's diff must not modify a round's tree.
 - **Nothing is written to the tree.** A tree lifted out of a Linux container arrives on
   Windows with read-only pack files, and a diff is a read of them. Anything that deleted or
   moved files in there would have to clear the attributes first, and nothing here does.
+
+**The claim is about bytes and it is now true of bytes**, which is worth being precise
+about: what #26's run produced was a *warning*, not a wrong diff, and the difference matters
+for what a reader should expect from a test of it. A committed change is compared blob to
+blob, where autocrlf has no say at all; the uncommitted case is the one that reproduces, and
+it is the same case the deriver's `git status` and the merger's "left changes uncommitted"
+refusal depend on. `The_rounds_diff_is_not_annotated_by_the_hosts_line_ending_setting` asserts
+the observable half — the same tree, the same state, with the pin and without it — rather
+than a comparison that two identical diffs would pass.
 
 **The base is the commit the round started from**, as the round's own result file records it,
 with the work item's base branch as a fallback for a round whose result could not be read.
@@ -1383,7 +1434,7 @@ sent round again.
 ## Project files
 
 A project is one file in [`factories/`](factories), and the served set is exactly the
-files there — there is no registry to keep in step with the directory. The schema is
+files there - there is no registry to keep in step with the directory. The schema is
 exactly these six values, and a field beyond them is **refused**, not ignored:
 
 | Field | |
@@ -1391,7 +1442,7 @@ exactly these six values, and a field beyond them is **refused**, not ignored:
 | `name` | the project's name, unique across the directory |
 | `repo.url` | absolute http or https URL |
 | `worker.image` | the image each round's worker container starts from |
-| `llm.provider` | the LLM provider the agent runs on |
+| `llm.model` | a full `provider/model` reference (#38), not a bare provider |
 | `keys.github` | the **name** of an environment variable, never its value |
 | `keys.llm` | the **name** of an environment variable, never its value |
 
@@ -1402,6 +1453,38 @@ complete file that someone wrote.
 
 Adding a project needs no code change and no rebuild, except that configuration loads at
 start, so a changed file means a restart.
+
+### **This repository commits no project file, and that is the decision (#23)**
+
+A committed file in `factories/` is not a sample; it is a repository the factory polls,
+builds issues from, and opens and merges pull requests into, given a credential. `factories/nexus.yaml`
+was committed, validated, and named `https://github.com/NaniSoft/nexus` - a real repository -
+so on any checkout, with `NEXUS_GITHUB_TOKEN` in the environment, the factory would have
+polled it and merged into it. Only the variable being unset prevented that, which is luck
+rather than policy, and it is true of every clone. The dogfooding note in
+`docs/agents/issue-tracker.md` protects **this** repository and said nothing about any
+other one the factory can reach.
+
+So the examples live in [`worker/examples/`](worker/examples), readable and not served:
+
+| | |
+| --- | --- |
+| `worker/examples/nexus.project.yaml` | the repository the design is written about |
+| `worker/examples/example.project.yaml` | the same shape with placeholder values |
+
+To serve a project, copy one into `factories/`, or use the board's `/Projects` page. The
+page says so where a repository is chosen, because that is where somebody decides what the
+factory can reach.
+
+**A repository with no commits is not buildable, on purpose (#24).** A round clones the
+base and diffs against the commit it started from; an empty repository has no such commit,
+and `git clone --branch main` against one fails with `Remote branch main not found`, which
+the round reads as a permanent failure and the work item parks on. **The first commit is a
+human's**: ADR-0006's shape is that the host pushes a commit a round made inside a
+container that could not push anything, and minting a project's first commit is a different
+act from answering its first issue. A greenfield owner pushes a README, and every issue
+after that is the factory's. `factories/README.md` is where that is said to somebody
+setting up a new project.
 
 ## Agent skills
 

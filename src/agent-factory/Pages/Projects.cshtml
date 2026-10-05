@@ -92,6 +92,17 @@
     }
 
     <h2>Add a project</h2>
+    @* Said here, on the surface where a repository is chosen, rather than left to a reader
+        who has to find it: a project added through this page is a repository the factory
+        will poll and, given a credential, open and merge real pull requests into. The
+        examples in `worker/examples/` are deliberately outside `factories/`, so nothing in
+        a checkout is served by accident (#23). *@
+    <p class="notice">
+        A project added here is <strong>served</strong>: the factory will poll its issues and,
+        with the credential below, open and merge pull requests into it. Nothing is added by
+        default — this checkout commits no project file — so a repository is only reached once
+        you name it. Scope the token to that one repository.
+    </p>
     <form class="add" method="post" action="/Projects?handler=Add">
         @Html.AntiForgeryToken()
         <label>Name <input name="name" required /></label>

@@ -12,8 +12,8 @@ using System.Diagnostics;
 public static class WorkerImage
 {
     /// <summary>
-    /// The image a project file names, and the one <c>factories/nexus.yaml</c> and
-    /// <c>worker/README.md</c> both say. Built from <c>worker/Dockerfile</c>.
+    /// The image a project file names, and the one the examples and <c>worker/README.md</c>
+    /// all say. Built from <c>worker/Dockerfile</c>.
     /// </summary>
     public const string Tag = "ghcr.io/nanisoft/agent-factory-worker:1";
 

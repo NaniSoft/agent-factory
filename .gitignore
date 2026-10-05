@@ -1,6 +1,8 @@
 # Local agent/tool state. settings.local.json holds a live ANTHROPIC_AUTH_TOKEN.
 .claude/
 .playwright-mcp/
+# Visual Studio's per-solution state, which it writes beside the .slnx on every open.
+.vs/
 
 # Secrets and local noise.
 .env
@@ -9,9 +11,14 @@
 # Credential values live here as one file per name (#32) — never a committed artifact.
 secrets/
 
-# The build.
+# The .NET build output, and only that. Scoped to src/ because the patterns are directory
+# names rather than paths, and an unscoped `[Bb]in/` also swallowed worker/bin/ -- the
+# recording wrapper, the collector and the round entrypoint that worker/Dockerfile COPYs,
+# which is why the image could not be built from a clean checkout (#41). Those three files
+# are source and are committed; nothing else called `bin` is.
 [Bb]in/
 [Oo]bj/
+!/worker/bin/
 
 # The store of record is a local file, not a committed artifact (ADR-0009).
 data/

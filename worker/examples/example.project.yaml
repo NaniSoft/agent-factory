@@ -1,37 +1,36 @@
-# An example project file, showing the worker image this directory builds.
+# An example project file — copy it to `factories/<your-project>.yaml` and fill it in.
 #
-# A project is one file in `factories/`, and the served set is exactly the files there.
-# Copy this to `factories/<your-project>.yaml` and fill in your own values; the schema is
-# these six and nothing else, and a field beyond them is refused rather than ignored, so
-# factory policy cannot drift into project configuration.
+# **This file is not served.** A project file in `factories/` is served, and the served set is
+# exactly the files there, so an example that lived there would be a repository the factory
+# polls and merges into. See `factories/README.md` and #23.
 #
-# The running example, `factories/nexus.yaml`, names the same image:
+# The schema is exactly these six values and nothing more. A field beyond them is refused
+# rather than ignored, so factory policy cannot move into project configuration.
 #
-#   worker:
-#     image: ghcr.io/nanisoft/agent-factory-worker:1
-#
-# That image is built from `worker/Dockerfile` in this repository. To use it locally:
+# The image is built from `worker/Dockerfile` in this repository:
 #
 #   docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
-#   bash worker/smoke-test.sh
+#
+# and proved by `bash worker/smoke-test.sh`.
 
 name: example
 repo:
-  # Absolute http or https. The worker container fetches this itself, with no credential
-  # that can write to it (ADR-0006, ADR-0010) -- the host pushes, not the container.
+  # Absolute http or https. The worker container fetches this itself, with no credential that
+  # can write to it (ADR-0006, ADR-0010) -- the host pushes, not the container.
   url: https://github.com/NaniSoft/example
 worker:
-  # The image each round's worker container starts from. One fresh container per round.
-  # Published from worker/Dockerfile; derive a project-specific one from it when the
-  # project needs a toolchain the base image does not carry.
-  # See worker/docs/deriving-a-project-image.md.
+  # The image each round's worker container starts from. One fresh container per round, and
+  # nothing survives it. Derive a project-specific image when the project needs a toolchain
+  # the base does not carry -- see worker/docs/deriving-a-project-image.md.
   image: ghcr.io/nanisoft/agent-factory-worker:1
 llm:
-  # The provider the agent runs on. The key itself is passed into the container as an
-  # environment variable for the life of one round and dies with the container.
-  provider: anthropic
+  # A full provider/model reference, because the provider prefix is how the factory knows
+  # which canonical environment variable to re-emit the key under. A reference naming a
+  # provider the factory does not know is refused at load rather than sending the agent a key
+  # nothing reads (#38).
+  model: anthropic/claude-sonnet-4-5
 keys:
-  # Names of environment variables, never their values. This is what keeps the project
-  # file committable and rotation an environment change rather than a code change.
+  # Names of environment variables, never their values. This is what keeps the project file
+  # committable and rotation an environment change rather than a code change.
   github: EXAMPLE_GITHUB_TOKEN
   llm: EXAMPLE_ANTHROPIC_API_KEY

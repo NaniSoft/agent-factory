@@ -32,7 +32,7 @@ set -uo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# The image name is the one a project file names. `factories/nexus.yaml` and
+# The image name is the one a project file names. `worker/examples/*.project.yaml` and
 # src/agent-factory.tests/Boundary/ProjectFile.cs both already say
 # `ghcr.io/nanisoft/agent-factory-worker:1`, and this is that image, built
 # locally under the same name so the two cannot drift apart.

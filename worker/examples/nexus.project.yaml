@@ -1,0 +1,41 @@
+# An EXAMPLE project file. It is not served, and it is not in `factories/`.
+#
+# #23 asked what a committed project file is for. This is the answer: an example is a
+# committed project file that the factory does not read, and putting it anywhere the loader
+# looks would make "committed" mean "served", which is the thing that was wrong.
+#
+# `factories/nexus.yaml` was committed, validated, and named https://github.com/NaniSoft/nexus
+# — a real repository. The served set is exactly the files in `factories/`, so on every
+# checkout, with `NEXUS_GITHUB_TOKEN` set in the environment and nothing else, the factory
+# would poll that repository and, given a work item, open and merge real pull requests into
+# it. Only the variable being unset had prevented that, which is luck rather than policy.
+#
+# So: `factories/` in a checkout of this repository holds no project file, and this file is
+# here to be copied. `worker/examples/example.project.yaml` is the other one.
+#
+# To serve a project, put a copy in `factories/` — through the board's projects page, or by
+# hand. The schema is exactly these six values and nothing more; a field beyond them is
+# refused rather than ignored, so factory policy cannot move into project configuration.
+
+name: nexus
+repo:
+  # Absolute http or https. The worker container fetches this itself, with no credential
+  # that can write to it (ADR-0006, ADR-0010) -- the host pushes, not the container.
+  url: https://github.com/NaniSoft/nexus
+worker:
+  # The image each round's worker container starts from, built from worker/Dockerfile:
+  #
+  #   docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
+  image: ghcr.io/nanisoft/agent-factory-worker:1
+llm:
+  # A full provider/model reference. The provider prefix is how the factory knows which
+  # canonical environment variable to re-emit the key under, so a reference whose provider
+  # it does not know is refused here rather than sending the agent a key nothing reads
+  # (#38). A credential is scoped to one project and dies with one round container.
+  model: anthropic/claude-sonnet-4-5
+keys:
+  # Names of environment variables, never their values. This is what keeps the project file
+  # committable and rotation an environment change rather than a code change. The GitHub
+  # name is read on the host only, by the merger, after the container is gone (ADR-0006).
+  github: NEXUS_GITHUB_TOKEN
+  llm: NEXUS_ANTHROPIC_API_KEY
