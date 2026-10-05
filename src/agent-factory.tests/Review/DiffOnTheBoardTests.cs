@@ -112,6 +112,79 @@ public class DiffOnTheBoardTests
     }
 
     [Fact]
+    public void The_rounds_diff_is_not_annotated_by_the_hosts_line_ending_setting()
+    {
+        // #26, and the honest shape of it.
+        //
+        // What the run actually observed was a warning, not a wrong diff: on this host,
+        // `core.autocrlf=true`, and `git diff` in the lifted tree printed "LF will be
+        // replaced by CRLF the next time Git touches it" for every file in the change. The
+        // diff could not be made *wrong* in that run, and it is worth saying so plainly
+        // rather than overstating the ticket: what was at risk was the claim that a
+        // reviewer holds the card against their own `git diff` and gets the same thing.
+        //
+        // So this asserts the observable half directly, over the real git and the real
+        // arguments the reader passes. A round leaves uncommitted work on disk as often as
+        // it commits, and a committed change is compared blob-to-blob where autocrlf has no
+        // say at all — so the uncommitted case is the one that reproduces, and it is the
+        // one the deriver and the merger's own "left changes uncommitted" check also depend
+        // on.
+        using var tree = LiftedTree.WithACommitOn();
+
+        // What the host's own configuration produced. `core.autocrlf=true` is on the
+        // *system* config of the machine this was found on; it is reproduced in the tree's
+        // own repository so the test does not reach outside the factory and edit a
+        // developer's global git config, which would be a worse version of the same
+        // dependency.
+        tree.Configured("core.autocrlf", "true");
+        tree.LeftUncommitted("src/Index.cs", "public sealed class Index { }\npublic sealed class Added { }\n");
+
+        var annotated = Git(tree, tree.StartHead, withLineEndingPin: false);
+
+        // The exact sentence #16 recorded, because that is what a reviewer reading the log
+        // would have seen and a looser match would let a different warning stand in for it.
+        Assert.Contains("LF will be replaced by CRLF", annotated.Error, StringComparison.Ordinal);
+
+        // What the reader passes, on the same tree, in the same state.
+        var pinned = Git(tree, tree.StartHead, withLineEndingPin: true);
+
+        Assert.Equal(string.Empty, pinned.Error.Trim());
+        Assert.Equal(annotated.Output, pinned.Output);
+    }
+
+    /// <summary>
+    /// One <c>git diff</c> against a real tree, either with the reader's own argument list
+    /// or with the line-ending pin left off, so the difference between them is the thing
+    /// under test rather than an accident of how the process was started.
+    /// </summary>
+    private static (string Output, string Error) Git(
+        LiftedTree tree,
+        string against,
+        bool withLineEndingPin)
+    {
+        var arguments = HostDiffReader.Arguments(against)
+            .ToList();
+
+        if (!withLineEndingPin)
+        {
+            // The pair the reader pins, dropped as a pair — a `-c` and the value after it.
+            for (var at = 0; at < arguments.Count; at++)
+            {
+                if (arguments[at] == "-c" && arguments[at + 1] == "core.autocrlf=false")
+                {
+                    arguments.RemoveRange(at, 2);
+                    break;
+                }
+            }
+        }
+
+        return LiftedTree.Git(tree.Path, [.. arguments]);
+    }
+
+    /// <summary>
+    /// One round's diff as the board rendered it, from a real tree, with the real round
+    /// runner and only Docker faked. The single path <see cref="LiftedTree"/> exists for,
+    [Fact]
     public async Task Round_twos_diff_is_round_twos_change_and_not_round_ones()
     {
         // **The decisive test for #22, and the one that was impossible to write before it.**

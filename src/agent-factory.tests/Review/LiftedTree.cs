@@ -96,6 +96,18 @@ public sealed class LiftedTree : IDisposable
     }
 
     /// <summary>
+    /// Sets a git configuration value in the tree's own repository, so a test can make the
+    /// host read a diff under a configuration it would otherwise inherit from the machine.
+    /// Used for #26, where this machine's <c>core.autocrlf=true</c> changed the bytes on the
+    /// card — a fixture can reproduce the setting that was the defect.
+    /// </summary>
+    public LiftedTree Configured(string key, string value)
+    {
+        Git(this, "config", key, value);
+        return this;
+    }
+
+    /// <summary>
     /// A file the round left on disk without committing, which is a real and common
     /// outcome and one the review surface has to account for separately from the diff.
     /// </summary>
@@ -164,12 +176,21 @@ public sealed class LiftedTree : IDisposable
     /// </summary>
     public string Head() => Git(this, "rev-parse", "HEAD").Trim();
 
-    private static string Git(LiftedTree tree, params string[] arguments)
+    private static string Git(LiftedTree tree, params string[] arguments) =>
+        Git(tree.Path, arguments).Output;
+
+    /// <summary>
+    /// One git invocation in this tree, with both streams kept. Public because a test
+    /// asserting that the host produced <em>no</em> warning has to see the warning channel
+    /// as well as the diff, and <c>Output</c> alone would be a way of only ever seeing the
+    /// half that passed.
+    /// </summary>
+    public static (string Output, string Error) Git(string workingDirectory, string[] arguments)
     {
         var start = new ProcessStartInfo
         {
             FileName = "git",
-            WorkingDirectory = tree.Path,
+            WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -194,7 +215,7 @@ public sealed class LiftedTree : IDisposable
                 $"git {string.Join(' ', arguments)} failed in a test fixture: {error}{output}");
         }
 
-        return output;
+        return (output, error);
     }
 
     public void Dispose()

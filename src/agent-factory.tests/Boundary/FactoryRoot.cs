@@ -32,6 +32,14 @@ public sealed class FactoryRoot : IDisposable
         return this;
     }
 
+    /// <summary>
+    /// Writes a project file that fails validation, so the board renders its refusal
+    /// section. A test about what the board says about a project file it could not read
+    /// needs one there to say it about.
+    /// </summary>
+    public FactoryRoot WithRefusedFile(string fileName) =>
+        WithProjectFile(fileName, "name: broken\nrepo:\n  url: not-a-url\n");
+
     public void Dispose()
     {
         try

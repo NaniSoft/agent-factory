@@ -86,6 +86,16 @@ public sealed record HostDiff(
 /// diff silently absent rather than wrong.
 /// </para>
 /// <para>
+/// Three things are pinned that the tree and the host cannot be trusted to have set, and all
+/// three are refusals rather than conveniences: <c>--no-ext-diff</c> and
+/// <c>--no-textconv</c> (a program named in a repository this factory did not write),
+/// <c>safe.directory</c> (a tree git would otherwise refuse to read at all), and
+/// <c>core.autocrlf=false</c> (a host whose line-ending setting would otherwise annotate
+/// every file in the change — #26). The first two are in the argument list and the third is
+/// too; the point of all three is the same: the diff on the card is a function of the round's
+/// tree and not of the machine rendering it.
+/// </para>
+/// <para>
 /// Nothing here writes to the tree. A tree lifted out of a Linux container arrives on
 /// Windows with read-only pack files, and a diff is a read of them; anything that
 /// deleted or moved files in there would have to clear the attributes first, and the
@@ -136,11 +146,32 @@ public static class HostDiffReader
     /// <c>core.quotepath=false</c> is a display setting — git escapes a path above ASCII
     /// by default, which would give a reviewer two spellings of the same file, one on the
     /// index line and one in git's own text underneath it.
+    ///
+    /// <c>core.autocrlf=false</c> is not a display setting and is the reason #26 exists.
+    /// Without it the diff's bytes depend on the host: this machine had autocrlf on, git
+    /// warned about CRLF for every file, and "a reviewer can hold the card against their own
+    /// <c>git diff</c> and get the same bytes" was only usually true. It is passed as an
+    /// argument rather than through <see cref="GitEnvironment"/> for no strong reason other
+    /// than that both are refusals and the arguments are the list a test can read; what
+    /// matters is that it is set for this invocation and not written into the tree.
     /// </remarks>
     public static IReadOnlyList<string> Arguments(string against) =>
     [
         "-c",
         "core.quotepath=false",
+        // Line endings, pinned the way safe.directory is and for the same kind of reason
+        // (#26). This host had core.autocrlf=true, and the reader said nothing about it, so
+        // git emitted CRLF warnings per file and the bytes on the card depended on the
+        // machine rendering it rather than on the round that wrote them.
+        //
+        // The round committed inside a Linux container, where autocrlf is off and the index
+        // holds the bytes the agent actually wrote. Turning it off here makes the diff
+        // compare those bytes against those bytes, so the card is the same diff a reviewer
+        // gets on their own machine — which is the property AGENTS.md claims and which was
+        // only "usually true" before. Pinned rather than written into the tree for the same
+        // reason safe.directory is: reading a round's diff never modifies a round's tree.
+        "-c",
+        "core.autocrlf=false",
         "--no-pager",
         "diff",
         "--no-color",

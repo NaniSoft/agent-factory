@@ -6,7 +6,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Factory — board@(Model.Project is { Length: > 0 } p ? $" — {p}" : "")</title>
-    <link rel="stylesheet" href="~/board.css" />
+    @* `/board.css`, and not `~/board.css`. The tilde form resolves against the *content
+        root*, which is a factory data directory — a temporary one in the test host,
+        `/app` in the deployment — and the stylesheet is not beside it. It is published
+        beside the entry assembly instead, so the path a browser is given has to be the
+        one the process actually serves rather than the one the content root implies
+        (#25). *@
+    <link rel="stylesheet" href="/board.css" />
 </head>
 <body>
     <header>

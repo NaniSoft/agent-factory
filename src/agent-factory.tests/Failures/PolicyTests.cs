@@ -631,6 +631,23 @@ public class PolicyTests
         Assert.Contains("--no-color", arguments);
         Assert.Equal("abc1234", arguments[^1]);
 
+        // And line endings, pinned for the same reason #26 exists. Left to the host, the
+        // bytes on a card depend on the machine rendering it: this one had
+        // core.autocrlf=true, git warned about CRLF for every file, and AGENTS.md's claim
+        // that a reviewer can hold the card against their own `git diff` and get the same
+        // bytes was only usually true. The round committed inside a Linux container where
+        // autocrlf is off, so off is the setting that compares the agent's bytes with
+        // themselves.
+        var pinned = arguments
+            .Select((argument, at) => (argument, at))
+            .Where(pair => pair.argument == "-c")
+            .Select(pair => pair.at + 1)
+            .Select(at => arguments[at])
+            .ToList();
+
+        Assert.Contains("core.autocrlf=false", pinned);
+        Assert.Contains("core.quotepath=false", pinned);
+
         // And the one configuration a diff cannot be read without: a tree created by uid
         // 1000 inside a container is a repository git refuses to read on a Linux host, so
         // without this the round's diff would be silently *absent* rather than wrong —

@@ -14,6 +14,7 @@ using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.FileProviders;
 
 /// <summary>
 /// The whole factory, in one process: the config loader, the store, intake, the
@@ -186,6 +187,44 @@ public static class FactoryApp
         // Resolved here rather than on the first board render, so configuration is read
         // at start the way it is meant to be.
         _ = app.Services.GetRequiredService<ProjectLoadReport>();
+
+        // The board's stylesheet, and the only static file this process serves.
+        //
+        // `~/board.css` is what `Pages/Index.cshtml` links, so without this the board
+        // rendered entirely unstyled — every state it distinguishes was legible, and none
+        // of it looked like anything (#25).
+        //
+        // The file provider is named rather than left to the content root. The content root
+        // is wherever the factory's own directories happen to be — a temporary directory in
+        // the test host, `/app` in the deployment — and it is a factory *data* directory, so
+        // it never carries a `wwwroot` of its own. The stylesheet is a property of the
+        // application rather than of wherever a deployment put it, and `dotnet publish`
+        // puts it beside the entry assembly, which is where this looks.
+        //
+        // Loopback binding is what keeps this from being a second surface: the same machine
+        // that can open the board can open its stylesheet, and nothing else can reach
+        // either (ADR-0005, ADR-0012). It is also the only file: no directory listing, no
+        // arbitrary path, and nothing derived from a request except the name the board
+        // itself renders.
+        var stylesheets = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        if (Directory.Exists(stylesheets))
+        {
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(stylesheets),
+                ServeUnknownFileTypes = false,
+            });
+        }
+        else
+        {
+            // Said out loud rather than left as a silently unstyled board, which is how
+            // #25 presented in the first place: a link to a file that is not there reads as
+            // a board that is merely plain.
+            app.Logger.LogWarning(
+                "No wwwroot beside the entry assembly at {Directory}, so the board will render unstyled: "
+                    + "the copy that ships is published there and this build did not put it there",
+                stylesheets);
+        }
 
         app.MapRazorPages();
         return app;
