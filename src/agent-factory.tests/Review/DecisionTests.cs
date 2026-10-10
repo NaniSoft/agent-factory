@@ -323,17 +323,19 @@ public class DecisionTests
         // The process serves a known, closed set of endpoints, and every one of them that
         // can change anything is the board page. Anything a human — or anything at all —
         // can reach arrives through one of them, because there is
-        // Nothing else addressable beside the two pages and the one JSON read: the board,
+        // Nothing else addressable beside the two pages and the JSON surface: the board,
         // the projects surface (#33), which writes project files and secrets and moves no
-        // work item, and the admin app's `GET /api/board` (#43), which reads the budget and
-        // the auto-merge mode and writes nothing at all. A Razor page's route pattern
-        // carries no raw text of its own, so the endpoint is named rather than spelled as a
-        // URL. A middleware that wrote without going through routing would not be on this
-        // list, and there is none; what the list does prove is that nothing else is
-        // reachable. The raw pattern is the pages-root-relative template, which is why the
-        // projects page's is "Projects" and the board's is "/Index"; the JSON endpoint is a
-        // minimal-API route and carries its own absolute template.
-        Assert.Equal(["/Index", "/api/board", "Projects"], host.Routes());
+        // work item, and the admin app's `/api` group — the board read (#43) and the
+        // projects read and writes (#48), none of which moves a work item. A Razor page's
+        // route pattern carries no raw text of its own, so the endpoint is named rather than
+        // spelled as a URL. A middleware that wrote without going through routing would not
+        // be on this list, and there is none; what the list does prove is that nothing else
+        // is reachable. The raw pattern is the pages-root-relative template, which is why the
+        // projects page's is "Projects" and the board's is "/Index"; the JSON endpoints are
+        // minimal-API routes and carry their own absolute templates.
+        Assert.Equal(
+            ["/Index", "/api/board", "/api/projects", "/api/projects/{name}", "Projects"],
+            host.Routes());
 
         // And the board itself has three writes: the reviewer's decision — the only one
         // that finishes built work — the review workspace's open (#35), which moves

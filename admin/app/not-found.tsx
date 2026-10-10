@@ -7,10 +7,10 @@
  */
 export default function NotFound() {
   return (
-    <main className="board">
-      <header className="board__header">
-        <h1 className="board__title">There is no page here</h1>
-        <p className="board__lede">The Board is at the root of this app.</p>
+    <main className="page">
+      <header className="page__header">
+        <h1 className="page__title">There is no page here</h1>
+        <p className="page__lede">The Board is at the root of this app.</p>
       </header>
     </main>
   );
