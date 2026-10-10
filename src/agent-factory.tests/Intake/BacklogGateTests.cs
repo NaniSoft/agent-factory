@@ -61,39 +61,6 @@ public class BacklogGateTests
     }
 
     [Fact]
-    public async Task The_board_offers_the_acceptance_and_the_loop_applies_it()
-    {
-        // The gate, end to end at the surface: a Backlog card carries the build button, and
-        // the click goes through the page to the orchestrator — the same component that
-        // applies every other transition — and the item moves.
-        using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store
-            .Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main")
-            .WorkItem;
-
-        var html = await (await host.Board.GetAsync("/?project=nexus")).Content.ReadAsStringAsync();
-        Assert.Contains($"data-build=\"{workItem.Id}\"", html, StringComparison.Ordinal);
-
-        const string marker = "name=\"__RequestVerificationToken\" type=\"hidden\" value=\"";
-        var start = html.IndexOf(marker, StringComparison.Ordinal);
-        Assert.True(start >= 0, "the board rendered no antiforgery token");
-        var token = html[(start + marker.Length)..];
-        token = token[..token.IndexOf('"', StringComparison.Ordinal)];
-
-        using var form = new System.Net.Http.FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("__RequestVerificationToken", token),
-            new KeyValuePair<string, string>("workItemId", workItem.Id.ToString()),
-        ]);
-        using var response = await host.Board.PostAsync("/?handler=Build&project=nexus", form);
-        Assert.True(response.IsSuccessStatusCode, $"the build POST was refused: {response.StatusCode}");
-
-        Assert.Equal(Swimlane.Frontier, host.Store.Get(workItem.Id)!.Swimlane);
-    }
-
-    [Fact]
     public async Task Acceptance_is_refused_for_a_work_item_not_waiting_in_backlog()
     {
         using var root = FactoryRoot.Create();

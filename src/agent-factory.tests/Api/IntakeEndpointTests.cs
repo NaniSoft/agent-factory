@@ -13,7 +13,7 @@ using AgentFactory.Tests.Boundary;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the JSON half of what <c>IntakeBoardTests</c> asserts on the Razor board: a
+/// This is the JSON half of what <c>IntakeBoardTests</c> asserts: a
 /// project whose intake failed has produced no work item, so the only place its fault can
 /// live is the intake section above the lanes. An empty Backlog is three different facts —
 /// read and nothing open, never read, or read and refused — and the renderer re-decides

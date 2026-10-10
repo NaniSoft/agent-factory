@@ -98,8 +98,8 @@ public sealed record BoardView(
 
 /// <summary>
 /// What intake says about the whole factory and about each project it serves, serialised
-/// from <see cref="HowToReadIntake"/> — the same judgement the Razor board renders above
-/// its lanes. An empty Backlog is three different facts, and this is the section that
+/// from <see cref="HowToReadIntake"/> — the same judgement the board renders above its
+/// lanes. An empty Backlog is three different facts, and this is the section that
 /// tells them apart: never polled, polled (with what it found), and failing (with the
 /// classification and when the project will next be asked).
 /// </summary>

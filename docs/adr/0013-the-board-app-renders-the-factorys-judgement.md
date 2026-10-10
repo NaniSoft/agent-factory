@@ -19,8 +19,8 @@ and the app is not allowed to grow a second.
 # Consequences
 
 `GET /api/board` returns the budget as `Orchestrator.RoundsInFlight` against
-`FactoryConstants.ContainerBudget`, exactly as the Razor board's header reads it,
-and the mode as `FactoryOptions.AutoMerge`. Later endpoints reuse the same
+`FactoryConstants.ContainerBudget`, exactly as the board's own header read it, and
+the mode as `FactoryOptions.AutoMerge`. Later endpoints reuse the same
 judgement classes the pages do, because the API lives in the same assembly and can
 call the `internal` ones directly; the layer that is added is a serialiser and a
 DTO, not a second set of rules.
@@ -30,8 +30,9 @@ pinned by its own records and the app's by a fixture that mirrors a real respons
 held together by tests, so a difference is a failing test rather than a generated
 file two tools have to keep producing.
 
-The app writes nothing it should not: the only writes it will grow are the ones the
-factory's existing page handlers already have, each mirroring a handler and
-inventing no capability. A surface that could change a work item another way would
-be reachable and therefore subject to the same "the board is the only way a human
-can change anything" check the Razor board is.
+The app writes nothing it should not: the only writes it grew are the ones the
+factory's handlers already had, each mirroring a handler and inventing no capability
+— and after the cutover (#51) the sole write that moves a work item is
+`POST /api/work-items/{id}/decisions`. A surface that could change a work item
+another way would be reachable and therefore subject to the same "the board is the
+only way a human can change anything" check the process's route list is.

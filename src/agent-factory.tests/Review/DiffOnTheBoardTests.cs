@@ -577,64 +577,6 @@ public class DiffOnTheBoardTests
     // ---------------------------------------------------------------- a large diff
 
     [Fact]
-    public async Task A_reviewer_who_opened_a_file_still_has_it_open_after_the_board_refreshes()
-    {
-        // Folding is only worth anything if it holds still. The board reloads itself every
-        // five seconds — which is the right behaviour for a board and would be the wrong
-        // one for a fold — so the open sections are restored on the way back in.
-        //
-        // Asserted as the shape the restore is written against rather than by running a
-        // browser, and the honest limit of that is worth stating plainly: nothing here
-        // executes the script, so this does not prove a browser reopened anything. What it
-        // does check is the part a reviewer would notice if it were wrong — that every
-        // section carries a key naming its work item *and* its round *and* its file, so a
-        // file a reviewer opened in round 1 is not also opened in round 2, where the same
-        // path is a different change.
-        using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode()
-            .Yielding(RoundResult.Produced(
-                ResultPayload.Of(Derived()),
-                "First attempt.",
-                "round 1 log",
-                AChangeTo("src/First.cs")))
-            .Yielding(RoundResult.Produced(
-                ResultPayload.Of(Derived()),
-                "Second attempt.",
-                "round 2 log",
-                AChangeTo("src/First.cs", "src/Second.cs")));
-
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = host.Store
-            .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
-        await host.PromoteAsync(workItem.Id);
-
-        await host.Settle();
-        await Board.DecideAsync(host.Board, workItem.Id, "request-changes", "Again.");
-        await host.Settle();
-
-        var board = await Board.ReadAsync(host.Board);
-
-        // The same file in both rounds, and a different key for each — which is the whole
-        // point, and the thing a key built from the path alone would get wrong.
-        Assert.Equal(["src/First.cs"], board.DiffOn(1).Files.Select(file => file.Path));
-        Assert.Equal(["src/First.cs", "src/Second.cs"], board.DiffOn(2).Files.Select(file => file.Path));
-
-        var keys = Board.ValuesOf(board.Swimlane("Review"), "data-open-key");
-        Assert.Equal(
-            [
-                $"{workItem.Id:N}/1/src/First.cs",
-                $"{workItem.Id:N}/2/src/First.cs",
-                $"{workItem.Id:N}/2/src/Second.cs",
-            ],
-            keys);
-        Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
-
-        // And the restore reads that key and nothing else.
-        Assert.Contains("data-open-key", board.Html, StringComparison.Ordinal);
-        Assert.Contains("sessionStorage", board.Html, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task A_large_diff_is_folded_per_file_with_its_counts_and_nothing_dropped()
     {
         // The judgement #9 left open, and the one worth stating in a test rather than only

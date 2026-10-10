@@ -320,26 +320,16 @@ public class DecisionTests
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var (rejected, waiting) = await TwoInReview(host);
 
-        // The process serves a known, closed set of endpoints, and every one of them that
-        // can change anything is the board page. Anything a human — or anything at all —
-        // can reach arrives through one of them, because there is
-        // Nothing else addressable beside the two pages and the JSON surface: the board,
-        // the projects surface (#33), which writes project files and secrets and moves no
-        // work item, and the admin app's `/api` group — the board read (#43), the review
-        // workspace's open (#47), which stands a container up and moves no work item, the
-        // projects read and writes (#48), and the credentials surface (#49), whose `GET`
-        // lists names and presence, whose `PUT` writes a secret, and whose `DELETE` removes
-        // one — none of which moves a work item. A Razor page's route pattern carries no raw text of
-        // its own, so the endpoint is named rather than spelled as a URL. A middleware that
-        // wrote without going through routing would not be on this list, and there is none;
-        // what the list does prove is that nothing else is reachable. The raw pattern is the
-        // pages-root-relative template, which is why the projects page's is "Projects" and
-        // the board's is "/Index"; the JSON endpoints are minimal-API routes and carry their
-        // own absolute templates, and `PUT` and `DELETE` on one path collapse to one entry
-        // because the pattern is what is listed.
+        // With the Razor board retired (#51) the process serves exactly the JSON surface:
+        // the board read (#43), the work-item detail (#46), the decisions write (#45), the
+        // review workspace's open (#47), and the projects (#48) and credentials (#49)
+        // surfaces. Nothing else is addressable — there is no page and no `/Index` or
+        // `Projects` endpoint left — so everything a human can reach arrives through one of
+        // these, and the only one that can move a work item is the decisions write. The
+        // paths are minimal-API templates, and `PUT` and `DELETE` on one path collapse to a
+        // single entry because the pattern is what is listed.
         Assert.Equal(
             [
-                "/Index",
                 "/api/board",
                 "/api/credentials",
                 "/api/credentials/{name}",
@@ -348,40 +338,30 @@ public class DecisionTests
                 "/api/work-items/{id}",
                 "/api/work-items/{id}/decisions",
                 "/api/work-items/{id}/workspace",
-                "Projects",
             ],
             host.Routes());
 
-        // And the board itself has three writes: the reviewer's decision — the only one
-        // that finishes built work — the review workspace's open (#35), which moves
-        // nothing, and the Backlog gate's build (#40), whose move is the loop's own
-        // acceptance. Anything else that changed a work item would have to appear here to
-        // be reachable at all.
-        Assert.Equal(["OnGet", "OnPostBuildAsync", "OnPostDecision", "OnPostOpenWorkspaceAsync"], host.BoardHandlers());
-
-        // And the page does not move work items itself. Which swimlane a decision means
-        // is the loop's policy, and a page that moved work items would be a second state
-        // machine that could disagree with the loop about the same work item. This is a
-        // check of the page's own source rather than of behaviour, and the honest limit
+        // And the endpoint does not move work items itself. Which swimlane a decision means
+        // is the loop's policy, and an endpoint that moved work items would be a second state
+        // machine that could disagree with the loop about the same work item. This is a check
+        // of the composition root's own source rather than of behaviour, and the honest limit
         // of it is that it would not catch a differently spelled way to move one.
-        var page = ReadTheFile("Pages", "Index.cshtml.cs");
+        var page = ReadTheFile("FactoryApp.cs");
         Assert.DoesNotContain(".Move(", page, StringComparison.Ordinal);
         Assert.DoesNotContain(".ApplyDecision(", page, StringComparison.Ordinal);
         Assert.Contains("RecordDecision(", page, StringComparison.Ordinal);
         Assert.Contains("StepAsync()", page, StringComparison.Ordinal);
 
         // And it does not merge anything itself either. Approve means merged, so the merge
-        // is the loop's to ask the GitHub seam for; a page that merged would be a second
+        // is the loop's to ask the GitHub seam for; an endpoint that merged would be a second
         // thing shipping changes, outside the loop whose answer is what Done means.
         Assert.DoesNotContain("MergeAsync(", page, StringComparison.Ordinal);
 
-        // So the three decisions are the whole of it: exactly the three the board offers
-        // a reviewer in Review, and the store refuses a decision about anything not in
-        // Review — which is what stops an escalation or a done work item being moved by
-        // hand through the same form. A rejected one is refused by all three, and the
-        // work item stays rejected with the one decision that put it there. The other
-        // work item stays in Review throughout, so the board is still rendering a form
-        // to post from.
+        // So the three decisions are the whole of it: exactly the three the card offers a
+        // reviewer in Review, and the store refuses a decision about anything not in Review
+        // — which is what stops an escalation or a done work item being moved by hand. A
+        // rejected one is refused by all three, and the work item stays rejected with the
+        // one decision that put it there. The other work item stays in Review throughout.
         var board = await Board.ReadAsync(host.Board);
         Assert.Equal(
             ["approve", "request-changes", "reject"],
@@ -400,31 +380,6 @@ public class DecisionTests
 
         Assert.Equal(Swimlane.Review, host.Store.Get(waiting.Id)!.Swimlane);
         Assert.Single(host.Store.Decisions(rejected.Id));
-    }
-
-    [Fact]
-    public async Task A_decision_posted_without_the_boards_own_token_is_refused()
-    {
-        using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        var workItem = await InReview(host);
-
-        // The board's form carries a token and the endpoint requires it, so a post made
-        // without one — a curl, another page, anything that is not this page's form — is
-        // not a decision at all. The write path is the reviewer's form and nothing else.
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["workItem"] = workItem.Id.ToString(),
-            ["decision"] = "approve",
-            ["feedback"] = Feedback,
-        });
-
-        using var response = await host.Board.PostAsync("/?handler=Decision", content);
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
-        Assert.Empty(host.Store.Decisions(workItem.Id));
     }
 
     /// <summary>The board's own page, read from disk, for the checks that are about source.</summary>

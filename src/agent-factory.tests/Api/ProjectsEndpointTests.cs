@@ -10,7 +10,7 @@ using AgentFactory.Tests.Boundary;
 /// The factory, the loader and the store are the real thing; only the seams are
 /// substituted, and nothing here waits. What is asserted is exactly what a renderer
 /// reads and posts: the served set with its load state, the refused files, and the
-/// three writes that mirror the Razor page's handlers and invent no capability.
+/// three writes the board has always had, each inventing no capability.
 /// </summary>
 public class ProjectsEndpointTests
 {

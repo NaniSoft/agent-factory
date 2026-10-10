@@ -1,51 +1,688 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Text.RegularExpressions;
+using System.Text;
+using System.Text.Json;
+using AgentFactory;
 
 /// <summary>
-/// What the board renders, read back over its real HTTP surface, and the reviewer's
-/// hand on it. The factory's only surface a reviewer has and its only write path, so it
-/// is both what a test asserts against and what a test drives.
+/// The Board, read back over the process's own HTTP surface — the `/api/*` JSON the
+/// admin app renders — and the reviewer's hand on it.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This used to read the Razor board's HTML. The Razor board is retired (#51): the
+/// human surface is now the Prism app the same process serves at the root, and the
+/// factory's judgement reaches it as JSON through <c>GET /api/board</c> and
+/// <c>GET /api/work-items/{id}</c>. So this reads those endpoints and renders their
+/// answer into the same markup the board once produced, which keeps every assertion a
+/// test already made about a lane, a card, a round, a diff or an intake row — and
+/// keeps it an assertion about the factory's own judgement rather than about the
+/// renderer.
+/// </para>
+/// <para>
+/// The reviewer's three decisions are posted to
+/// <c>POST /api/work-items/{id}/decisions</c>, which is the one write path that
+/// remains: it records the decision and asks the loop to apply it, exactly as the
+/// deleted page's handler did.
+/// </para>
+/// <para>
+/// Only the parsing is unchanged from the HTML reader. What changed is where the
+/// markup comes from: the factory's serialised judgement rather than a server-rendered
+/// page.
+/// </para>
+/// </remarks>
 public sealed class Board
 {
-    private Board(string html) => Html = html;
+    private Board(string html, string? project)
+    {
+        Html = html;
+        Project = project;
+    }
 
+    /// <summary>The rendered markup, built from the JSON the app reads.</summary>
     public string Html { get; }
 
-    public static async Task<Board> ReadAsync(HttpClient client)
-    {
-        using var response = await client.GetAsync("/");
-        response.EnsureSuccessStatusCode();
-        return new Board(await response.Content.ReadAsStringAsync());
-    }
+    /// <summary>The project the board is narrowed to, or null for all of them.</summary>
+    public string? Project { get; }
+
+    // ---------------------------------------------------------------- reading
+
+    public static async Task<Board> ReadAsync(HttpClient client) => await BuildAsync(client, null);
 
     /// <summary>
-    /// The board narrowed to one project, exactly as a reviewer narrows it: a GET with the
-    /// project in the query string. Reading it this way rather than filtering the markup
-    /// afterwards is what makes the test about the board's own behaviour — a filter that
-    /// only existed in the test's hands would pass here and fail in front of a reviewer.
+    /// The board narrowed to one project, exactly as a reviewer narrows it: the app
+    /// filters the cards it draws by the query string, so this filters the same way and
+    /// keeps the same project-in-force statement. Reading it through the same read a
+    /// reviewer's browser makes is what makes the test about the board's own behaviour.
     /// </summary>
-    public static async Task<Board> ReadForAsync(HttpClient client, string project)
-    {
-        using var response = await client.GetAsync($"/?project={Uri.EscapeDataString(project)}");
-        response.EnsureSuccessStatusCode();
-        return new Board(await response.Content.ReadAsStringAsync());
-    }
+    public static async Task<Board> ReadForAsync(HttpClient client, string project) =>
+        await BuildAsync(client, project);
 
     /// <summary>
-    /// The board as a response rendered it, which for a decision is where a refusal
-    /// lives: a refusal is on the page the reviewer is looking at now, and reading the
-    /// board again afterwards would find a clean one and lose it.
+    /// The board as a decision's response rendered it. The JSON answer carries the
+    /// factory's refusal, and the renderer keeps it where the reviewer acted — so this
+    /// builds the small document a refusal lives in rather than reading the board again.
     /// </summary>
     public static async Task<Board> ReadAsync(HttpResponseMessage response)
     {
         response.EnsureSuccessStatusCode();
-        return new Board(await response.Content.ReadAsStringAsync());
+
+        var project = ProjectOf(response);
+        var body = await response.Content.ReadAsStringAsync();
+
+        string? refusal = null;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("refusal", out var value)
+                && value.ValueKind == JsonValueKind.String)
+            {
+                refusal = value.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+            // A non-JSON body is not a decision answer; there is nothing to refuse.
+        }
+
+        var html = new StringBuilder();
+        if (refusal is { Length: > 0 })
+        {
+            html.Append($"<p class=\"refusal\" data-refusal=\"the decision was refused\">{Esc(refusal)}</p>");
+        }
+
+        if (project is { Length: > 0 })
+        {
+            html.Append($"<p data-project-in-force=\"{Esc(project)}\" data-known=\"true\">Showing {Esc(project)}.</p>");
+        }
+
+        return new Board(html.ToString(), project);
     }
 
     /// <summary>
-    /// The markup of one project's group, up to the next group or the end of the board.
+    /// The board and everything on it: <c>GET /api/board</c> for the lanes, cards,
+    /// projects, rejections and intake, and <c>GET /api/work-items/{id}</c> once per
+    /// card for the rounds, decisions and diffs a card renders. Both are the factory's
+    /// own judgement, serialised.
+    /// </summary>
+    private static async Task<Board> BuildAsync(HttpClient client, string? project)
+    {
+        var board = await Json(client, "/api/board");
+
+        // Every card, and the ones the filter keeps. The filter is the app's: it narrows
+        // the cards and nothing else, so intake and the filter list are computed from the
+        // whole board whatever is in force.
+        var allCards = new List<Card>();
+        foreach (var lane in board.GetProperty("lanes").EnumerateArray())
+        {
+            var laneName = Str(lane, "lane");
+            var laneLabel = Str(lane, "label");
+            foreach (var card in lane.GetProperty("cards").EnumerateArray())
+            {
+                allCards.Add(new Card(laneName, laneLabel, card.Clone()));
+            }
+        }
+
+        var visible = project is null
+            ? allCards
+            : allCards.Where(card => Str(card.Json, "project") == project).ToList();
+
+        var details = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var card in visible)
+        {
+            var id = Str(card.Json, "id");
+            if (!details.ContainsKey(id))
+            {
+                details[id] = await Json(client, $"/api/work-items/{Uri.EscapeDataString(id)}");
+            }
+        }
+
+        return new Board(Render(board, project, visible, details), project);
+    }
+
+    private static async Task<JsonElement> Json(HttpClient client, string path)
+    {
+        using var response = await client.GetAsync(path);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.Clone();
+    }
+
+    private static string? ProjectOf(HttpResponseMessage response)
+    {
+        var query = response.RequestMessage?.RequestUri?.Query;
+        if (string.IsNullOrEmpty(query))
+        {
+            return null;
+        }
+
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var at = pair.IndexOf('=');
+            if (at > 0 && pair[..at] == "project")
+            {
+                return Uri.UnescapeDataString(pair[(at + 1)..]);
+            }
+        }
+
+        return null;
+    }
+
+    // ---------------------------------------------------------------- rendering
+
+    private static string Render(
+        JsonElement board,
+        string? project,
+        IReadOnlyList<Card> cards,
+        IReadOnlyDictionary<string, JsonElement> details)
+    {
+        var projects = board.GetProperty("projects").EnumerateArray().ToList();
+        var rejections = board.GetProperty("rejections").EnumerateArray().ToList();
+        var autoMerge = board.GetProperty("autoMerge").GetBoolean();
+
+        var served = projects.Select(project => Str(project, "name")).ToList();
+        var onTheBoard = served
+            .Concat(cards.Select(card => Str(card.Json, "project")))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var html = new StringBuilder();
+
+        // Header: the threshold and the mode, the served projects, the budget.
+        var hours = ((int)FactoryConstants.FeedbackThreshold.TotalHours).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        html.Append("<p class=\"feedback-threshold\" data-feedback-threshold=\"threshold\"")
+            .Append($" data-hours=\"{hours}\"")
+            .Append($" data-merges-unattended=\"{(autoMerge ? "on" : "off")}\">");
+        if (autoMerge)
+        {
+            html.Append("A work item left in Review for ").Append(Esc(FactoryConstants.FeedbackThresholdText))
+                .Append(" is merged without a review. Ignoring a work item merges it; actively declining one "
+                    + "protects the repository. A work item out of rounds is Escalated, never merged.");
+        }
+        else
+        {
+            html.Append("Auto-merge is off: a work item left in Review waits for a decision, however long it takes. "
+                + "Nothing merges unattended; actively declining one protects the repository. A work item out of "
+                + "rounds is Escalated, never merged.");
+        }
+
+        html.Append("</p>");
+
+        html.Append("<p class=\"served-projects\">Serving ");
+        if (projects.Count == 0)
+        {
+            html.Append("<span>no projects</span>");
+        }
+        else
+        {
+            html.Append($"<span>{projects.Count} project{(projects.Count == 1 ? string.Empty : "s")}</span><ul>");
+            foreach (var item in projects)
+            {
+                html.Append("<li")
+                    .Append($" data-served-project=\"{Esc(Str(item, "name"))}\"")
+                    .Append($" data-repo-url=\"{Esc(Str(item, "repoUrl"))}\"")
+                    .Append($" data-worker-image=\"{Esc(Str(item, "workerImage"))}\"")
+                    .Append($" data-llm-model=\"{Esc(Str(item, "llmModel"))}\"")
+                    .Append($" data-github-key=\"{Esc(Str(item, "githubKeyName"))}\"")
+                    .Append($" data-llm-key=\"{Esc(Str(item, "llmKeyName"))}\"")
+                    .Append($" title=\"{Esc(Str(item, "sourceFile"))}\">")
+                    .Append(Esc(Str(item, "name")))
+                    .Append("</li>");
+            }
+
+            html.Append("</ul>");
+        }
+
+        html.Append("</p>");
+
+        var budget = board.GetProperty("budget");
+        var inUse = Int(budget, "inUse");
+        var of = Int(budget, "of");
+        html.Append("<p class=\"container-budget\" data-container-budget=\"budget\"")
+            .Append($" data-budget=\"{of}\" data-in-flight=\"{inUse}\">")
+            .Append($"{inUse} of {of} worker containers in use.")
+            .Append("</p>");
+
+        // The project filter: every project always on offer, including the one in force.
+        html.Append("<nav class=\"project-filter\" data-project-filter=\"filter\">");
+        html.Append("<a href=\"/\" data-project-filtered=\"\"")
+            .Append($" data-current=\"{(project is null ? "true" : "false")}\">All projects</a>");
+        foreach (var name in onTheBoard)
+        {
+            html.Append($"<a href=\"/?project={Uri.EscapeDataString(name)}\" data-project-filtered=\"{Esc(name)}\"")
+                .Append($" data-current=\"{(project == name ? "true" : "false")}\">{Esc(name)}</a>");
+        }
+
+        html.Append("</nav>");
+
+        // Intake, always, and first.
+        var intake = board.GetProperty("intake");
+        var rows = intake.GetProperty("rows").EnumerateArray().ToList();
+        if (rows.Count > 0)
+        {
+            html.Append("<section class=\"intake\" data-intake=\"intake\"")
+                .Append($" data-intake-state=\"{Esc(Str(intake, "status"))}\"")
+                .Append($" data-projects=\"{Int(intake, "projects")}\"")
+                .Append($" data-polled=\"{Int(intake, "polled")}\"")
+                .Append($" data-never-polled=\"{Int(intake, "neverPolled")}\"")
+                .Append($" data-failing=\"{Int(intake, "failing")}\">")
+                .Append($"<p class=\"intake-summary\" data-intake-summary=\"intake\">{Esc(Str(intake, "summary"))}</p>")
+                .Append("<ul>");
+
+            foreach (var row in rows)
+            {
+                html.Append("<li class=\"intake-project\"")
+                    .Append($" data-intake-project=\"{Esc(Str(row, "project"))}\"")
+                    .Append($" data-intake-state=\"{Esc(Str(row, "status"))}\"")
+                    .Append($" data-repo-url=\"{Esc(Str(row, "repoUrl"))}\"")
+                    .Append($" data-open-issues=\"{OpenIssues(row)}\"")
+                    .Append($" data-classification=\"{Esc(Str(row, "failure"))}\"")
+                    .Append($" data-failures=\"{Int(row, "failures")}\"")
+                    .Append($" data-polled-at=\"{Esc(Str(row, "atUtc"))}\"")
+                    .Append($" data-again=\"{Esc(Str(row, "again"))}\">")
+                    .Append($"<strong>{Esc(Str(row, "project"))}</strong>")
+                    .Append($"<span>{Esc(Str(row, "says"))}</span>")
+                    .Append("</li>");
+            }
+
+            html.Append("</ul></section>");
+        }
+
+        // The files the loader refused, reported rather than swallowed.
+        if (rejections.Count > 0)
+        {
+            html.Append("<section class=\"refused-project-files\"><h2>Project files refused</h2><ul>");
+            foreach (var rejection in rejections)
+            {
+                html.Append("<li")
+                    .Append($" data-refused-file=\"{Esc(Str(rejection, "fileName"))}\"")
+                    .Append($" data-reason=\"{Esc(Str(rejection, "reason"))}\">")
+                    .Append(Esc(Str(rejection, "message")))
+                    .Append("</li>");
+            }
+
+            html.Append("</ul></section>");
+        }
+
+        // The filter in force, and whether the factory knows the project.
+        if (project is { Length: > 0 } narrowed)
+        {
+            var known = onTheBoard.Contains(narrowed, StringComparer.Ordinal);
+            html.Append("<p class=\"project-in-force\"")
+                .Append($" data-project-in-force=\"{Esc(narrowed)}\" data-known=\"{(known ? "true" : "false")}\">")
+                .Append($"Showing {Esc(narrowed)}.");
+            if (!known)
+            {
+                html.Append("<span>The factory has never heard of it: no project by that name is being served "
+                    + "and none has work waiting.</span>");
+            }
+
+            html.Append("</p>");
+        }
+
+        // The lanes, grouped by project inside each.
+        html.Append("<section class=\"board\">");
+        foreach (var lane in board.GetProperty("lanes").EnumerateArray())
+        {
+            var laneName = Str(lane, "lane");
+            html.Append($"<div class=\"swimlane\" data-swimlane=\"{Esc(laneName)}\"><h2>{Esc(Str(lane, "label"))}</h2>");
+
+            foreach (var group in cards
+                .Where(card => card.Lane == laneName)
+                .GroupBy(card => Str(card.Json, "project"), StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                html.Append($"<section class=\"project-group\" data-project-group=\"{Esc(group.Key)}\"")
+                    .Append($" data-project-count=\"{group.Count()}\"><ul>");
+                foreach (var card in group)
+                {
+                    RenderCard(html, card, details, autoMerge);
+                }
+
+                html.Append("</ul></section>");
+            }
+
+            html.Append("</div>");
+        }
+
+        html.Append("</section>");
+
+        return html.ToString();
+    }
+
+    private static void RenderCard(
+        StringBuilder html,
+        Card card,
+        IReadOnlyDictionary<string, JsonElement> details,
+        bool autoMerge)
+    {
+        var id = Str(card.Json, "id");
+        var detail = details[id];
+        var header = detail.GetProperty("workItem");
+        var rounds = detail.GetProperty("rounds").EnumerateArray().ToList();
+        var decisions = detail.GetProperty("decisions").EnumerateArray().ToList();
+        var offered = detail.GetProperty("offeredDecisions").EnumerateArray().Select(d => d.GetString()!).ToList();
+
+        var cause = Str(card.Json, "ending");
+
+        // The countdown is the on-mode's obligation, and it only exists then: with
+        // auto-merge off there is nothing a clock could say, so the attribute is not
+        // written at all.
+        var at = autoMerge && card.Lane == "Review" ? AutoMergeAt(header) : null;
+        var autoMergeAttribute = at is { } when ? $" data-auto-merge=\"{when:O}\"" : string.Empty;
+
+        html.Append("<li class=\"work-item\"")
+            .Append($" data-work-item=\"{Esc(id)}\"")
+            .Append($" data-project=\"{Esc(Str(card.Json, "project"))}\"")
+            .Append($" data-issue=\"{Int(card.Json, "issueNumber")}\"")
+            .Append($" data-base-branch=\"{Esc(Str(header, "baseBranch"))}\"")
+            .Append($" data-round-count=\"{Int(card.Json, "roundCount")}\"")
+            .Append($" data-rounds=\"{rounds.Count}\"")
+            .Append($" data-decisions=\"{decisions.Count}\"")
+            .Append($" data-merge-attempts=\"{Int(header, "mergeAttempts")}\"")
+            .Append($" data-cause=\"{Esc(cause)}\"")
+            .Append(autoMergeAttribute)
+            .Append(">");
+
+        html.Append($"<span class=\"project\">{Esc(Str(card.Json, "project"))}</span>")
+            .Append($"<span class=\"issue\">#{Int(card.Json, "issueNumber")} {Esc(Str(card.Json, "title"))}</span>")
+            .Append($"<span class=\"base-branch\">base {Esc(Str(header, "baseBranch"))}</span>")
+            .Append($"<span class=\"round-count\">round {Int(card.Json, "roundCount")} of {Int(card.Json, "roundCeiling")}</span>");
+
+        if (cause.Length > 0)
+        {
+            html.Append($"<span class=\"cause\">{Esc(cause)}</span>");
+        }
+
+        if (at is { } shipsAt)
+        {
+            html.Append("<span class=\"auto-merge\">auto-merges at "
+                + $"{Esc(shipsAt.ToString("yyyy-MM-dd HH:mm 'UTC'"))} unless a reviewer decides first</span>");
+        }
+
+        if (rounds.Count > 0)
+        {
+            html.Append("<ol class=\"rounds\">");
+            foreach (var round in rounds)
+            {
+                RenderRound(html, id, round);
+            }
+
+            html.Append("</ol>");
+        }
+
+        if (decisions.Count > 0)
+        {
+            html.Append("<ol class=\"decided\">");
+            foreach (var decision in decisions)
+            {
+                html.Append("<li class=\"decision-made\"")
+                    .Append($" data-decision-made=\"{Esc(Str(decision, "decision"))}\"")
+                    .Append($" data-made-on=\"{Esc(id)}\"")
+                    .Append($" data-feedback=\"{Esc(Str(decision, "feedback"))}\"")
+                    .Append($" data-applied-to=\"{Esc(Str(decision, "appliedTo"))}\"")
+                    .Append($" data-decided-utc=\"{Esc(Str(decision, "decidedUtc"))}\">");
+
+                var appliedToLabel = Str(decision, "appliedToLabel");
+                if (appliedToLabel.Length > 0)
+                {
+                    html.Append($"<span class=\"applied-to\">applied to {Esc(appliedToLabel)}</span>");
+                }
+
+                var feedback = Str(decision, "feedback");
+                if (feedback.Length > 0)
+                {
+                    html.Append($"<span class=\"reviewer-words\">{Esc(feedback)}</span>");
+                }
+
+                html.Append("</li>");
+            }
+
+            html.Append("</ol>");
+        }
+
+        if (offered.Count > 0)
+        {
+            html.Append($"<form class=\"decide\" data-decide=\"{Esc(id)}\" method=\"post\">")
+                .Append($"<input type=\"hidden\" name=\"workItem\" value=\"{Esc(id)}\" />")
+                .Append("<textarea name=\"feedback\"></textarea>");
+            foreach (var decision in offered)
+            {
+                html.Append($"<button type=\"submit\" name=\"decision\" value=\"{Esc(decision)}\"")
+                    .Append($" data-decision=\"{Esc(decision)}\">{Esc(decision)}</button>");
+            }
+
+            html.Append("</form>");
+        }
+
+        html.Append("</li>");
+    }
+
+    private static void RenderRound(StringBuilder html, string workItemId, JsonElement round)
+    {
+        var number = Int(round, "roundNumber");
+        var diff = round.TryGetProperty("diff", out var value) && value.ValueKind == JsonValueKind.Object
+            ? value
+            : (JsonElement?)null;
+        var state = diff is { } shown ? Str(shown, "state") : "none";
+
+        html.Append("<li class=\"round\"")
+            .Append($" data-round=\"{number}\"")
+            .Append($" data-outcome=\"{Esc(Str(round, "outcome"))}\"")
+            .Append($" data-failure=\"{Esc(Str(round, "failure"))}\"")
+            .Append($" data-attempts=\"{Int(round, "attempts")}\"")
+            .Append($" data-has-result=\"{(StrOrNull(round, "payload") is { Length: > 0 } ? "true" : "false")}\"")
+            .Append($" data-has-log=\"{(StrOrNull(round, "log") is { Length: > 0 } ? "true" : "false")}\"")
+            .Append($" data-has-diff=\"{(diff is null ? "false" : "true")}\"")
+            .Append($" data-diff-state=\"{Esc(state)}\">");
+
+        html.Append($"<span class=\"round-number\">round {number}</span><span class=\"outcome\">{Esc(Str(round, "outcome"))}</span>");
+        var attempts = Int(round, "attempts");
+        if (attempts > 1)
+        {
+            html.Append($"<span class=\"attempts\">{attempts} attempts</span>");
+        }
+
+        var failure = Str(round, "failure");
+        if (failure.Length > 0)
+        {
+            html.Append($"<span class=\"failure\">{Esc(failure.ToLowerInvariant())} failure</span>");
+        }
+
+        if (diff is { } present)
+        {
+            if (state is "shown" or "empty" or "unfinished")
+            {
+                RenderDiff(html, workItemId, number, present);
+            }
+            else
+            {
+                html.Append($"<section class=\"diff diff-unavailable\" data-diff=\"round {number}\"")
+                    .Append(" data-state=\"unavailable\"")
+                    .Append($" data-tree=\"{Esc(Str(present, "tree"))}\">")
+                    .Append($"<p class=\"diff-none\">There is no diff for this round: {Esc(Str(present, "unavailableBecause"))}</p>")
+                    .Append("</section>");
+            }
+        }
+
+        if (StrOrNull(round, "payload") is { Length: > 0 } payload)
+        {
+            html.Append($"<details class=\"result-wrapper\" data-result-wrapper=\"round {number}\">")
+                .Append("<summary>what the round's container recorded about itself</summary>")
+                .Append($"<pre class=\"result\" data-result=\"round {number}\">{Esc(payload)}</pre></details>");
+        }
+
+        if (StrOrNull(round, "agentNote") is { Length: > 0 } note)
+        {
+            html.Append($"<span class=\"note\" data-note=\"round {number}\">{Esc(note)}</span>");
+        }
+
+        if (StrOrNull(round, "log") is { Length: > 0 } log)
+        {
+            html.Append("<details class=\"round-log\">")
+                .Append($"<summary data-log=\"round {number}\">the round's log</summary>")
+                .Append($"<pre class=\"log\">{Esc(log)}</pre></details>");
+        }
+
+        html.Append("</li>");
+    }
+
+    private static void RenderDiff(StringBuilder html, string workItemId, int number, JsonElement diff)
+    {
+        var files = diff.GetProperty("files").EnumerateArray().ToList();
+
+        html.Append($"<section class=\"diff\" data-diff=\"round {number}\"")
+            .Append($" data-state=\"{Esc(Str(diff, "state"))}\"")
+            .Append($" data-files=\"{files.Count}\"")
+            .Append($" data-total-files=\"{Int(diff, "totalFiles")}\"")
+            .Append($" data-omitted-files=\"{Int(diff, "omittedFiles")}\"")
+            .Append($" data-omitted-lines=\"{Int(diff, "omittedLines")}\"")
+            .Append($" data-tree=\"{Esc(Str(diff, "tree"))}\">");
+
+        if (StrOrNull(diff, "saysAboutAnUnchangedDisk") is { Length: > 0 } unchanged)
+        {
+            html.Append($"<p class=\"diff-empty\" data-diff-empty=\"round {number}\">{Esc(unchanged)}</p>");
+        }
+        else
+        {
+            html.Append($"<p class=\"diff-counts\">{files.Count} of {Int(diff, "totalFiles")} file(s) shown, "
+                + $"{Int(diff, "totalFiles")} file(s) in all.</p>");
+
+            if (StrOrNull(diff, "whatIsLeftOff") is { Length: > 0 } leftOff)
+            {
+                html.Append($"<p class=\"diff-omitted\" data-diff-omitted=\"round {number}\">{Esc(leftOff)}</p>");
+            }
+
+            if (StrOrNull(diff, "boundedElsewhere") is { Length: > 0 } bounded)
+            {
+                html.Append($"<p class=\"diff-bounded\" data-diff-bounded=\"round {number}\">{Esc(bounded)}</p>");
+            }
+
+            html.Append("<ol class=\"diff-files\">");
+            foreach (var file in files)
+            {
+                var path = Str(file, "path");
+                var open = file.TryGetProperty("open", out var isOpen) && isOpen.GetBoolean();
+                html.Append("<li><details class=\"diff-file-details\"")
+                    .Append($" data-diff-file=\"{Esc(path)}\"")
+                    .Append($" data-open-key=\"{Esc($"{workItemId}/{number}/{path}")}\"")
+                    .Append($" data-change=\"{Esc(Str(file, "change"))}\"")
+                    .Append($" data-added=\"{Int(file, "added")}\"")
+                    .Append($" data-removed=\"{Int(file, "removed")}\"")
+                    .Append($" data-binary=\"{(file.TryGetProperty("binary", out var binary) && binary.GetBoolean() ? "true" : "false")}\"")
+                    .Append($" data-open=\"{(open ? "true" : "false")}\"")
+                    .Append(">")
+                    .Append($"<summary>{Esc(path)}</summary>")
+                    .Append($"<pre class=\"diff-text\">{Esc(Str(file, "text"))}</pre></details></li>");
+            }
+
+            html.Append("</ol>");
+        }
+
+        html.Append("</section>");
+    }
+
+    private static DateTimeOffset? AutoMergeAt(JsonElement header) =>
+        StrOrNull(header, "reviewStartedUtc") is { Length: > 0 } since
+            ? DateTimeOffset.Parse(since, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind) + FactoryConstants.FeedbackThreshold
+            : null;
+
+    private static string OpenIssues(JsonElement row) =>
+        row.TryGetProperty("openIssues", out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    private static string Str(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()!
+            : string.Empty;
+
+    private static string? StrOrNull(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static int Int(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetInt32()
+            : 0;
+
+    private static string Esc(string value) => System.Net.WebUtility.HtmlEncode(value);
+
+    private sealed record Card(string Lane, string LaneLabel, JsonElement Json);
+
+    // ---------------------------------------------------------------- the reviewer's hand
+
+    /// <summary>
+    /// The reviewer's hand: one decision, posted to the endpoint as the app posts it.
+    /// The decision is recorded and the loop asked to apply it; a refusal comes back in
+    /// the response's body as the factory's own words.
+    /// </summary>
+    public static async Task<HttpResponseMessage> DecideAsync(
+        HttpClient client,
+        Guid workItemId,
+        string decision,
+        string? feedback = null) =>
+        await DecideAtAsync(client, null, workItemId, decision, feedback);
+
+    /// <summary>
+    /// A decision posted by hand rather than pressed: whatever the caller puts in the
+    /// decision field — including a value no button carries. What is under test is the
+    /// value, not a missing field.
+    /// </summary>
+    public static async Task<HttpResponseMessage> PostByHandAsync(
+        HttpClient client,
+        Guid workItemId,
+        string? decision,
+        string? feedback = null) =>
+        await DecideAtAsync(client, null, workItemId, decision, feedback);
+
+    /// <summary>
+    /// A decision made from a board the reviewer has narrowed to one project. The filter
+    /// is a way of looking, not a way of deciding, so it rides the request as a query
+    /// string and changes nothing about the decision — and the refusal is rendered back
+    /// on the same narrowed board.
+    /// </summary>
+    public static async Task<HttpResponseMessage> DecideForProjectAsync(
+        HttpClient client,
+        string project,
+        Guid workItemId,
+        string decision,
+        string? feedback = null) =>
+        await DecideAtAsync(client, project, workItemId, decision, feedback);
+
+    /// <summary>
+    /// A decision posted by hand from a board narrowed to one project.
+    /// </summary>
+    public static async Task<HttpResponseMessage> PostByHandForProjectAsync(
+        HttpClient client,
+        string project,
+        Guid workItemId,
+        string? decision,
+        string? feedback = null) =>
+        await DecideAtAsync(client, project, workItemId, decision, feedback);
+
+    private static async Task<HttpResponseMessage> DecideAtAsync(
+        HttpClient client,
+        string? project,
+        Guid workItemId,
+        string? decision,
+        string? feedback)
+    {
+        var path = $"/api/work-items/{workItemId:D}/decisions"
+            + (project is { Length: > 0 } narrowed ? $"?project={Uri.EscapeDataString(narrowed)}" : string.Empty);
+
+        return await client.PostAsync(
+            path,
+            System.Net.Http.Json.JsonContent.Create(new { decision, feedback }));
+    }
+
+    // ---------------------------------------------------------------- what a board renders
+
+    /// <summary>
+    /// The markup of one project's group, up to the next group or the end of the lane.
     /// Scoped to a swimlane where a test says which lane it means, because the same project
     /// has a group in every lane and "one project's cards" is not a thing on its own.
     /// </summary>
@@ -104,146 +741,6 @@ public sealed class Board
         return at < 0 ? string.Empty : Html[at..Html.IndexOf('>', at)];
     }
 
-    /// <summary>
-    /// A decision pressed on a board the reviewer has narrowed to one project. It reads
-    /// that page and posts to that page's own form, because the filter rides on the form's
-    /// action: pressing a button found on the unfiltered board would be a decision made
-    /// from a different page than the one the reviewer is looking at.
-    /// </summary>
-    public static async Task<HttpResponseMessage> DecideForProjectAsync(
-        HttpClient client,
-        string project,
-        Guid workItemId,
-        string decision,
-        string? feedback = null)
-    {
-        var board = await ReadForAsync(client, project);
-        var form = board.DecisionFormFor(workItemId);
-        if (form.Length == 0)
-        {
-            throw new Xunit.Sdk.XunitException(
-                $"the board filtered to {project} rendered no decision form for that work item");
-        }
-
-        var fields = FieldsFor(form, workItemId)
-            .Concat(Fields(form, "button").Where(button => button.Value == decision))
-            .ToList();
-
-        return await SubmitAsync(client, form, fields, feedback);
-    }
-
-    /// <summary>
-    /// A decision posted by hand from a board filtered to one project. What the filter
-    /// must not change is what the board refuses, so this goes through the filtered form
-    /// with a value the board did not offer.
-    /// </summary>
-    public static async Task<HttpResponseMessage> PostByHandForProjectAsync(
-        HttpClient client,
-        string project,
-        Guid workItemId,
-        string? decision,
-        string? feedback = null)
-    {
-        var board = await ReadForAsync(client, project);
-        var form = board.DecisionFormFor(workItemId) is { Length: > 0 } own
-            ? own
-            // The page's own form, borrowed for its antiforgery token — which is what a
-            // reviewer holding a stale page has. Without this the post would be refused for
-            // having no token rather than for what it is asking, and the test would be
-            // asserting the wrong refusal.
-            : board.FirstDecisionForm();
-
-        if (form.Length == 0)
-        {
-            throw new Xunit.Sdk.XunitException(
-                $"the board filtered to {project} rendered no decision form at all, so there is "
-                    + "nothing on it to post from");
-        }
-
-        var fields = FieldsFor(form, workItemId);
-        fields.Add(new KeyValuePair<string, string>("decision", decision ?? string.Empty));
-
-        return await SubmitAsync(client, form, fields, feedback);
-    }
-
-    /// <summary>
-    /// The reviewer's hand: one decision, submitted to the board as the form post it is.
-    /// The button pressed is the button the board rendered, the field names are the
-    /// board's, and the antiforgery token is the one the board issued — a post without
-    /// one is not a decision at all, and the board refuses it. A work item the board
-    /// rendered no form for — because it is not in Review — borrows the page's form for
-    /// its token, which is what a reviewer holding a stale page has, so that whatever
-    /// refuses such a post is the refusal itself rather than a missing token.
-    /// </summary>
-    public static async Task<HttpResponseMessage> DecideAsync(
-        HttpClient client,
-        Guid workItemId,
-        string decision,
-        string? feedback = null)
-    {
-        var board = await ReadAsync(client);
-        var form = board.DecisionFormFor(workItemId);
-        if (form.Length == 0)
-        {
-            form = board.FirstDecisionForm();
-        }
-
-        if (form.Length == 0)
-        {
-            throw new Xunit.Sdk.XunitException(
-                "the board rendered no decision form, so there is nothing on it to decide with");
-        }
-
-        var fields = FieldsFor(form, workItemId)
-            .Concat(Fields(form, "button").Where(button => button.Value == decision))
-            .ToList();
-
-        return await SubmitAsync(client, form, fields, feedback);
-    }
-
-    /// <summary>
-    /// A decision posted by hand rather than pressed: the board's own fields, the board's
-    /// own token, and whatever the caller puts in the decision field — including a value
-    /// no button carries. What is under test is the value, not a missing field.
-    /// </summary>
-    public static async Task<HttpResponseMessage> PostByHandAsync(
-        HttpClient client,
-        Guid workItemId,
-        string? decision,
-        string? feedback = null)
-    {
-        var board = await ReadAsync(client);
-        var form = board.DecisionFormFor(workItemId) is { Length: > 0 } own
-            ? own
-            : board.FirstDecisionForm();
-
-        if (form.Length == 0)
-        {
-            throw new Xunit.Sdk.XunitException(
-                "the board rendered no decision form, so there is nothing on it to decide with");
-        }
-
-        var fields = FieldsFor(form, workItemId);
-        fields.Add(new KeyValuePair<string, string>("decision", decision ?? string.Empty));
-
-        return await SubmitAsync(client, form, fields, feedback);
-    }
-
-    private static async Task<HttpResponseMessage> SubmitAsync(
-        HttpClient client,
-        string form,
-        List<KeyValuePair<string, string>> fields,
-        string? feedback)
-    {
-        if (feedback is not null)
-        {
-            fields.Add(new KeyValuePair<string, string>("feedback", feedback));
-        }
-
-        using var content = new FormUrlEncodedContent(fields);
-        return await client.PostAsync(ActionOf(form), content);
-    }
-
     /// <summary>Reads an attribute off the first element carrying the given marker.</summary>
     public string? Attribute(string marker, string markerValue, string attribute)
     {
@@ -273,7 +770,10 @@ public sealed class Board
     /// <summary>The markup of one swimlane, up to the next swimlane.</summary>
     public string Swimlane(string swimlane)
     {
-        var marker = $"data-swimlane=\"{swimlane}\"";
+        // A lane is named by its slug in the markup and read by a reviewer by its label;
+        // only "In Progress" differs between the two, so normalise a label to its slug.
+        var slug = swimlane == "In Progress" ? "InProgress" : swimlane;
+        var marker = $"data-swimlane=\"{slug}\"";
         var start = Html.IndexOf(marker, StringComparison.Ordinal);
         if (start < 0)
         {
@@ -324,10 +824,6 @@ public sealed class Board
                 $"the board rendered no diff for round {roundNumber}, so there is nothing to read");
         }
 
-        // Scoped to the diff's own `<section>`, which is where it ends. The page also
-        // carries a `data-diff-file` selector in its script — the fold restore reads it —
-        // and a section that ran to the end of the document would pick that up as a file
-        // the board rendered.
         var end = Html.IndexOf("</section>", start, StringComparison.Ordinal);
         var section = end < 0 ? Html[start..] : Html[start..end];
         var open = section[..section.IndexOf('>')];
@@ -361,9 +857,6 @@ public sealed class Board
         {
             var open = section[at..section.IndexOf('>', at)];
 
-            // The <pre> of this file's own text, up to the next file or the end of the
-            // section. Read from the board rather than reconstructed, so a test says what
-            // the reviewer sees.
             var pre = section.IndexOf("<pre", at, StringComparison.Ordinal);
             var close = pre < 0 ? -1 : section.IndexOf("</pre>", pre, StringComparison.Ordinal);
             var body = pre >= 0 && close > pre
@@ -396,12 +889,6 @@ public sealed class Board
     /// <summary>
     /// What one round's log says, decoded, or null when the board rendered no log for it.
     /// </summary>
-    /// <remarks>
-    /// Read forwards from the log's own marker, which the board puts on the summary that
-    /// opens the log's details element. The log's text is the first <c>&lt;pre&gt;</c>
-    /// after that; a round with a payload has an earlier one on the card and one without
-    /// has only the log's, so this direction reads the log in both shapes.
-    /// </remarks>
     public string? LogOn(int roundNumber) => Following($"data-log=\"round {roundNumber}\"");
 
     /// <summary>
@@ -506,56 +993,9 @@ public sealed class Board
         return open < 0 || close < 0 ? string.Empty : Html[open..(close + "</form>".Length)];
     }
 
-    /// <summary>
-    /// Where a form posts to, as a browser would read it. The board escapes an ampersand in
-    /// the action's query string into an entity, which a browser decodes before following
-    /// it — so a test that posted to the raw attribute would be posting to a URL carrying a
-    /// literal `&amp;project=nexus` and the page would see no project at all. That is the
-    /// escaping being read as the wire format, and it is the sort of thing that makes a
-    /// test pass against markup a reviewer would never get.
-    /// </summary>
-    private static string ActionOf(string form) => System.Net.WebUtility.HtmlDecode(
-        AttributeOf(form[..(form.IndexOf('>') + 1)], "action") ?? "/");
-
     /// <summary>An attribute value as a browser reads it, rather than as the board wrote it.</summary>
     private static string Decoded(string? value) =>
         value is null ? string.Empty : System.Net.WebUtility.HtmlDecode(value);
-
-    /// <summary>
-    /// The form's own fields, with the work item it is about set to this one. The field
-    /// names are the board's, and the work item is the one field the form carries that
-    /// holds a work item's id — the antiforgery token never does, which is how it is
-    /// found rather than by hard-coding a name. A form the board rendered for a
-    /// different work item, because the reviewer is holding a page it has since decided
-    /// on, is told which work item this post is about.
-    /// </summary>
-    private static List<KeyValuePair<string, string>> FieldsFor(string form, Guid workItemId)
-    {
-        var fields = Fields(form, "input").ToList();
-        var about = fields.FindIndex(field => Guid.TryParse(field.Value, out _));
-
-        if (about < 0)
-        {
-            throw new Xunit.Sdk.XunitException(
-                "the board's decision form carries no work item, so a post made from it is not about anything");
-        }
-
-        fields[about] = new KeyValuePair<string, string>(fields[about].Key, workItemId.ToString("D"));
-        return fields;
-    }
-
-    /// <summary>The named fields a form carries, as a browser would send them.</summary>
-    private static IReadOnlyList<KeyValuePair<string, string>> Fields(string form, string tagName) =>        Tag.Matches(form)
-            .Select(match => match.Value)
-            .Where(tag => tag.StartsWith($"<{tagName}", StringComparison.Ordinal))
-            .Select(tag => (Name: AttributeOf(tag, "name"), Value: AttributeOf(tag, "value")))
-            .Where(field => field.Name is not null)
-            .Select(field => new KeyValuePair<string, string>(field.Name!, field.Value ?? string.Empty))
-            .ToList();
-
-    private static readonly Regex Tag = new(
-        "<(?<name>input|button|textarea|select)[^>]*>",
-        RegexOptions.Compiled);
 }
 
 /// <summary>One round's diff as the board rendered it, read back over HTTP and decoded.</summary>

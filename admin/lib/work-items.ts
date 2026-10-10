@@ -115,9 +115,9 @@ export type WorkItemDetailView = {
 /**
  * Read one work item's whole record.
  *
- * The API is the factory's own process and lives off this app's base path, at
- * `/api/work-items/{id}`, so the request is absolute from the origin rather than relative
- * to `/admin`. `cache: 'no-store'` is the point of a detail read: the rounds and decisions
+ * The API is the factory's own process and lives at `/api/work-items/{id}`, a sibling of
+ * the Board app the same process serves at the root. `cache: 'no-store'` is the point of
+ * a detail read: the rounds and decisions
  * reflect the machine now, and a cached round would be a claim about a moment that has
  * passed. A 404 means the store has never seen the id, which is a real answer rather than a
  * fault.

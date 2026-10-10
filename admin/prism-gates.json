@@ -10,10 +10,10 @@
     "something, where its export lands, what its pack map describes, and which",
     "source roots carry no runtime token read.",
     "",
-    "The floors are deliberately low. This is the walking skeleton's app: one route,",
-    "no internal links yet, and a sheet the design system does almost all of. The",
-    "floors exist so a renamed directory empties a run and fails, rather than",
-    "reporting a repository that rendered nothing."
+    "The floors are deliberately low, so a renamed directory empties a run and",
+    "fails rather than reporting a repository that rendered nothing. The app is",
+    "served at the root with `trailingSlash: true`, so its export emits a directory",
+    "index per route and the links gate reads those emitted routes."
   ],
   "gateKit": 1,
   "gates": [
