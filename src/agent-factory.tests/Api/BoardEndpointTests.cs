@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Api;
 using System.Net;
 using System.Text.Json;
 using AgentFactory;
+using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 
@@ -64,6 +65,112 @@ public class BoardEndpointTests
 
         Assert.Equal(2, document.RootElement.GetProperty("budget").GetProperty("inUse").GetInt32());
         Assert.Equal(2, document.RootElement.GetProperty("budget").GetProperty("of").GetInt32());
+    }
+
+    [Fact]
+    public async Task The_board_carries_the_lanes_the_cards_and_the_projects_it_serves()
+    {
+        using var root = FactoryRoot.Create()
+            .WithProjectFile("nexus.yaml", ProjectFile.Valid)
+            .WithRefusedFile("broken.yaml");
+        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+
+        var workItem = host.Store
+            .Intake("nexus", Nexus, 42, "A work item, end to end", IssueBody, "main")
+            .WorkItem;
+        await host.PromoteAsync(workItem.Id);
+        await host.Settle();
+        Assert.Equal(Swimlane.Review, host.Store.Get(workItem.Id)!.Swimlane);
+
+        using var response = await host.Board.GetAsync("/api/board");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var board = document.RootElement;
+
+        // The lanes are the board's own set, in the board's own order: the five swimlanes
+        // and then the two endings. Written out rather than read from the constant, because
+        // a test that read it would prove only that the endpoint agrees with itself.
+        var lanes = board.GetProperty("lanes").EnumerateArray().ToList();
+        Assert.Equal(
+            ["Backlog", "Frontier", "InProgress", "Review", "Done", "Escalated", "Rejected"],
+            [.. lanes.Select(lane => lane.GetProperty("lane").GetString()!)]);
+
+        // The lane's words come from the factory's own label, so "InProgress" reads as
+        // "In Progress" without the renderer knowing the mapping.
+        var review = lanes.Single(lane => lane.GetProperty("lane").GetString() == "Review");
+        Assert.Equal("Review", review.GetProperty("label").GetString());
+        Assert.Equal(
+            "In Progress",
+            lanes.Single(lane => lane.GetProperty("lane").GetString() == "InProgress").GetProperty("label").GetString());
+
+        // The one work item, in Review, with every field a card reads.
+        var card = Assert.Single(review.GetProperty("cards").EnumerateArray());
+        Assert.Equal(workItem.Id.ToString(), card.GetProperty("id").GetString());
+        Assert.Equal("nexus", card.GetProperty("project").GetString());
+        Assert.Equal(42, card.GetProperty("issueNumber").GetInt32());
+        Assert.Equal("A work item, end to end", card.GetProperty("title").GetString());
+        Assert.Equal("Review", card.GetProperty("lane").GetString());
+        Assert.Equal("Review", card.GetProperty("laneLabel").GetString());
+        Assert.Equal(1, card.GetProperty("roundCount").GetInt32());
+        Assert.Equal(3, card.GetProperty("roundCeiling").GetInt32());
+
+        // A stage is not an ending, so the ending is empty here; and Review offers all three
+        // decisions, in the order the board offers them. The decision form is a later
+        // ticket's, but the offered set is the factory's judgement and belongs on the card.
+        Assert.Equal(string.Empty, card.GetProperty("ending").GetString());
+        Assert.Equal(
+            ["approve", "request-changes", "reject"],
+            [.. card.GetProperty("decisions").EnumerateArray().Select(decision => decision.GetString()!)]);
+
+        // Every other lane is present and empty.
+        Assert.All(
+            lanes.Where(lane => lane.GetProperty("lane").GetString() != "Review"),
+            lane => Assert.Empty(lane.GetProperty("cards").EnumerateArray()));
+
+        // The served projects and the refused files travel with the board, so the filter and
+        // the later tickets read them here rather than from a second endpoint.
+        var project = Assert.Single(board.GetProperty("projects").EnumerateArray());
+        Assert.Equal("nexus", project.GetProperty("name").GetString());
+        Assert.Equal(Nexus, project.GetProperty("repoUrl").GetString());
+        Assert.Equal(ProjectFile.Model, project.GetProperty("llmModel").GetString());
+
+        var rejection = Assert.Single(board.GetProperty("rejections").EnumerateArray());
+        Assert.Equal("broken.yaml", rejection.GetProperty("fileName").GetString());
+        Assert.Contains(
+            rejection.GetProperty("reason").GetString(),
+            new[] { "Partial", "Shared", "Included", "Generated", "Invalid" });
+        Assert.False(string.IsNullOrWhiteSpace(rejection.GetProperty("message").GetString()));
+    }
+
+    [Fact]
+    public async Task A_card_in_an_ending_lane_carries_why_it_ended()
+    {
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+
+        var workItem = host.Store
+            .Intake("nexus", Nexus, 42, "A work item, end to end", IssueBody, "main")
+            .WorkItem;
+        await host.PromoteAsync(workItem.Id);
+        await host.Settle();
+
+        // A reviewer declines it, the loop applies the decision, and the card lands in
+        // Rejected carrying the factory's own words for why.
+        host.Store.RecordDecision(workItem.Id, Decision.Reject, null);
+        await host.Settle();
+
+        using var response = await host.Board.GetAsync("/api/board");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var lanes = document.RootElement.GetProperty("lanes").EnumerateArray().ToList();
+
+        var rejected = lanes.Single(lane => lane.GetProperty("lane").GetString() == "Rejected");
+        var card = Assert.Single(rejected.GetProperty("cards").EnumerateArray());
+        Assert.Contains("Rejected", card.GetProperty("ending").GetString(), StringComparison.Ordinal);
+        Assert.Equal("Rejected", card.GetProperty("laneLabel").GetString());
+
+        // A declined work item is final, so the factory offers no decision on it.
+        Assert.Empty(card.GetProperty("decisions").EnumerateArray());
     }
 
     private static async Task<WorkItem> Take(FactoryHost host, int issueNumber)

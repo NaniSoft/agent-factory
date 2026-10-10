@@ -54,3 +54,100 @@
   color: var(--muted-foreground);
   line-height: 1.6;
 }
+
+/*
+ * The strip above the lanes: the container budget and the auto-merge mode. It is
+ * layout only — the Status and the Badge are Prism items — so what is here is the
+ * row they sit in and the space under it.
+ */
+.board__strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+/*
+ * The project filter. A row of Prism buttons and their label, which is the one
+ * shape the catalogue ships no item for: it is a GET form, not a toolbar, and it
+ * navigates rather than acting on a selection.
+ */
+.board__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.board__filter-label {
+  margin-right: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* The filter in force, said on the board rather than only in the URL. */
+.board__in-force {
+  margin: 0 0 1rem;
+  color: var(--muted-foreground);
+}
+
+/* A card's body: the round count, and why the work item ended where it did. */
+.board__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.board__card-ending {
+  color: var(--muted-foreground);
+}
+
+/* The trust statement, and the only thing below the lanes. */
+.board__footer {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.board__footer p {
+  margin: 0;
+  max-width: 46rem;
+  line-height: 1.6;
+}
+
+/*
+ * The loading shape: the frame of the board, drawn in skeletons so the region
+ * keeps its size while the factory is read. The columns are the same width the
+ * Block gives a real column, so the page does not jump when the answer arrives.
+ */
+.board__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.board__loading-columns {
+  display: flex;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.board__loading-column {
+  display: flex;
+  width: 18rem;
+  flex: none;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.board__loading-heading {
+  height: 1rem;
+  width: 60%;
+}
+
+.board__loading-card {
+  height: 4rem;
+}
