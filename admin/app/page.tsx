@@ -471,6 +471,12 @@ function toCard(
     state: LANE_STATE[card.lane] ?? 'ready',
     stateLabel: card.laneLabel,
     tags: [{ id: card.project, label: card.project }],
+    // The card is the way into the work item's own page: every round it has run, the change
+    // each round left, and its decisions. The id travels in the query string because a
+    // static export cannot emit an unbounded dynamic segment, and the label says what
+    // activating the link does rather than leaving the title to imply it.
+    href: `/work-items?item=${card.id}`,
+    hrefLabel: 'Open the work item',
     body: (
       <div className="board__card-body">
         <span className="board__card-rounds">
@@ -564,7 +570,20 @@ function WorkspaceAction({
       <Button type="button" variant="outline" size="sm" onClick={open} disabled={pending}>
         {pending ? 'Opening the workspace' : 'Open workspace'}
       </Button>
-      {workspace?.error ? <Status tone="destructive" label={workspace.error} /> : null}
+      {/*
+        A workspace that cannot be opened is usually because the round left no tree to
+        open, and the thing a reviewer wants next is the work item's own page — its rounds,
+        the change each left, and its decisions. The factory's own words for the refusal
+        stay beside the link rather than being replaced by it.
+      */}
+      {workspace?.error ? (
+        <Status tone="destructive" label={workspace.error} />
+      ) : null}
+      {workspace?.error ? (
+        <CtaLink href={`/work-items?item=${workItemId}`} variant="outline" size="sm">
+          See the work item
+        </CtaLink>
+      ) : null}
     </span>
   );
 }

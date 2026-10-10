@@ -117,6 +117,24 @@ describe('the board page', () => {
     expect(within(card as HTMLElement).getByText('Review')).toBeTruthy();
   });
 
+  it("links each card to its work item's own page", async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+
+    // The card is the way into the detail: every round the work item has run, the change
+    // each left, and its decisions. The id travels in the query string, because a static
+    // export cannot emit an unbounded dynamic segment.
+    await screen.findByText('Add the board endpoint');
+    const card = screen
+      .getByText('Add the board endpoint')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    const link = within(card).getByRole('link', { name: 'Open the work item' });
+    expect(link.getAttribute('href')).toBe(
+      '/work-items?item=11111111-1111-1111-1111-111111111111',
+    );
+  });
+
   it('narrows the cards to the project in force and says which one', async () => {
     navigation.search = new URLSearchParams('project=prism');
     answerWith(boardFixture);
@@ -284,8 +302,9 @@ describe('the review workspace on a card', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Open workspace' }));
 
     // The link is the loopback address the factory published, and the time beside it
-    // is the lifetime it reported, said in a reviewer's words.
-    const link = await within(card).findByRole('link');
+    // is the lifetime it reported, said in a reviewer's words. Scoped by its own name,
+    // because the card also carries a link to the work item's detail page.
+    const link = await within(card).findByRole('link', { name: 'http://127.0.0.1:7100/' });
     expect(link.getAttribute('href')).toBe('http://127.0.0.1:7100/');
     expect(within(card).getByText('3h 59m remaining')).toBeTruthy();
 
@@ -306,7 +325,7 @@ describe('the review workspace on a card', () => {
     // forgotten.
     await screen.findByText('Tighten the focus ring');
     const card = cardOf('Tighten the focus ring');
-    const link = within(card).getByRole('link');
+    const link = within(card).getByRole('link', { name: 'http://127.0.0.1:7101/' });
     expect(link.getAttribute('href')).toBe('http://127.0.0.1:7101/');
     expect(within(card).getByText('3h 59m remaining')).toBeTruthy();
     expect(within(card).queryByRole('button', { name: 'Open workspace' })).toBeNull();
@@ -327,9 +346,10 @@ describe('the review workspace on a card', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Open workspace' }));
 
     // Never silently: the factory's own words are on the card, and the action stays so
-    // the reviewer can try again.
+    // the reviewer can try again. The workspace link itself is absent; the card still
+    // carries the link to the work item's detail page, which is not a workspace.
     expect(await within(card).findByText('the latest round left no tree to open')).toBeTruthy();
     expect(within(card).getByRole('button', { name: 'Open workspace' })).toBeTruthy();
-    expect(within(card).queryByRole('link')).toBeNull();
+    expect(within(card).queryByRole('link', { name: /^http/ })).toBeNull();
   });
 });
