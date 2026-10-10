@@ -6,6 +6,7 @@ using AgentFactory.Pages;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
+using AgentFactory.Workspaces;
 
 /// <summary>
 /// What <c>GET /api/board</c> returns: the factory's own judgement, serialised, and
@@ -60,13 +61,15 @@ public sealed record BoardView(
         ProjectLoadReport projects,
         Orchestrator loop,
         FactoryOptions options,
-        Poller poller)
+        Poller poller,
+        ReviewWorkspaces workspaces)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(projects);
         ArgumentNullException.ThrowIfNull(loop);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(poller);
+        ArgumentNullException.ThrowIfNull(workspaces);
 
         var workItems = store.List();
 
@@ -80,7 +83,7 @@ public sealed record BoardView(
                 Swimlanes.Label(lane),
                 [.. workItems
                     .Where(workItem => workItem.Swimlane == lane)
-                    .Select(workItem => CardView.Of(workItem, store))]))
+                    .Select(workItem => CardView.Of(workItem, store, workspaces))]))
             .ToList();
 
         return new BoardView(
@@ -248,6 +251,12 @@ public sealed record LaneView(
 /// reviewer cannot act on. The decision <em>form</em> is a later ticket's; the offered set
 /// is the factory's judgement and belongs on the card either way.
 /// </param>
+/// <param name="Workspace">
+/// The review workspace open for this work item, from
+/// <see cref="ReviewWorkspaces.ViewFor"/>, or null when none has been asked for or all
+/// have been taken away. It travels on the card so a board read after a workspace was
+/// opened shows the link and the time left without the renderer holding state of its own.
+/// </param>
 public sealed record CardView(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("project")] string Project,
@@ -258,13 +267,15 @@ public sealed record CardView(
     [property: JsonPropertyName("roundCount")] int RoundCount,
     [property: JsonPropertyName("roundCeiling")] int RoundCeiling,
     [property: JsonPropertyName("ending")] string Ending,
-    [property: JsonPropertyName("decisions")] IReadOnlyList<string> Decisions)
+    [property: JsonPropertyName("decisions")] IReadOnlyList<string> Decisions,
+    [property: JsonPropertyName("workspace")] WorkspaceView? Workspace)
 {
     /// <summary>One work item and its record, read the way the board's own card reads them.</summary>
-    public static CardView Of(WorkItem workItem, IWorkItemStore store)
+    public static CardView Of(WorkItem workItem, IWorkItemStore store, ReviewWorkspaces workspaces)
     {
         ArgumentNullException.ThrowIfNull(workItem);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(workspaces);
 
         return new CardView(
             workItem.Id.ToString(),
@@ -276,7 +287,8 @@ public sealed record CardView(
             workItem.RoundCount,
             FactoryConstants.RoundCeiling,
             HowItEnded.Describe(workItem, store.Rounds(workItem.Id), store.Decisions(workItem.Id)),
-            [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)]);
+            [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
+            workspaces.ViewFor(workItem.Id) is { } view ? WorkspaceView.Of(view) : null);
     }
 }
 

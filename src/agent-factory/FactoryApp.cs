@@ -271,8 +271,9 @@ public static class FactoryApp
             ProjectLoadReport projects,
             Orchestrator loop,
             FactoryOptions options,
-            Poller poller) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller)));
+            Poller poller,
+            Workspaces.ReviewWorkspaces workspaces) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller, workspaces)));
 
         // A reviewer's decision, the JSON twin of the board's own form handler (#45). It
         // does exactly what `Pages/Index.cshtml.cs`'s `OnPostDecision` does and invents no
@@ -332,6 +333,20 @@ public static class FactoryApp
             return Microsoft.AspNetCore.Http.Results.Json(
                 new Api.DecisionResult(step.Applied, step.Refusal, Lane()));
         });
+
+        // The review workspace's open (#47): the same call the board's "Open workspace"
+        // action makes, answered as the view model the card renders rather than as a
+        // redirect. It spawns a container — the one thing on this surface that talks to
+        // the daemon — but it moves no work item and records no decision, and a spawn
+        // that cannot happen comes back as an error on the view rather than as a silence
+        // or a 500. `OpenAsync` is the factory's own judgement of every failure case, so
+        // the endpoint holds none of its own.
+        api.MapPost("/work-items/{id}/workspace", async (
+            Guid id,
+            Workspaces.ReviewWorkspaces workspaces,
+            CancellationToken cancellationToken) =>
+            Microsoft.AspNetCore.Http.Results.Json(
+                Api.WorkspaceView.Of(await workspaces.OpenAsync(id, cancellationToken))));
 
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes the Razor Projects page already had — add, edit

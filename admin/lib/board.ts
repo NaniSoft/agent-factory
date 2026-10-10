@@ -11,6 +11,20 @@
  * test) is what keeps them in step.
  */
 
+/**
+ * A review workspace as the card and the open endpoint report it: whether one is
+ * open, where it is, how long it has left in whole seconds, and the factory's own
+ * words when it could not be opened. `remainingSeconds` is present only while a
+ * workspace is active — the endpoint clamps a workspace past its lifetime to zero
+ * rather than handing the renderer a negative.
+ */
+export type WorkspaceView = {
+  active: boolean;
+  url: string | null;
+  remainingSeconds: number | null;
+  error: string | null;
+};
+
 /** One work item as a card: the factory's own judgement, drawn and not re-decided. */
 export type CardView = {
   id: string;
@@ -28,6 +42,8 @@ export type CardView = {
   ending: string;
   /** The decision slugs a reviewer may still post, from the factory's own set. */
   decisions: string[];
+  /** The workspace open for this work item, or null when none has been asked for. */
+  workspace: WorkspaceView | null;
 };
 
 /** One lane, as a column: its slug, its words, and the cards standing in it. */
@@ -126,4 +142,25 @@ export async function fetchBoard(signal?: AbortSignal): Promise<BoardView> {
   }
 
   return (await response.json()) as BoardView;
+}
+
+/**
+ * Open (or answer with) the review workspace for a work item.
+ *
+ * The call the card's "Open workspace" action makes. It spawns a container and moves
+ * nothing, so a re-read of the board is all that is needed to reflect it. Every
+ * failure the factory distinguishes — not in Review, no project file served, no lifted
+ * tree, port exhaustion — comes back in the same body as an `error` on an inactive
+ * view rather than as a non-2xx, so the caller renders the factory's words on the card
+ * whatever happened. Only a transport fault or a non-2xx throws.
+ */
+export async function openWorkspace(workItemId: string): Promise<WorkspaceView> {
+  const response = await fetch(`/api/work-items/${encodeURIComponent(workItemId)}/workspace`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`the factory answered ${response.status}`);
+  }
+
+  return (await response.json()) as WorkspaceView;
 }

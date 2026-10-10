@@ -19,7 +19,8 @@
           "roundCount": 1,
           "roundCeiling": 3,
           "ending": "",
-          "decisions": ["approve", "request-changes", "reject"]
+          "decisions": ["approve", "request-changes", "reject"],
+          "workspace": null
         },
         {
           "id": "22222222-2222-2222-2222-222222222222",
@@ -31,7 +32,13 @@
           "roundCount": 2,
           "roundCeiling": 3,
           "ending": "",
-          "decisions": ["approve", "request-changes", "reject"]
+          "decisions": ["approve", "request-changes", "reject"],
+          "workspace": {
+            "active": true,
+            "url": "http://127.0.0.1:7101/",
+            "remainingSeconds": 14390,
+            "error": null
+          }
         }
       ]
     },
@@ -49,7 +56,8 @@
           "roundCount": 3,
           "roundCeiling": 3,
           "ending": "Merged. A reviewer approved it and the change landed.",
-          "decisions": []
+          "decisions": [],
+          "workspace": null
         }
       ]
     },
@@ -67,7 +75,8 @@
           "roundCount": 3,
           "roundCeiling": 3,
           "ending": "Escalated. All 3 rounds are spent, and the reviewer asked for changes, so it is parked for a human rather than built again.",
-          "decisions": ["approve", "reject"]
+          "decisions": ["approve", "reject"],
+          "workspace": null
         }
       ]
     },

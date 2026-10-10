@@ -57,9 +57,12 @@ describe('the decisions on the board', () => {
     render(<BoardPage />);
     await screen.findByText('Add the board endpoint');
 
-    // A card in Review offers all three, in the factory's own order.
+    // A card in Review offers the workspace action (#47) and then all three decisions
+    // (#45), in the factory's own order — the workspace first, as the Razor board
+    // renders it. Both tickets' behaviour is on the card; neither is dropped.
     const review = cardFor('Add the board endpoint');
     expect(within(review).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Open workspace',
       'Approve',
       'Request changes',
       'Reject',
