@@ -1,0 +1,37 @@
+{
+  "name": "@nanisoft/agent-factory-admin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The agent factory's Board, rendered with Prism and served statically at the root over the factory's own loopback JSON API.",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "oxlint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "check:prism-gates": "prism-gates",
+    "check": "pnpm check:prism-gates"
+  },
+  "dependencies": {
+    "@nanisoft/prism-ui": "1.1.0",
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^30.0.1",
+    "oxlint": "^1.82.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

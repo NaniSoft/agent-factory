@@ -13,6 +13,7 @@ using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 
@@ -168,12 +169,6 @@ public static class FactoryApp
         // pushes the branch, opens the pull request if there is not already one, and merges
         // it, from the host, under a credential no worker container ever held (ADR-0006).
 
-        // The board's only write path is the reviewer's three decisions: the one form the
-        // page renders, in Review. It records the decision and asks the loop to apply it,
-        // so nothing else in the process can be moved by a human and the swimlane a work
-        // item lands in stays the loop's answer rather than the page's.
-        builder.Services.AddRazorPages();
-
         var app = builder.Build();
 
         // A workspace container outlives the process that started it: it is on the
@@ -188,45 +183,296 @@ public static class FactoryApp
         // at start the way it is meant to be.
         _ = app.Services.GetRequiredService<ProjectLoadReport>();
 
-        // The board's stylesheet, and the only static file this process serves.
-        //
-        // `~/board.css` is what `Pages/Index.cshtml` links, so without this the board
-        // rendered entirely unstyled — every state it distinguishes was legible, and none
-        // of it looked like anything (#25).
+        // The Board app: the static Prism export this process serves at the root, beside the
+        // JSON surface under `/api`. It is the human surface now — the app's routes are the
+        // pages, and the only write path is `POST /api/work-items/{id}/decisions` — and the
+        // one file the process serves that is not the app is this `wwwroot` itself.
         //
         // The file provider is named rather than left to the content root. The content root
         // is wherever the factory's own directories happen to be — a temporary directory in
         // the test host, `/app` in the deployment — and it is a factory *data* directory, so
-        // it never carries a `wwwroot` of its own. The stylesheet is a property of the
-        // application rather than of wherever a deployment put it, and `dotnet publish`
-        // puts it beside the entry assembly, which is where this looks.
+        // it never carries a `wwwroot` of its own. The app is a property of the application
+        // rather than of wherever a deployment put it, and `dotnet publish` puts it beside
+        // the entry assembly, which is where this looks.
         //
         // Loopback binding is what keeps this from being a second surface: the same machine
-        // that can open the board can open its stylesheet, and nothing else can reach
-        // either (ADR-0005, ADR-0012). It is also the only file: no directory listing, no
-        // arbitrary path, and nothing derived from a request except the name the board
-        // itself renders.
-        var stylesheets = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        if (Directory.Exists(stylesheets))
+        // that can open the Board can reach the app and its `/api` reads, and nothing else
+        // can reach either (ADR-0005, ADR-0012).
+        var webRootDirectory = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        if (Directory.Exists(webRootDirectory))
         {
+            var webRoot = new PhysicalFileProvider(webRootDirectory);
+
+            // Default files, so a directory address serves its own index rather than a 404.
+            // The app is a static export built with `trailingSlash: true`, so each route has
+            // its own directory index (`projects/index.html`, `credentials/index.html`,
+            // `work-items/index.html`) and a direct load or refresh of `/projects` resolves
+            // to it. The root's own front door is `wwwroot/index.html`. It is declared with
+            // the same provider as the static files, because that provider is the published
+            // directory rather than the content root.
+            app.UseDefaultFiles(new DefaultFilesOptions
+            {
+                FileProvider = webRoot,
+            });
+
             app.UseStaticFiles(new StaticFileOptions
             {
-                FileProvider = new PhysicalFileProvider(stylesheets),
+                FileProvider = webRoot,
                 ServeUnknownFileTypes = false,
             });
         }
         else
         {
-            // Said out loud rather than left as a silently unstyled board, which is how
-            // #25 presented in the first place: a link to a file that is not there reads as
-            // a board that is merely plain.
+            // Said out loud rather than left as an app that answers every route with a 404:
+            // a checkout that has not run `pnpm build` publishes no export, and the copy that
+            // ships is put here by `dotnet publish`.
             app.Logger.LogWarning(
-                "No wwwroot beside the entry assembly at {Directory}, so the board will render unstyled: "
-                    + "the copy that ships is published there and this build did not put it there",
-                stylesheets);
+                "No wwwroot beside the entry assembly at {Directory}, so the Board app is not served: "
+                    + "the export ships there and this build did not put it there",
+                webRootDirectory);
         }
 
-        app.MapRazorPages();
+        // The JSON surface the Board app renders. Most of it is a second *reading* of the
+        // same state the board reads; the credentials surface is the one place a secret
+        // travels, and it is write-only. Nothing here can move a work item, record a
+        // decision or merge anything. The app that consumes it is a thin renderer over
+        // exactly this — the factory's own judgement, serialised — so the endpoints hold
+        // no policy of their own and resolve the already-registered singletons the board
+        // resolves (ADR-0013, ADR-0014).
+        //
+        // The budget is read the way the board's own header reads it, from the loop's
+        // in-flight count against the one code constant, and the mode from the options; a
+        // copy kept here would be a second answer free to drift from the board's. The
+        // serialiser is System.Text.Json, through `Microsoft.AspNetCore.Http.Results`, and
+        // the property names are pinned on the view model rather than left to the host's
+        // naming policy.
+        //
+        // The surface and the data share one process and one loopback binding, and the app
+        // re-decides nothing: the factory's judgement is the app's only source of truth
+        // (ADR-0013, ADR-0014). The endpoint resolves the store, the load report, the loop
+        // and the options the board page resolves, and `BoardView.Of` puts them together;
+        // it reads and writes nothing, calls no seam and moves no work item.
+        var api = app.MapGroup("/api");
+
+        api.MapGet("/board", (
+            IWorkItemStore store,
+            ProjectLoadReport projects,
+            Orchestrator loop,
+            FactoryOptions options,
+            Poller poller,
+            Workspaces.ReviewWorkspaces workspaces) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller, workspaces)));
+
+        // A reviewer's decision, the board's one write path now that the Razor form is gone
+        // (#45, #51). It invents no capability: `Decisions.TryParse`, then
+        // `IWorkItemStore.RecordDecision`, then
+        // `Orchestrator.StepAsync` — and it moves no work item and merges nothing itself,
+        // because the lane a decision means is the loop's answer and the loop is the only
+        // thing here that talks to GitHub. A fourth decision, a request for changes with
+        // no words, a work item outside the decidable lanes and an approval the merge could
+        // not carry out all come back as `applied:false` with the factory's own words in
+        // `refusal`, so a refusal is rendered where the reviewer acted rather than silently.
+        api.MapPost("/work-items/{id}/decisions", async (
+            string id,
+            Api.DecisionRequest request,
+            IWorkItemStore store,
+            Orchestrator loop) =>
+        {
+            string Lane()
+            {
+                return Guid.TryParse(id, out var candidate) && store.Get(candidate) is { } workItem
+                    ? workItem.Swimlane.ToString()
+                    : string.Empty;
+            }
+
+            // A work item that is not one, or a slug that is not one of the three, is not a
+            // decision: nothing here parses an arbitrary name into the set, so a form posted
+            // by hand is refused rather than interpreted and the set cannot grow by accident.
+            if (!Guid.TryParse(id, out var workItemId) || !Decisions.TryParse(request.Decision, out var made))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new Api.DecisionResult(
+                    false,
+                    "That is not one of the three decisions. A work item in Review is "
+                        + "approved, sent back for changes, or rejected, and there is nothing else to decide.",
+                    Lane()));
+            }
+
+            try
+            {
+                // The store is the component that knows which lane the work item is in and
+                // what it made of the feedback, so its objection is the reviewer's answer in
+                // its own words. Anything that is not a refusal is a fault and is left to fail
+                // rather than dressed up as a decision that was declined.
+                store.RecordDecision(workItemId, made, request.Feedback);
+            }
+            catch (Exception refused) when (refused is KeyNotFoundException or InvalidOperationException)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new Api.DecisionResult(false, refused.Message, Lane()));
+            }
+
+            // The decision is recorded and the lane it means is the loop's, so this asks the
+            // loop rather than moving the work item: one step applies one transition, and a
+            // decision comes before everything else a step could apply. A refusal here is an
+            // approval whose merge did not land — on the record, parked, and said rather than
+            // silent.
+            var step = await loop.StepAsync();
+
+            return Microsoft.AspNetCore.Http.Results.Json(
+                new Api.DecisionResult(step.Applied, step.Refusal, Lane()));
+        });
+
+        // The acceptance gate (#40, restored by #52): intake puts every issue in Backlog and
+        // nothing is built until a reviewer accepts it. This mirrors the deleted page's
+        // `OnPostBuildAsync` exactly — `Orchestrator.PromoteAsync` is the same component the
+        // loop uses to apply every other transition, and it moves no work item and spends no
+        // container itself. A work item not waiting in Backlog is refused with the factory's
+        // own words in `refusal`, so the app renders the refusal where the reviewer acted
+        // rather than leaving them wondering whether the click was lost.
+        api.MapPost("/work-items/{id}/accept", async (
+            string id,
+            Orchestrator loop) =>
+        {
+            if (!Guid.TryParse(id, out var workItemId))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
+                    Applied: false,
+                    Refusal: "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
+            }
+
+            var applied = await loop.PromoteAsync(workItemId);
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
+                Applied: applied,
+                Refusal: applied
+                    ? null
+                    : "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
+        });
+
+        // The review workspace's open (#47): the same call the board's "Open workspace"
+        // action makes, answered as the view model the card renders rather than as a
+        // redirect. It spawns a container — the one thing on this surface that talks to
+        // the daemon — but it moves no work item and records no decision, and a spawn
+        // that cannot happen comes back as an error on the view rather than as a silence
+        // or a 500. `OpenAsync` is the factory's own judgement of every failure case, so
+        // the endpoint holds none of its own.
+        api.MapPost("/work-items/{id}/workspace", async (
+            Guid id,
+            Workspaces.ReviewWorkspaces workspaces,
+            CancellationToken cancellationToken) =>
+            Microsoft.AspNetCore.Http.Results.Json(
+                Api.WorkspaceView.Of(await workspaces.OpenAsync(id, cancellationToken))));
+
+        // The work-item detail (#46): the whole record behind a board card — the work item,
+        // every round it has run with the host's diff, the decisions made and the decisions
+        // still offered, and how it ended. It is a read and nothing else:
+        // `WorkItemDetailView.Of` puts the store's own rows together with the factory's own
+        // judgement (`HowToReadTheDiff`, `HowItEnded`, `Decisions.OfferedIn`), and the
+        // endpoint holds no policy of its own. An id the store has never seen is a 404
+        // rather than an empty record, because "no such work item" and "a work item with
+        // nothing on it" are different answers.
+        api.MapGet("/work-items/{id}", (string id, IWorkItemStore store) =>
+            Guid.TryParse(id, out var workItemId) && store.Get(workItemId) is { } workItem
+                ? Microsoft.AspNetCore.Http.Results.Json(Api.WorkItemDetailView.Of(workItem, store))
+                : Microsoft.AspNetCore.Http.Results.NotFound());
+
+        // The Projects surface (#48): the served set with its load state and the loader's
+        // own refusals, and the three writes — add, edit (one write that overwrites), and
+        // remove. Each mirrors what the board could always do and
+        // invents no capability: the file stays the single source of truth, and a write is
+        // served only after a restart, which the app says where a repository is chosen. The
+        // endpoint holds no validation of its own; `ProjectFiles` is the guard it calls.
+        api.MapGet("/projects", (ProjectLoadReport projects) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.ProjectsView.From(projects)));
+
+        api.MapPost("/projects", (Api.ProjectWriteRequest request, FactoryOptions options) =>
+        {
+            var refused = ProjectFiles.Write(
+                options.FactoriesDirectory,
+                (request.Name ?? string.Empty).Trim(),
+                (request.RepoUrl ?? string.Empty).Trim(),
+                (request.WorkerImage ?? string.Empty).Trim(),
+                (request.LlmModel ?? string.Empty).Trim(),
+                (request.GitHubKeyName ?? string.Empty).Trim(),
+                (request.LlmKeyName ?? string.Empty).Trim());
+
+            return Microsoft.AspNetCore.Http.Results.Json(
+                new Api.ProjectWriteResult(refused is null, refused),
+                statusCode: refused is null
+                    ? StatusCodes.Status200OK
+                    : StatusCodes.Status400BadRequest);
+        });
+
+        api.MapDelete("/projects/{name}", (string name, FactoryOptions options) =>
+        {
+            // The guard the page handler uses, said back as a refusal rather than a silent
+            // no-op: a name the loader would never serve is not one a delete may touch.
+            if (!ProjectFiles.IsServableName(name))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new Api.ProjectWriteResult(false, "the project name would not be a file the loader serves"),
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            ProjectFiles.Delete(options.FactoriesDirectory, name);
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.ProjectWriteResult(true, null));
+        });
+
+        // The credential names the factory can use — the union of the keys the served
+        // projects declare and the files already in the secrets directory — each with
+        // whether it has a value. Presence only: the surface is write-only, and the value
+        // is reached through `Has`, never `Read`, which keeps exactly its two callers.
+        api.MapGet("/credentials", (
+            ProjectLoadReport projects,
+            FactoryOptions options,
+            CompositeCredentialReader credentials) =>
+            Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialsView(
+                CredentialFiles.Names(projects, options.SecretsDirectory)
+                    .Select(name => new Api.CredentialView(name, credentials.Has(name)))
+                    .ToList())));
+
+        // A credential's value, written and never rendered back. The composite reader is
+        // the boundary that turns the name into a value in the secrets directory, exactly
+        // as the project's credentials form does; the answer is the name and its new
+        // presence, and nothing else.
+        api.MapPut("/credentials/{name}", async (
+            string name,
+            HttpRequest request,
+            CompositeCredentialReader credentials) =>
+        {
+            Api.CredentialWrite? body;
+            try
+            {
+                body = await request.ReadFromJsonAsync<Api.CredentialWrite>();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest();
+            }
+
+            var value = body?.Value;
+
+            // The name is guarded the same way a delete's is: it arrives from a route
+            // segment, so a name that would not be a file the factory serves is refused
+            // rather than handed to a write that would create a path outside the secrets
+            // directory. The delete below already guards; the write must too.
+            var written = (name ?? string.Empty).Trim();
+            if (!CredentialFiles.IsServableName(written) || string.IsNullOrWhiteSpace(value))
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest();
+            }
+
+            credentials.Write(written, value.Trim());
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialView(written, true));
+        });
+
+        // A credential's file, removed. The name is guarded so a route segment cannot
+        // reach outside the secrets directory, exactly as a project name is guarded.
+        api.MapDelete("/credentials/{name}", (string name, FactoryOptions options) =>
+        {
+            CredentialFiles.Delete(options.SecretsDirectory, name);
+            return Microsoft.AspNetCore.Http.Results.NoContent();
+        });
+
         return app;
     }
 }

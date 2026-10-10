@@ -676,17 +676,13 @@ public class PolicyTests
 
         Assert.Equal([Decision.Approve, Decision.Reject], Decisions.OfferedIn(Swimlane.Escalated));
 
-        // The board's write path is still the reviewer's form, plus exactly two others,
-        // neither of which decides built work: the review workspace's open (#35), which
-        // starts a container for the reviewer to look at, and the Backlog gate's build
-        // (#40), which asks the loop to accept a work item into the build. The loop stays
-        // the only component that applies policy; a page with an opinion of its own would
-        // be a page that could write a result itself.
-        Assert.Equal(["OnGet", "OnPostBuildAsync", "OnPostDecision", "OnPostOpenWorkspaceAsync"], typeof(Pages.IndexModel)
-            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .Where(method => method.Name.StartsWith("On", StringComparison.Ordinal))
-            .Select(method => method.Name)
-            .Order(StringComparer.Ordinal));
+        // The write path is the JSON surface now (#51): the reviewer's decision endpoint
+        // and the workspace's open are the two writes, and neither grows a decision. The
+        // exact route list and the fact that a decision is the human's one way to move a
+        // work item are pinned where the process is actually running, in
+        // `DecisionTests.The_board_is_the_only_way_a_human_can_change_anything`; this is
+        // the IL half of the same claim, and it is deliberately short because the set of
+        // decisions is what belongs in a scan of the application, not a list of handlers.
     }
 
     [Fact]
@@ -741,10 +737,12 @@ public class PolicyTests
         // name the work item in a placeholder.
         //
         // The list is a closed one on purpose, and it is short because of the argument rather
-        // than for tidiness: the loop, the poller, the board, the round runner and the merger
-        // are the five components in the process that are ever handed a work item's identity.
-        // A sixth would be a new component taking one, and the point of the check is that it
-        // would have to be argued for here rather than added quietly.
+        // than for tidiness: the loop, the poller, the round runner and the merger are the
+        // components in the process that are ever handed a work item's identity. A fifth
+        // would be a new component taking one, and the point of the check is that it would
+        // have to be argued for here rather than added quietly. The board page used to be a
+        // fifth and is gone with the Razor board (#51): the JSON decision endpoint records
+        // and steps without opening a scope of its own.
         //
         // What this does *not* prove is that every record those components write is inside a
         // scope — a component can open one and then log outside it, and this cannot see that.
@@ -761,11 +759,6 @@ public class PolicyTests
         Assert.Equal(
             [
                 "GitHubClient.MergeAsync",
-                // One for the board rather than two, because the board reads the work item
-                // from the store first and scopes through a helper: a decision posted about
-                // an id this process has never seen has nothing to scope, and that is a
-                // shape rather than a gap.
-                "IndexModel.TraceFor",
                 "Orchestrator.Apply",
                 "Orchestrator.LandIfTheRoundIsOver",
                 "Orchestrator.MergeWhatNobodyReviewed",
@@ -803,9 +796,10 @@ public class PolicyTests
         // record under `WorkItemProject` would mean a field called "the work item's
         // project" carrying a project with no work item; filling the other three would mean
         // inventing a work item id, an issue number and a round number for a work item that
-        // does not exist. So the work item's vocabulary is **unchanged** — the four keys and
-        // the ten call sites above are exactly what they were — and this is its own class
-        // with its own key and its own pinned list.
+        // does not exist. So the work item's vocabulary is **unchanged** — the four keys are
+        // exactly what they were, and its call sites are the ones pinned above minus the
+        // board page's, which is gone with the Razor board (#51) — and this is its own
+        // class with its own key and its own pinned list.
         //
         // Nothing was weakened to accommodate it. The claim above is still asserted in full
         // and a new claim is asserted beside it, so widening either vocabulary is still a

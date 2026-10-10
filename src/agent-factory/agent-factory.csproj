@@ -14,15 +14,36 @@
 
   <ItemGroup>
     <!--
-      The board's stylesheet, copied to the output beside the assembly rather than left in
-      wwwroot for the content root to find. The content root is a factory *data* directory
-      (a temporary one in the test host, /app in the deployment) and never carries one, so
-      `FactoryApp` names the web root as AppContext.BaseDirectory/wwwroot instead — which is
-      exactly where `dotnet publish` and this both put it. Declared here because a file that
-      is served but not published is a file that exists in development and 404s in
-      production, which is #25's original failure one level down.
+      Anything already under `wwwroot` — copied to the output beside the assembly rather
+      than left for the content root to find. The content root is a factory *data*
+      directory (a temporary one in the test host, /app in the deployment) and never
+      carries one, so `FactoryApp` names the web root as
+      AppContext.BaseDirectory/wwwroot instead — which is exactly where `dotnet publish`
+      and this both put it. Declared here because a file that is served but not published
+      is a file that exists in development and 404s in production.
     -->
     <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The Board app's static export, published beside the entry assembly under
+      `wwwroot` so the same process serves it at the root. The app is a flat Next
+      export at the repository root (`../../admin`), built with `pnpm build` into
+      `admin/out`; `FactoryApp` already serves everything under
+      AppContext.BaseDirectory/wwwroot, and this puts the export there directly.
+      `Link` maps each exported file to the root of wwwroot (its `admin/out` cone
+      is stripped) rather than to its position in this project's cone.
+
+      The glob is empty until the app has been built, and an empty glob is an empty
+      item list rather than an error: a checkout that has not run `pnpm build` still
+      builds. Declared here because a file that is served but not published is a file
+      that exists in development and 404s in production.
+    -->
+    <Content Include="..\..\admin\out\**"
+             Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

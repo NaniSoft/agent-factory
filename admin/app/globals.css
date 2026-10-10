@@ -1,0 +1,571 @@
+/*
+ * The app's own stylesheet, and it is only layout.
+ *
+ * Almost everything on the pages is drawn by the design system: the cards, the
+ * metric, the status, the badge, the record index and the record form are Prism
+ * items, and the pack and mode arrive in `@nanisoft/prism-ui/styles.css`. What is
+ * left here is the column a page sits in, the panels inside it, and the handful of
+ * arrangements the catalogue deliberately ships no item for. A class below is a
+ * declaration this app owns; there is no restyling of a catalogue item and no focus
+ * rule, because the design system draws its own ring.
+ *
+ * Colour is a token and never a raw value. `var(--muted-foreground)` is declared by
+ * the emitted stylesheet, so it resolves in every pack and mode this app can wear.
+ */
+
+.page {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.page__header {
+  margin-bottom: 2rem;
+}
+
+.page__title {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.page__lede {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.page__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+}
+
+.page__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.page__hint {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+/*
+ * The strip above the lanes: the container budget and the auto-merge mode. It is
+ * layout only — the Status and the Badge are Prism items — so what is here is the
+ * row they sit in and the space under it.
+ */
+.board__strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+/*
+ * The project filter. A row of Prism buttons and their label, which is the one
+ * shape the catalogue ships no item for: it is a GET form, not a toolbar, and it
+ * navigates rather than acting on a selection.
+ */
+.board__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.board__filter-label {
+  margin-right: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* The filter in force, said on the board rather than only in the URL. */
+.board__in-force {
+  margin: 0 0 1rem;
+  color: var(--muted-foreground);
+}
+
+/*
+ * The intake section, above the lanes. The table is a Prism item; what is here is the
+ * space the section takes and the two lines that introduce it, which the catalogue
+ * ships no item for.
+ */
+.board__intake {
+  margin-bottom: 1.5rem;
+}
+
+.board__intake-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.board__intake-summary {
+  max-width: 46rem;
+  margin: 0 0 1rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+/* A card's body: the round count, and why the work item ended where it did. */
+.board__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.board__card-ending {
+  color: var(--muted-foreground);
+}
+
+/* When card silence would merge it, said on the card rather than only in the strip. */
+.board__card-auto-merge {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+/* The acceptance gate on a Backlog card: the button and the factory's refusal beside it. */
+.board__accept {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+/*
+ * The decisions, inside a card. The buttons, the label, the textarea and the refusal
+ * are Prism items; what is here is the stack they sit in — a card is narrow, so the
+ * field and the actions are one column each — and the space between them.
+ */
+.decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.decisions__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.decisions__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.decisions__refusal {
+  margin-top: 0.25rem;
+}
+
+/*
+ * A card's review workspace: the link and the time left, or the open control and the
+ * factory's refusal. The link, the status and the button are Prism items; what is here
+ * is the row they sit in — wrapping so a long loopback URL never pushes the card wide —
+ * and the muted ink of the remaining time.
+ */
+.board__workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.board__workspace-remaining {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The trust statement, and the only thing below the lanes. */
+.board__footer {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.board__footer p {
+  margin: 0;
+  max-width: 46rem;
+  line-height: 1.6;
+}
+
+/*
+ * The loading shape: the frame of the board, drawn in skeletons so the region
+ * keeps its size while the factory is read. The columns are the same width the
+ * Block gives a real column, so the page does not jump when the answer arrives.
+ */
+.board__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.board__loading-columns {
+  display: flex;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.board__loading-column {
+  display: flex;
+  width: 18rem;
+  flex: none;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.board__loading-heading {
+  height: 1rem;
+  width: 60%;
+}
+
+.board__loading-card {
+  height: 4rem;
+}
+
+/*
+ * The Projects surface. The list, its refusals and its form are Prism items or a
+ * `record-form` Block; what is here is the handful of arrangements the catalogue
+ * ships no item for — the section spacing, the refusal list and its monospaced file
+ * name, the row of actions on a project, and the width the form sits at.
+ */
+.projects__section {
+  margin-top: 2.5rem;
+}
+
+.projects__refusals {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.projects__refusal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.projects__refusal-file {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.projects__row-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.projects__form {
+  max-width: 46rem;
+}
+
+/*
+ * The Credentials surface. The list, its write-only form and the notice are Prism
+ * items; what is here is the page column, the two-panel grid, the list reset and the
+ * stacked form the catalogue ships no item for.
+ */
+.credentials {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.credentials__header {
+  margin-bottom: 2rem;
+}
+
+.credentials__title {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.credentials__lede {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.credentials__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.25rem;
+}
+
+.credentials__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credentials__form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.credentials__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.credentials__hint,
+.credentials__notice {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.credentials__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+/*
+ * The work-item detail. The header, the round cards, the statuses, the badges and the
+ * decision form are Prism items; what is here is the handful of arrangements the catalogue
+ * ships no item for — the back link above the title, the header's tag row, the round list,
+ * and the collapsible diff sections whose whole job is to show git's own text.
+ *
+ * Nothing here hides anything: every file's text is in the page whether its section is open
+ * or closed, because closing one is a presentation choice and not a summary of it.
+ */
+.work-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.work-item__back {
+  margin: 0 0 1rem;
+}
+
+.work-item__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.work-item__route,
+.work-item__ending {
+  max-width: 46rem;
+  margin: 0 0 0.5rem;
+  line-height: 1.6;
+}
+
+.work-item__ending {
+  color: var(--muted-foreground);
+}
+
+.work-item__meta {
+  margin: 0.5rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.work-item__section-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.work-item__empty {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+.work-item__round-list,
+.work-item__decided {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-item__round-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.work-item__attempts {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* The diff, one section per file: a header line a reader scans and git's text underneath. */
+.work-item__diff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.work-item__diff-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.work-item__diff-counts,
+.work-item__diff-says,
+.work-item__diff-omitted,
+.work-item__diff-bounded,
+.work-item__diff-none {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.work-item__diff-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-item__diff-file {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.work-item__diff-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.work-item__diff-path {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+
+.work-item__diff-change,
+.work-item__diff-from,
+.work-item__diff-lines {
+  color: var(--muted-foreground);
+}
+
+.work-item__diff-lines {
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.work-item__diff-text,
+.work-item__pre {
+  margin: 0;
+  padding: 0.75rem;
+  max-height: 30rem;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.work-item__payload,
+.work-item__log {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.work-item__payload > summary,
+.work-item__log > summary {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.work-item__note {
+  margin: 0.75rem 0 0;
+  max-width: 46rem;
+  line-height: 1.6;
+}
+
+/* The decisions: what the reviewer did, and the shared form for what they may still do. */
+.work-item__decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.work-item__decision {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.work-item__decision-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.work-item__decision-applied {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.work-item__decision-feedback {
+  margin: 0;
+  max-width: 46rem;
+  line-height: 1.6;
+}
+
+.work-item__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.work-item__loading-header {
+  height: 5rem;
+}
+
+.work-item__loading-round {
+  height: 9rem;
+}

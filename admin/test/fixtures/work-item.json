@@ -1,0 +1,126 @@
+{
+  "workItem": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "project": "nexus",
+    "repoUrl": "https://github.com/NaniSoft/nexus",
+    "issueNumber": 42,
+    "title": "Add the board endpoint",
+    "body": "The board has no JSON surface.",
+    "baseBranch": "main",
+    "lane": "Review",
+    "laneLabel": "Review",
+    "roundCount": 3,
+    "roundCeiling": 3,
+    "createdUtc": "2026-10-01T09:00:00+00:00",
+    "updatedUtc": "2026-10-01T10:30:00+00:00",
+    "reviewStartedUtc": "2026-10-01T10:30:00+00:00",
+    "mergeAttempts": 0
+  },
+  "rounds": [
+    {
+      "roundNumber": 1,
+      "outcome": "Produced",
+      "failure": null,
+      "attempts": 1,
+      "startedUtc": "2026-10-01T09:05:00+00:00",
+      "completedUtc": "2026-10-01T09:20:00+00:00",
+      "payload": "files changed\n  added  src/Index.cs\ncommands run, and what each returned\n  exit 0   12.3s   the unit tests",
+      "agentNote": "Added the endpoint.",
+      "log": "round 1 log: the agent read the tree and added the endpoint",
+      "diff": {
+        "state": "shown",
+        "files": [
+          {
+            "path": "src/Index.cs",
+            "previousPath": null,
+            "change": "added",
+            "added": 2,
+            "removed": 0,
+            "binary": false,
+            "open": true,
+            "text": "diff --git a/src/Index.cs b/src/Index.cs\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/src/Index.cs\n@@ -0,0 +1,2 @@\n+public sealed class Index\n+{\n"
+          },
+          {
+            "path": "src/Other.cs",
+            "previousPath": null,
+            "change": "added",
+            "added": 2,
+            "removed": 0,
+            "binary": false,
+            "open": false,
+            "text": "diff --git a/src/Other.cs b/src/Other.cs\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/src/Other.cs\n@@ -0,0 +1,2 @@\n+public sealed class Other\n+{\n"
+          }
+        ],
+        "omittedFiles": 3,
+        "omittedLines": 40,
+        "totalFiles": 5,
+        "totalLines": 62,
+        "tree": "/rounds/abc/round-1/attempt-1/tree",
+        "unavailableBecause": null,
+        "boundedElsewhere": null,
+        "saysAboutAnUnchangedDisk": null,
+        "whatIsLeftOff": "3 more file(s), 40 more line(s), are not on this page. Nothing is summarised in their place. The whole diff is the round's own tree, on this machine, at /rounds/abc/round-1/attempt-1/tree."
+      }
+    },
+    {
+      "roundNumber": 2,
+      "outcome": "Produced",
+      "failure": null,
+      "attempts": 1,
+      "startedUtc": "2026-10-01T09:40:00+00:00",
+      "completedUtc": "2026-10-01T09:50:00+00:00",
+      "payload": "the round read the tree and stopped",
+      "agentNote": "Read the tree and stopped.",
+      "log": "round 2 log: nothing needed changing",
+      "diff": {
+        "state": "empty",
+        "files": [],
+        "omittedFiles": 0,
+        "omittedLines": 0,
+        "totalFiles": 0,
+        "totalLines": 0,
+        "tree": "/rounds/abc/round-2/attempt-1/tree",
+        "unavailableBecause": null,
+        "boundedElsewhere": null,
+        "saysAboutAnUnchangedDisk": "Empty. Nothing on disk differs from the commit the round started at: the round ran to completion and changed nothing.",
+        "whatIsLeftOff": null
+      }
+    },
+    {
+      "roundNumber": 3,
+      "outcome": "Failed",
+      "failure": "Permanent",
+      "attempts": 1,
+      "startedUtc": "2026-10-01T10:00:00+00:00",
+      "completedUtc": "2026-10-01T10:00:02+00:00",
+      "payload": "worker-round: roundExitCode=1\nError: Error from provider (Console): Rate limit exceeded.",
+      "agentNote": null,
+      "log": "round 3 log: the agent was refused before it began",
+      "diff": {
+        "state": "unfinished",
+        "files": [],
+        "omittedFiles": 0,
+        "omittedLines": 0,
+        "totalFiles": 0,
+        "totalLines": 0,
+        "tree": "/rounds/abc/round-3/attempt-1/tree",
+        "unavailableBecause": null,
+        "boundedElsewhere": null,
+        "saysAboutAnUnchangedDisk": "Unfinished. The round's own command did not succeed, so the round did not run to completion. Nothing on disk differs from the commit it started at because that is where it stopped, not because the round chose to leave it alone. What it did run is in the record below this.",
+        "whatIsLeftOff": null
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "sequence": 1,
+      "decision": "request-changes",
+      "feedback": "Move the null check inside the lock.",
+      "decidedUtc": "2026-10-01T09:35:00+00:00",
+      "appliedTo": "Frontier",
+      "appliedToLabel": "Frontier"
+    }
+  ],
+  "offeredDecisions": ["approve", "request-changes", "reject"],
+  "ending": ""
+}
