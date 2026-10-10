@@ -258,11 +258,15 @@ public static class FactoryApp
         //
         // The surface and the data share one process and one loopback binding, and the app
         // re-decides nothing: the factory's judgement is the app's only source of truth
-        // (ADR-0013, ADR-0014).
-        app.MapGroup("/api").MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
-            Microsoft.AspNetCore.Http.Results.Json(new Api.BoardView(
-                new Api.BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
-                options.AutoMerge)));
+        // (ADR-0013, ADR-0014). The endpoint resolves the store, the load report, the loop
+        // and the options the board page resolves, and `BoardView.Of` puts them together;
+        // it reads and writes nothing, calls no seam and moves no work item.
+        app.MapGroup("/api").MapGet("/board", (
+            IWorkItemStore store,
+            ProjectLoadReport projects,
+            Orchestrator loop,
+            FactoryOptions options) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options)));
 
         return app;
     }
