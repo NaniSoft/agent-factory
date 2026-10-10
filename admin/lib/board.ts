@@ -55,12 +55,60 @@ export type RejectionView = {
   message: string;
 };
 
+/**
+ * One project's intake as the factory judged it: the state, what was found or what was
+ * refused, and when this project will be read again. Every field is the factory's own
+ * judgement — the state's slug, the failure's classification, the moment — so the
+ * renderer draws the row and composes nothing.
+ */
+export type IntakeRowView = {
+  project: string;
+  repoUrl: string;
+  /** The state's slug: `never-polled`, `polled` or `failing`. */
+  status: string;
+  /** How many open issues the last successful read found, or null where there was none. */
+  openIssues: number | null;
+  /** The failure's classification, or null when the read succeeded. */
+  failure: string | null;
+  /** What the failed turn said, in GitHub's own words. */
+  because: string | null;
+  /** When the last turn finished, either way, as ISO-8601, or null. */
+  atUtc: string | null;
+  /** How many times in a row this project has failed. */
+  failures: number;
+  /** When this project will next be read, as ISO-8601, or null. */
+  againAfterUtc: string | null;
+  /** `never` for a permanent failure, a moment for a transient one, `next-pass` otherwise. */
+  again: string;
+  /** The row's sentence, in the reviewer's words. */
+  says: string;
+};
+
+/**
+ * The whole of intake, from the factory's own judgement: the section's worst state, the
+ * one line that says whether an empty Backlog can be trusted, the counts, and one row per
+ * served project. It is not narrowed by the project filter — a filter that could hide the
+ * reason there is nothing on the board could make a broken factory look like a working one.
+ */
+export type IntakeView = {
+  /** The worst state of any project: `never-polled`, `polled` or `failing`. */
+  status: string;
+  /** The one line above the rows, from the factory's own summary. */
+  summary: string;
+  projects: number;
+  polled: number;
+  neverPolled: number;
+  failing: number;
+  rows: IntakeRowView[];
+};
+
 export type BoardView = {
   budget: { inUse: number; of: number };
   autoMerge: boolean;
   lanes: LaneView[];
   projects: ProjectView[];
   rejections: RejectionView[];
+  intake: IntakeView;
 };
 
 /**

@@ -94,6 +94,28 @@
   color: var(--muted-foreground);
 }
 
+/*
+ * The intake section, above the lanes. The table is a Prism item; what is here is the
+ * space the section takes and the two lines that introduce it, which the catalogue
+ * ships no item for.
+ */
+.board__intake {
+  margin-bottom: 1.5rem;
+}
+
+.board__intake-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.board__intake-summary {
+  max-width: 46rem;
+  margin: 0 0 1rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
 /* A card's body: the round count, and why the work item ended where it did. */
 .board__card-body {
   display: flex;

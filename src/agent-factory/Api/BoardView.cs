@@ -3,6 +3,7 @@ namespace AgentFactory.Api;
 using System.Text.Json.Serialization;
 using AgentFactory.Loop;
 using AgentFactory.Pages;
+using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 
@@ -41,7 +42,8 @@ public sealed record BoardView(
     [property: JsonPropertyName("autoMerge")] bool AutoMerge,
     [property: JsonPropertyName("lanes")] IReadOnlyList<LaneView> Lanes,
     [property: JsonPropertyName("projects")] IReadOnlyList<ProjectView> Projects,
-    [property: JsonPropertyName("rejections")] IReadOnlyList<RejectionView> Rejections)
+    [property: JsonPropertyName("rejections")] IReadOnlyList<RejectionView> Rejections,
+    [property: JsonPropertyName("intake")] IntakeView Intake)
 {
     /// <summary>
     /// The whole board, read from the factory's own state and judgement.
@@ -57,12 +59,14 @@ public sealed record BoardView(
         IWorkItemStore store,
         ProjectLoadReport projects,
         Orchestrator loop,
-        FactoryOptions options)
+        FactoryOptions options,
+        Poller poller)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(projects);
         ArgumentNullException.ThrowIfNull(loop);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(poller);
 
         var workItems = store.List();
 
@@ -84,7 +88,120 @@ public sealed record BoardView(
             options.AutoMerge,
             lanes,
             [.. projects.Projects.Select(ProjectView.Of)],
-            [.. projects.Rejections.Select(RejectionView.Of)]);
+            [.. projects.Rejections.Select(RejectionView.Of)],
+            IntakeView.Of(poller));
+    }
+}
+
+/// <summary>
+/// What intake says about the whole factory and about each project it serves, serialised
+/// from <see cref="HowToReadIntake"/> — the same judgement the Razor board renders above
+/// its lanes. An empty Backlog is three different facts, and this is the section that
+/// tells them apart: never polled, polled (with what it found), and failing (with the
+/// classification and when the project will next be asked).
+/// </summary>
+/// <remarks>
+/// It is rendered whenever the factory serves a project, healthy or not, because a section
+/// that only appears when something is wrong is a section whose absence carries no
+/// information. And it is not narrowed by the project filter: a filter narrows what a
+/// reviewer is looking at, and a fault in the machine is not a view of it.
+/// </remarks>
+/// <param name="Status">
+/// The worst state of any project, from <see cref="HowToReadIntake.WorstOf"/>, so a renderer
+/// can say "something here is not working" without reading every row.
+/// </param>
+/// <param name="Summary">
+/// The one line above the rows, from <see cref="HowToReadIntake.Summarise"/>, which says
+/// out loud that an empty Backlog does not mean there is nothing to do whenever it does not.
+/// </param>
+/// <param name="Projects">How many projects the factory serves.</param>
+/// <param name="Polled">How many of them were read successfully.</param>
+/// <param name="NeverPolled">How many the rotation has not reached.</param>
+/// <param name="Failing">How many could not be read.</param>
+/// <param name="Rows">One row per served project, in the poller's rotation order.</param>
+public sealed record IntakeView(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("projects")] int Projects,
+    [property: JsonPropertyName("polled")] int Polled,
+    [property: JsonPropertyName("neverPolled")] int NeverPolled,
+    [property: JsonPropertyName("failing")] int Failing,
+    [property: JsonPropertyName("rows")] IReadOnlyList<IntakeRowView> Rows)
+{
+    /// <summary>
+    /// The whole of intake as the board shows it, read from the poller's own account and
+    /// re-decided nowhere.
+    /// </summary>
+    public static IntakeView Of(Poller poller)
+    {
+        ArgumentNullException.ThrowIfNull(poller);
+
+        var rows = HowToReadIntake.Each(poller.Intake);
+
+        return new IntakeView(
+            HowToReadIntake.Slug(HowToReadIntake.WorstOf(rows)),
+            HowToReadIntake.Summarise(rows),
+            rows.Count,
+            rows.Count(row => row.Status == IntakeStatus.Polled),
+            rows.Count(row => row.Status == IntakeStatus.NeverPolled),
+            rows.Count(row => row.Status == IntakeStatus.Failing),
+            [.. rows.Select(IntakeRowView.Of)]);
+    }
+}
+
+/// <summary>
+/// One project's intake as the renderer draws it: the state, what was found or what was
+/// refused, and when this project will be read again — which is a different answer for each
+/// of the three states. Every field is the factory's own judgement, so the renderer draws
+/// the row and decides nothing.
+/// </summary>
+/// <param name="Project">The project's name, as its project file spells it.</param>
+/// <param name="RepoUrl">The repository, so the row says which one it is about.</param>
+/// <param name="Status">The state's slug, from <see cref="HowToReadIntake.Slug"/>.</param>
+/// <param name="OpenIssues">
+/// How many open issues the last successful read found, and null for the two states where
+/// there has not been one. Null rather than zero, because zero is a real answer.
+/// </param>
+/// <param name="Failure">The failure's classification, or null when the read succeeded.</param>
+/// <param name="Because">What the failed turn said, in its own words.</param>
+/// <param name="AtUtc">When the last turn finished, either way, as ISO-8601 or null.</param>
+/// <param name="Failures">How many times in a row this project has failed.</param>
+/// <param name="AgainAfterUtc">When this project will next be read, as ISO-8601, or null.</param>
+/// <param name="Again">
+/// Whether this project will be read again and when: <c>never</c> for a permanent failure,
+/// a moment for a transient one, and <c>next-pass</c> for a project that is fine.
+/// </param>
+/// <param name="Says">The row's sentence, in the reviewer's words.</param>
+public sealed record IntakeRowView(
+    [property: JsonPropertyName("project")] string Project,
+    [property: JsonPropertyName("repoUrl")] string RepoUrl,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("openIssues")] int? OpenIssues,
+    [property: JsonPropertyName("failure")] string? Failure,
+    [property: JsonPropertyName("because")] string? Because,
+    [property: JsonPropertyName("atUtc")] string? AtUtc,
+    [property: JsonPropertyName("failures")] int Failures,
+    [property: JsonPropertyName("againAfterUtc")] string? AgainAfterUtc,
+    [property: JsonPropertyName("again")] string Again,
+    [property: JsonPropertyName("says")] string Says)
+{
+    /// <summary>One project's intake, read the way the board's own intake row reads it.</summary>
+    public static IntakeRowView Of(IntakeOnTheBoard row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return new IntakeRowView(
+            row.Project,
+            row.RepoUrl,
+            HowToReadIntake.Slug(row.Status),
+            row.OpenIssues,
+            row.Failure?.ToString(),
+            row.Because,
+            row.AtUtc?.ToString("O"),
+            row.Failures,
+            row.AgainAfterUtc?.ToString("O"),
+            row.Again,
+            row.Says);
     }
 }
 

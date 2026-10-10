@@ -270,8 +270,9 @@ public static class FactoryApp
             IWorkItemStore store,
             ProjectLoadReport projects,
             Orchestrator loop,
-            FactoryOptions options) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options)));
+            FactoryOptions options,
+            Poller poller) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller)));
 
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes the Razor Projects page already had — add, edit
