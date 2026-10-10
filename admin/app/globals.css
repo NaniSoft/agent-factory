@@ -191,3 +191,71 @@
 .projects__form {
   max-width: 46rem;
 }
+
+/*
+ * The Credentials surface. The list, its write-only form and the notice are Prism
+ * items; what is here is the page column, the two-panel grid, the list reset and the
+ * stacked form the catalogue ships no item for.
+ */
+.credentials {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.credentials__header {
+  margin-bottom: 2rem;
+}
+
+.credentials__title {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.credentials__lede {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.credentials__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.25rem;
+}
+
+.credentials__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credentials__form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.credentials__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.credentials__hint,
+.credentials__notice {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.credentials__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}

@@ -325,16 +325,27 @@ public class DecisionTests
         // can reach arrives through one of them, because there is
         // Nothing else addressable beside the two pages and the JSON surface: the board,
         // the projects surface (#33), which writes project files and secrets and moves no
-        // work item, and the admin app's `/api` group — the board read (#43) and the
-        // projects read and writes (#48), none of which moves a work item. A Razor page's
-        // route pattern carries no raw text of its own, so the endpoint is named rather than
-        // spelled as a URL. A middleware that wrote without going through routing would not
-        // be on this list, and there is none; what the list does prove is that nothing else
-        // is reachable. The raw pattern is the pages-root-relative template, which is why the
-        // projects page's is "Projects" and the board's is "/Index"; the JSON endpoints are
-        // minimal-API routes and carry their own absolute templates.
+        // work item, and the admin app's `/api` group — the board read (#43), the projects
+        // read and writes (#48), and the credentials surface (#49), whose `GET` lists names
+        // and presence, whose `PUT` writes a secret, and whose `DELETE` removes one — none
+        // of which moves a work item. A Razor page's route pattern carries no raw text of
+        // its own, so the endpoint is named rather than spelled as a URL. A middleware that
+        // wrote without going through routing would not be on this list, and there is none;
+        // what the list does prove is that nothing else is reachable. The raw pattern is the
+        // pages-root-relative template, which is why the projects page's is "Projects" and
+        // the board's is "/Index"; the JSON endpoints are minimal-API routes and carry their
+        // own absolute templates, and `PUT` and `DELETE` on one path collapse to one entry
+        // because the pattern is what is listed.
         Assert.Equal(
-            ["/Index", "/api/board", "/api/projects", "/api/projects/{name}", "Projects"],
+            [
+                "/Index",
+                "/api/board",
+                "/api/credentials",
+                "/api/credentials/{name}",
+                "/api/projects",
+                "/api/projects/{name}",
+                "Projects",
+            ],
             host.Routes());
 
         // And the board itself has three writes: the reviewer's decision — the only one
