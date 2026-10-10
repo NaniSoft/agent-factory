@@ -1,0 +1,21 @@
+{
+  "projects": [
+    {
+      "name": "nexus",
+      "repoUrl": "https://github.com/NaniSoft/nexus",
+      "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
+      "llmModel": "anthropic/claude-sonnet-4-5",
+      "githubKeyName": "NEXUS_GITHUB_TOKEN",
+      "llmKeyName": "NEXUS_ANTHROPIC_API_KEY",
+      "sourceFile": "nexus.yaml",
+      "state": "served"
+    }
+  ],
+  "rejections": [
+    {
+      "fileName": "broken.yaml",
+      "reason": "Partial",
+      "message": "repo.url is not an absolute http or https URL"
+    }
+  ]
+}

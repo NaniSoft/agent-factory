@@ -59,10 +59,10 @@ export default function BoardPage() {
   }, []);
 
   return (
-    <main className="board">
-      <header className="board__header">
-        <h1 className="board__title">The factory board</h1>
-        <p className="board__lede">
+    <main className="page">
+      <header className="page__header">
+        <h1 className="page__title">The factory board</h1>
+        <p className="page__lede">
           What the factory is doing right now: how many worker containers it is inside, and whether
           silence can merge a change.
         </p>
@@ -76,7 +76,7 @@ export default function BoardPage() {
             <CardTitle>Could not read the factory</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="board__error">
+            <div className="page__error">
               <Status tone="destructive" label={reading.message} />
               <Button variant="outline" onClick={retry}>
                 Try again
@@ -85,7 +85,7 @@ export default function BoardPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="board__panels">
+        <div className="page__panels">
           <Card>
             <CardHeader>
               <CardTitle>Worker containers</CardTitle>
@@ -112,7 +112,7 @@ export default function BoardPage() {
               <Badge variant={reading.board.autoMerge ? 'success' : 'outline'}>
                 {reading.board.autoMerge ? 'auto-merge is on' : 'auto-merge is off'}
               </Badge>
-              <p className="board__hint">
+              <p className="page__hint">
                 {reading.board.autoMerge
                   ? 'A work item left in Review past the threshold is merged without a reviewer.'
                   : 'Nothing merges without a reviewer.'}

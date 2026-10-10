@@ -259,10 +259,54 @@ public static class FactoryApp
         // The surface and the data share one process and one loopback binding, and the app
         // re-decides nothing: the factory's judgement is the app's only source of truth
         // (ADR-0013, ADR-0014).
-        app.MapGroup("/api").MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
+        var api = app.MapGroup("/api");
+
+        api.MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
             Microsoft.AspNetCore.Http.Results.Json(new Api.BoardView(
                 new Api.BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
                 options.AutoMerge)));
+
+        // The Projects surface (#48): the served set with its load state and the loader's
+        // own refusals, and the three writes the Razor Projects page already had — add, edit
+        // (one write that overwrites), and remove. Each mirrors a page handler exactly and
+        // invents no capability: the file stays the single source of truth, and a write is
+        // served only after a restart, which the app says where a repository is chosen. The
+        // endpoint holds no validation of its own; `ProjectFiles` is the guard it calls.
+        api.MapGet("/projects", (ProjectLoadReport projects) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.ProjectsView.From(projects)));
+
+        api.MapPost("/projects", (Api.ProjectWriteRequest request, FactoryOptions options) =>
+        {
+            var refused = ProjectFiles.Write(
+                options.FactoriesDirectory,
+                (request.Name ?? string.Empty).Trim(),
+                (request.RepoUrl ?? string.Empty).Trim(),
+                (request.WorkerImage ?? string.Empty).Trim(),
+                (request.LlmModel ?? string.Empty).Trim(),
+                (request.GitHubKeyName ?? string.Empty).Trim(),
+                (request.LlmKeyName ?? string.Empty).Trim());
+
+            return Microsoft.AspNetCore.Http.Results.Json(
+                new Api.ProjectWriteResult(refused is null, refused),
+                statusCode: refused is null
+                    ? StatusCodes.Status200OK
+                    : StatusCodes.Status400BadRequest);
+        });
+
+        api.MapDelete("/projects/{name}", (string name, FactoryOptions options) =>
+        {
+            // The guard the page handler uses, said back as a refusal rather than a silent
+            // no-op: a name the loader would never serve is not one a delete may touch.
+            if (!ProjectFiles.IsServableName(name))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new Api.ProjectWriteResult(false, "the project name would not be a file the loader serves"),
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            ProjectFiles.Delete(options.FactoriesDirectory, name);
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.ProjectWriteResult(true, null));
+        });
 
         return app;
     }
