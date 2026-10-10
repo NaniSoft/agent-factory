@@ -13,6 +13,7 @@ using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 
@@ -243,26 +244,81 @@ public static class FactoryApp
 
         app.MapRazorPages();
 
-        // The JSON surface the Board app renders. It is a second *reading* of the same
-        // state the board reads and not a second write path: the group carries one GET
-        // and nothing here can move a work item, record a decision or merge anything. The
-        // app that consumes it is a thin renderer over exactly this — the factory's own
-        // judgement, serialised — so the endpoint holds no policy of its own and resolves
-        // the already-registered singletons the board resolves (ADR-0013, ADR-0014).
+        // The JSON surface the Board app renders. Most of it is a second *reading* of the
+        // same state the board reads; the credentials surface is the one place a secret
+        // travels, and it is write-only. Nothing here can move a work item, record a
+        // decision or merge anything. The app that consumes it is a thin renderer over
+        // exactly this — the factory's own judgement, serialised — so the endpoints hold
+        // no policy of their own and resolve the already-registered singletons the board
+        // resolves (ADR-0013, ADR-0014).
         //
         // The budget is read the way the board's own header reads it, from the loop's
         // in-flight count against the one code constant, and the mode from the options; a
         // copy kept here would be a second answer free to drift from the board's. The
-        // serialiser is System.Text.Json, through `Results.Json`, and the property names are
-        // pinned on the view model rather than left to the host's naming policy.
+        // serialiser is System.Text.Json, through `Microsoft.AspNetCore.Http.Results`, and
+        // the property names are pinned on the view model rather than left to the host's
+        // naming policy.
         //
         // The surface and the data share one process and one loopback binding, and the app
         // re-decides nothing: the factory's judgement is the app's only source of truth
         // (ADR-0013, ADR-0014).
-        app.MapGroup("/api").MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
+        var api = app.MapGroup("/api");
+
+        api.MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
             Microsoft.AspNetCore.Http.Results.Json(new Api.BoardView(
                 new Api.BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
                 options.AutoMerge)));
+
+        // The credential names the factory can use — the union of the keys the served
+        // projects declare and the files already in the secrets directory — each with
+        // whether it has a value. Presence only: the surface is write-only, and the value
+        // is reached through `Has`, never `Read`, which keeps exactly its two callers.
+        api.MapGet("/credentials", (
+            ProjectLoadReport projects,
+            FactoryOptions options,
+            CompositeCredentialReader credentials) =>
+            Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialsView(
+                CredentialFiles.Names(projects, options.SecretsDirectory)
+                    .Select(name => new Api.CredentialView(name, credentials.Has(name)))
+                    .ToList())));
+
+        // A credential's value, written and never rendered back. The composite reader is
+        // the boundary that turns the name into a value in the secrets directory, exactly
+        // as the project's credentials form does; the answer is the name and its new
+        // presence, and nothing else.
+        api.MapPut("/credentials/{name}", async (
+            string name,
+            HttpRequest request,
+            CompositeCredentialReader credentials) =>
+        {
+            Api.CredentialWrite? body;
+            try
+            {
+                body = await request.ReadFromJsonAsync<Api.CredentialWrite>();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest();
+            }
+
+            var value = body?.Value;
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+            {
+                return Microsoft.AspNetCore.Http.Results.BadRequest();
+            }
+
+            var written = name.Trim();
+            credentials.Write(written, value.Trim());
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialView(written, true));
+        });
+
+        // A credential's file, removed. The name is guarded so a route segment cannot
+        // reach outside the secrets directory, exactly as a project name is guarded.
+        api.MapDelete("/credentials/{name}", (string name, FactoryOptions options) =>
+        {
+            CredentialFiles.Delete(options.SecretsDirectory, name);
+            return Microsoft.AspNetCore.Http.Results.NoContent();
+        });
 
         return app;
     }
