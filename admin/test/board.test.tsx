@@ -49,6 +49,7 @@ const emptyBoard = {
     { lane: 'Rejected', label: 'Rejected', cards: [] },
   ],
   projects: [],
+  filterProjects: [],
   rejections: [],
   intake: {
     status: 'polled',
@@ -115,6 +116,52 @@ describe('the board page', () => {
     expect(within(card as HTMLElement).getByText('nexus')).toBeTruthy();
     expect(within(card as HTMLElement).getByText('round 1 of 3')).toBeTruthy();
     expect(within(card as HTMLElement).getByText('Review')).toBeTruthy();
+  });
+
+  it('says when a Review card will merge if nobody decides', async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+    await screen.findByText('Add the board endpoint');
+
+    // The per-card countdown is the factory's own moment, said on the card rather than only
+    // in the strip, so a reviewer can act on the work item while it still matters.
+    const card = screen
+      .getByText('Add the board endpoint')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    const line = within(card).getByText(/auto-merges at/);
+    expect(line.textContent).toContain('2026-10-03 10:30 UTC');
+    expect(within(card).getByText(/unless a reviewer decides first/)).toBeTruthy();
+  });
+
+  it('offers the acceptance gate on a Backlog card and posts it', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/accept')) {
+        return { ok: true, status: 200, json: async () => ({ applied: true, refusal: null }) };
+      }
+      return { ok: true, status: 200, json: async () => boardFixture };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<BoardPage />);
+    await screen.findByText('Add a fresh intake card');
+
+    // The gate is on the Backlog card and nowhere else, gated the way the old board gated
+    // it: a work item already in the build is never offered acceptance.
+    const backlog = screen
+      .getByText('Add a fresh intake card')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    fireEvent.click(within(backlog).getByRole('button', { name: 'Accept into build' }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/work-items/55555555-5555-5555-5555-555555555555/accept',
+      { method: 'POST' },
+    );
+
+    const review = screen
+      .getByText('Add the board endpoint')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    expect(within(review).queryByRole('button', { name: 'Accept into build' })).toBeNull();
   });
 
   it("links each card to its work item's own page", async () => {

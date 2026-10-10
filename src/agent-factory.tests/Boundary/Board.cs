@@ -180,12 +180,13 @@ public sealed class Board
         var rejections = board.GetProperty("rejections").EnumerateArray().ToList();
         var autoMerge = board.GetProperty("autoMerge").GetBoolean();
 
-        var served = projects.Select(project => Str(project, "name")).ToList();
-        var onTheBoard = served
-            .Concat(cards.Select(card => Str(card.Json, "project")))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        // The filter offers the union the factory sends — the served set plus projects with
+        // work items left over — rather than recomputing it, so a test exercises the field
+        // the app actually reads. It falls back to the served set if the field is absent.
+        var onTheBoard = board.TryGetProperty("filterProjects", out var filters)
+            && filters.ValueKind == JsonValueKind.Array
+            ? filters.EnumerateArray().Select(name => name.GetString()!).ToList()
+            : projects.Select(project => Str(project, "name")).ToList();
 
         var html = new StringBuilder();
 
@@ -337,7 +338,7 @@ public sealed class Board
                     .Append($" data-project-count=\"{group.Count()}\"><ul>");
                 foreach (var card in group)
                 {
-                    RenderCard(html, card, details, autoMerge);
+                    RenderCard(html, card, details);
                 }
 
                 html.Append("</ul></section>");
@@ -354,8 +355,7 @@ public sealed class Board
     private static void RenderCard(
         StringBuilder html,
         Card card,
-        IReadOnlyDictionary<string, JsonElement> details,
-        bool autoMerge)
+        IReadOnlyDictionary<string, JsonElement> details)
     {
         var id = Str(card.Json, "id");
         var detail = details[id];
@@ -366,10 +366,14 @@ public sealed class Board
 
         var cause = Str(card.Json, "ending");
 
-        // The countdown is the on-mode's obligation, and it only exists then: with
-        // auto-merge off there is nothing a clock could say, so the attribute is not
-        // written at all.
-        var at = autoMerge && card.Lane == "Review" ? AutoMergeAt(header) : null;
+        // The countdown is the factory's own field on the card, present only when silence
+        // can merge the work item: a card in Review with auto-merge on. The renderer reads
+        // it rather than recomputing the threshold, so what a test asserts is the factory's
+        // judgement and not the reader's arithmetic.
+        var at = StrOrNull(card.Json, "autoMergeAt") is { Length: > 0 } since
+            ? DateTimeOffset.Parse(since, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind)
+            : (DateTimeOffset?)null;
         var autoMergeAttribute = at is { } when ? $" data-auto-merge=\"{when:O}\"" : string.Empty;
 
         html.Append("<li class=\"work-item\"")
@@ -440,6 +444,16 @@ public sealed class Board
             }
 
             html.Append("</ol>");
+        }
+
+        // The acceptance gate (#40, restored by #52): a Backlog card carries the control that
+        // accepts it into the build, and it is gated on the lane the way the old board gated
+        // it — a work item not waiting in Backlog is never offered acceptance.
+        if (card.Lane == "Backlog")
+        {
+            html.Append($"<form class=\"build\" data-build=\"{Esc(id)}\" method=\"post\" ")
+                .Append($"action=\"/api/work-items/{Esc(id)}/accept\">")
+                .Append("<button type=\"submit\">build this</button></form>");
         }
 
         if (offered.Count > 0)
@@ -583,12 +597,6 @@ public sealed class Board
         html.Append("</section>");
     }
 
-    private static DateTimeOffset? AutoMergeAt(JsonElement header) =>
-        StrOrNull(header, "reviewStartedUtc") is { Length: > 0 } since
-            ? DateTimeOffset.Parse(since, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.RoundtripKind) + FactoryConstants.FeedbackThreshold
-            : null;
-
     private static string OpenIssues(JsonElement row) =>
         row.TryGetProperty("openIssues", out var value) && value.ValueKind == JsonValueKind.Number
             ? value.GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -614,6 +622,14 @@ public sealed class Board
     private sealed record Card(string Lane, string LaneLabel, JsonElement Json);
 
     // ---------------------------------------------------------------- the reviewer's hand
+
+    /// <summary>
+    /// The reviewer's acceptance of a Backlog work item, posted to the endpoint as the app
+    /// posts it. The loop accepts the work item into Frontier, or refuses; either answer
+    /// comes back in the response's body.
+    /// </summary>
+    public static async Task<HttpResponseMessage> AcceptAsync(HttpClient client, Guid workItemId) =>
+        await client.PostAsync($"/api/work-items/{workItemId:D}/accept", content: null);
 
     /// <summary>
     /// The reviewer's hand: one decision, posted to the endpoint as the app posts it.

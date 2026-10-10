@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import WorkItemPage from '@/app/work-items/page';
@@ -52,7 +52,7 @@ describe('the work-item detail page', () => {
     render(<WorkItemPage />);
 
     // The header, from the factory's own record: the issue, the project, the lane and the
-    // round count, and the route judgement in its own words.
+    // round count.
     expect(await screen.findByText('#42 Add the board endpoint')).toBeTruthy();
     const root = document.querySelector('[data-work-item]');
     expect(root).not.toBeNull();
@@ -60,9 +60,6 @@ describe('the work-item detail page', () => {
     expect(screen.getByText('nexus')).toBeTruthy();
     expect(screen.getByText('round 3 of 3')).toBeTruthy();
     expect(screen.getByText('Review')).toBeTruthy();
-    expect(document.querySelector('[data-route="Unrouted"]')?.textContent).toContain(
-      'Nobody has looked at this issue yet',
-    );
 
     // The one read, to the factory's own API off this app's base path.
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -198,6 +195,37 @@ describe('the work-item detail page', () => {
       `/api/work-items/${ITEM}/decisions`,
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('polls its own endpoint every five seconds, pausing while the tab is hidden', async () => {
+    const fetchMock = answerWith(detailFixture);
+
+    // Capture the poll's callback rather than waiting real time: the component registers
+    // its interval on the same five seconds the Board uses, and the test fires it by hand.
+    const ticks: (() => void)[] = [];
+    const setInterval = vi.spyOn(window, 'setInterval').mockImplementation((handler) => {
+      ticks.push(handler as () => void);
+      return 1 as unknown as ReturnType<typeof window.setInterval>;
+    });
+
+    render(<WorkItemPage />);
+    await screen.findByText('#42 Add the board endpoint');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 5000);
+
+    // A tick while the tab is visible reads the work item again.
+    await act(async () => {
+      ticks[0]?.();
+    });
+    await screen.findByText('#42 Add the board endpoint');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // A hidden tab does not: a tab nobody can see does not need refreshing.
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await act(async () => {
+      ticks[0]?.();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('says so when no work item was named', async () => {

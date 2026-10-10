@@ -127,6 +127,21 @@
   color: var(--muted-foreground);
 }
 
+/* When card silence would merge it, said on the card rather than only in the strip. */
+.board__card-auto-merge {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+/* The acceptance gate on a Backlog card: the button and the factory's refusal beside it. */
+.board__accept {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
 /*
  * The decisions, inside a card. The buttons, the label, the textarea and the refusal
  * are Prism items; what is here is the stack they sit in — a card is narrow, so the

@@ -55,6 +55,9 @@ type Reading =
   | { phase: 'ready'; detail: WorkItemDetailView }
   | { phase: 'error'; message: string };
 
+/** The detail's own cadence, the same five seconds the Board polls its endpoint on. */
+const POLL_MS = 5000;
+
 /**
  * The work-item detail.
  *
@@ -115,23 +118,42 @@ function WorkItemBody() {
 
     let cancelled = false;
     const controller = new AbortController();
+    const id = item;
 
-    fetchWorkItem(item, controller.signal)
-      .then((detail) => {
+    async function read() {
+      try {
+        const detail = await fetchWorkItem(id, controller.signal);
         if (!cancelled) setReading({ phase: 'ready', detail });
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (!cancelled && !controller.signal.aborted) {
           setReading({
             phase: 'error',
             message: error instanceof Error ? error.message : 'the factory could not be reached',
           });
         }
-      });
+      }
+    }
+
+    void read();
+
+    // The detail polls its own endpoint, and pauses while the tab is hidden: the rounds and
+    // decisions reflect the machine now, and a hidden tab that keeps reading is one that
+    // keeps the factory answering for nobody. Coming back to the tab reads once, so the
+    // reader meets the machine now rather than five seconds ago.
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void read();
+    }, POLL_MS);
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) void read();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       cancelled = true;
       controller.abort();
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [item, attempt]);
 
@@ -195,7 +217,7 @@ function Detail({
   refusal: string | null;
   onDecisionResult: (result: DecisionResult) => void;
 }) {
-  const { workItem, route } = detail;
+  const { workItem } = detail;
 
   return (
     <div className="work-item" data-work-item={workItem.id}>
@@ -212,13 +234,7 @@ function Detail({
             <Badge variant="outline">
               round {workItem.roundCount} of {workItem.roundCeiling}
             </Badge>
-            <Badge variant="outline">{workItem.kindLabel}</Badge>
           </div>
-
-          {/* What the routing judgement says about this issue, in its own words. */}
-          <p className="work-item__route" data-route={route.kind}>
-            {route.say}
-          </p>
 
           {/* Why it ended where it did, for the lanes that are an ending. Empty otherwise. */}
           {detail.ending ? (

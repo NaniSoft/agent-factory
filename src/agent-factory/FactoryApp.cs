@@ -322,6 +322,32 @@ public static class FactoryApp
                 new Api.DecisionResult(step.Applied, step.Refusal, Lane()));
         });
 
+        // The acceptance gate (#40, restored by #52): intake puts every issue in Backlog and
+        // nothing is built until a reviewer accepts it. This mirrors the deleted page's
+        // `OnPostBuildAsync` exactly — `Orchestrator.PromoteAsync` is the same component the
+        // loop uses to apply every other transition, and it moves no work item and spends no
+        // container itself. A work item not waiting in Backlog is refused with the factory's
+        // own words in `refusal`, so the app renders the refusal where the reviewer acted
+        // rather than leaving them wondering whether the click was lost.
+        api.MapPost("/work-items/{id}/accept", async (
+            string id,
+            Orchestrator loop) =>
+        {
+            if (!Guid.TryParse(id, out var workItemId))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
+                    Applied: false,
+                    Refusal: "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
+            }
+
+            var applied = await loop.PromoteAsync(workItemId);
+            return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
+                Applied: applied,
+                Refusal: applied
+                    ? null
+                    : "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
+        });
+
         // The review workspace's open (#47): the same call the board's "Open workspace"
         // action makes, answered as the view model the card renders rather than as a
         // redirect. It spawns a container — the one thing on this surface that talks to
@@ -338,12 +364,12 @@ public static class FactoryApp
 
         // The work-item detail (#46): the whole record behind a board card — the work item,
         // every round it has run with the host's diff, the decisions made and the decisions
-        // still offered, how it ended, and its route. It is a read and nothing else:
+        // still offered, and how it ended. It is a read and nothing else:
         // `WorkItemDetailView.Of` puts the store's own rows together with the factory's own
-        // judgement (`HowToReadTheDiff`, `HowItEnded`, `Decisions.OfferedIn`,
-        // `HowToReadTheRoute`), and the endpoint holds no policy of its own. An id the store
-        // has never seen is a 404 rather than an empty record, because "no such work item"
-        // and "a work item with nothing on it" are different answers.
+        // judgement (`HowToReadTheDiff`, `HowItEnded`, `Decisions.OfferedIn`), and the
+        // endpoint holds no policy of its own. An id the store has never seen is a 404
+        // rather than an empty record, because "no such work item" and "a work item with
+        // nothing on it" are different answers.
         api.MapGet("/work-items/{id}", (string id, IWorkItemStore store) =>
             Guid.TryParse(id, out var workItemId) && store.Get(workItemId) is { } workItem
                 ? Microsoft.AspNetCore.Http.Results.Json(Api.WorkItemDetailView.Of(workItem, store))
@@ -424,12 +450,17 @@ public static class FactoryApp
             }
 
             var value = body?.Value;
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value))
+
+            // The name is guarded the same way a delete's is: it arrives from a route
+            // segment, so a name that would not be a file the factory serves is refused
+            // rather than handed to a write that would create a path outside the secrets
+            // directory. The delete below already guards; the write must too.
+            var written = (name ?? string.Empty).Trim();
+            if (!CredentialFiles.IsServableName(written) || string.IsNullOrWhiteSpace(value))
             {
                 return Microsoft.AspNetCore.Http.Results.BadRequest();
             }
 
-            var written = name.Trim();
             credentials.Write(written, value.Trim());
             return Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialView(written, true));
         });

@@ -2,7 +2,26 @@
   "budget": { "inUse": 2, "of": 2 },
   "autoMerge": true,
   "lanes": [
-    { "lane": "Backlog", "label": "Backlog", "cards": [] },
+    {
+      "lane": "Backlog",
+      "label": "Backlog",
+      "cards": [
+        {
+          "id": "55555555-5555-5555-5555-555555555555",
+          "project": "zeta",
+          "issueNumber": 3,
+          "title": "Add a fresh intake card",
+          "lane": "Backlog",
+          "laneLabel": "Backlog",
+          "roundCount": 0,
+          "roundCeiling": 3,
+          "ending": "",
+          "decisions": [],
+          "workspace": null,
+          "autoMergeAt": null
+        }
+      ]
+    },
     { "lane": "Frontier", "label": "Frontier", "cards": [] },
     { "lane": "InProgress", "label": "In Progress", "cards": [] },
     {
@@ -20,7 +39,8 @@
           "roundCeiling": 3,
           "ending": "",
           "decisions": ["approve", "request-changes", "reject"],
-          "workspace": null
+          "workspace": null,
+          "autoMergeAt": "2026-10-03T10:30:00+00:00"
         },
         {
           "id": "22222222-2222-2222-2222-222222222222",
@@ -38,7 +58,8 @@
             "url": "http://127.0.0.1:7101/",
             "remainingSeconds": 14390,
             "error": null
-          }
+          },
+          "autoMergeAt": "2026-10-03T10:30:00+00:00"
         }
       ]
     },
@@ -57,7 +78,8 @@
           "roundCeiling": 3,
           "ending": "Merged. A reviewer approved it and the change landed.",
           "decisions": [],
-          "workspace": null
+          "workspace": null,
+          "autoMergeAt": null
         }
       ]
     },
@@ -76,7 +98,8 @@
           "roundCeiling": 3,
           "ending": "Escalated. All 3 rounds are spent, and the reviewer asked for changes, so it is parked for a human rather than built again.",
           "decisions": ["approve", "reject"],
-          "workspace": null
+          "workspace": null,
+          "autoMergeAt": null
         }
       ]
     },
@@ -111,6 +134,7 @@
       "sourceFile": "zeta.yaml"
     }
   ],
+  "filterProjects": ["nexus", "prism", "zeta"],
   "rejections": [
     {
       "fileName": "broken.yaml",

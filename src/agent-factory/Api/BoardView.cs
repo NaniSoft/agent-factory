@@ -43,7 +43,8 @@ public sealed record BoardView(
     [property: JsonPropertyName("autoMerge")] bool AutoMerge,
     [property: JsonPropertyName("lanes")] IReadOnlyList<LaneView> Lanes,
     [property: JsonPropertyName("projects")] IReadOnlyList<ProjectView> Projects,
-    [property: JsonPropertyName("rejections")] IReadOnlyList<RejectionView> Rejections,
+    [property: JsonPropertyName("rejections")] IReadOnlyList<ProjectFileRejectionView> Rejections,
+    [property: JsonPropertyName("filterProjects")] IReadOnlyList<string> FilterProjects,
     [property: JsonPropertyName("intake")] IntakeView Intake)
 {
     /// <summary>
@@ -75,7 +76,9 @@ public sealed record BoardView(
 
         // The five swimlanes and then the two endings, in the factory's own order. The
         // cards are read from the store's own record and its rounds and decisions, so the
-        // ending a card carries is the factory's answer and not the renderer's.
+        // ending a card carries is the factory's answer and not the renderer's. The
+        // auto-merge mode rides onto each card, because a countdown only exists when
+        // silence can merge and the card is where a reviewer sees it (ADR-0008).
         var lanes = Swimlanes.All
             .Concat(Swimlanes.ParkedAndFinal)
             .Select(lane => new LaneView(
@@ -83,15 +86,28 @@ public sealed record BoardView(
                 Swimlanes.Label(lane),
                 [.. workItems
                     .Where(workItem => workItem.Swimlane == lane)
-                    .Select(workItem => CardView.Of(workItem, store, workspaces))]))
+                    .Select(workItem => CardView.Of(workItem, store, workspaces, options.AutoMerge))]))
+            .ToList();
+
+        // The projects the reviewer can narrow the board to: the ones being served, plus any
+        // that have work items left over from a project file that has since been removed. A
+        // project the factory has stopped serving still has a history a reviewer is judging,
+        // and a filter that could not name it would lose that. The board's `projects` stays
+        // the served set; this is the union the filter offers.
+        var filterProjects = projects.Projects
+            .Select(project => project.Name)
+            .Concat(workItems.Select(workItem => workItem.Project))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return new BoardView(
             new BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
             options.AutoMerge,
             lanes,
-            [.. projects.Projects.Select(ProjectView.Of)],
-            [.. projects.Rejections.Select(RejectionView.Of)],
+            [.. projects.Projects.Select(project => ProjectView.Of(project))],
+            [.. projects.Rejections.Select(ProjectFileRejectionView.Of)],
+            filterProjects,
             IntakeView.Of(poller));
     }
 }
@@ -257,6 +273,13 @@ public sealed record LaneView(
 /// have been taken away. It travels on the card so a board read after a workspace was
 /// opened shows the link and the time left without the renderer holding state of its own.
 /// </param>
+/// <param name="AutoMergeAt">
+/// When this card's silence would merge it, as ISO-8601, or null when it is not waiting on
+/// a reviewer or auto-merge is off. It is
+/// <c>ReviewStartedUtc + FactoryConstants.FeedbackThreshold</c> and it is present only for
+/// a card in Review with auto-merge on, because a countdown a reviewer cannot see per work
+/// item is a countdown they cannot act on while it still matters (ADR-0008).
+/// </param>
 public sealed record CardView(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("project")] string Project,
@@ -268,14 +291,23 @@ public sealed record CardView(
     [property: JsonPropertyName("roundCeiling")] int RoundCeiling,
     [property: JsonPropertyName("ending")] string Ending,
     [property: JsonPropertyName("decisions")] IReadOnlyList<string> Decisions,
-    [property: JsonPropertyName("workspace")] WorkspaceView? Workspace)
+    [property: JsonPropertyName("workspace")] WorkspaceView? Workspace,
+    [property: JsonPropertyName("autoMergeAt")] string? AutoMergeAt)
 {
     /// <summary>One work item and its record, read the way the board's own card reads them.</summary>
-    public static CardView Of(WorkItem workItem, IWorkItemStore store, ReviewWorkspaces workspaces)
+    public static CardView Of(
+        WorkItem workItem,
+        IWorkItemStore store,
+        ReviewWorkspaces workspaces,
+        bool autoMerge)
     {
         ArgumentNullException.ThrowIfNull(workItem);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(workspaces);
+
+        var autoMergeAt = autoMerge && workItem.Swimlane == Swimlane.Review && workItem.ReviewStartedUtc is { } since
+            ? since + FactoryConstants.FeedbackThreshold
+            : (DateTimeOffset?)null;
 
         return new CardView(
             workItem.Id.ToString(),
@@ -288,52 +320,8 @@ public sealed record CardView(
             FactoryConstants.RoundCeiling,
             HowItEnded.Describe(workItem, store.Rounds(workItem.Id), store.Decisions(workItem.Id)),
             [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
-            workspaces.ViewFor(workItem.Id) is { } view ? WorkspaceView.Of(view) : null);
-    }
-}
-
-/// <summary>
-/// One project the factory serves, as the renderer offers it in the filter. Credentials are
-/// names and never values, exactly as the project record holds them.
-/// </summary>
-public sealed record ProjectView(
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("repoUrl")] string RepoUrl,
-    [property: JsonPropertyName("workerImage")] string WorkerImage,
-    [property: JsonPropertyName("llmModel")] string LlmModel,
-    [property: JsonPropertyName("githubKeyName")] string GitHubKeyName,
-    [property: JsonPropertyName("llmKeyName")] string LlmKeyName,
-    [property: JsonPropertyName("sourceFile")] string SourceFile)
-{
-    public static ProjectView Of(Project project)
-    {
-        ArgumentNullException.ThrowIfNull(project);
-
-        return new ProjectView(
-            project.Name,
-            project.RepoUrl,
-            project.WorkerImage,
-            project.LlmModel,
-            project.GitHubKeyName,
-            project.LlmKeyName,
-            project.SourceFile);
-    }
-}
-
-/// <summary>
-/// One project file the loader refused, and why. A refusal is reported rather than
-/// swallowed, and it reaches the renderer beside the projects that were served.
-/// </summary>
-public sealed record RejectionView(
-    [property: JsonPropertyName("fileName")] string FileName,
-    [property: JsonPropertyName("reason")] string Reason,
-    [property: JsonPropertyName("message")] string Message)
-{
-    public static RejectionView Of(ProjectFileRejection rejection)
-    {
-        ArgumentNullException.ThrowIfNull(rejection);
-
-        return new RejectionView(rejection.FileName, rejection.Reason.ToString(), rejection.Message);
+            workspaces.ViewFor(workItem.Id) is { } view ? WorkspaceView.Of(view) : null,
+            autoMergeAt?.ToString("O"));
     }
 }
 
