@@ -1,0 +1,56 @@
+/*
+ * The Board's own stylesheet, and it is only layout.
+ *
+ * Almost everything on the page is drawn by the design system: the cards, the
+ * metric, the status and the badge are Prism items, and the pack and mode arrive in
+ * `@nanisoft/prism-ui/styles.css`. What is left here is the column the page sits
+ * in and the two panels inside it, which the catalogue deliberately ships no item
+ * for. A class below is a declaration this app owns; there is no restyling of a
+ * catalogue item and no focus rule, because the design system draws its own ring.
+ *
+ * Colour is a token and never a raw value. `var(--muted-foreground)` is declared by
+ * the emitted stylesheet, so it resolves in every pack and mode this app can wear.
+ */
+
+.board {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.board__header {
+  margin-bottom: 2rem;
+}
+
+.board__title {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.board__lede {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.board__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.25rem;
+}
+
+.board__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.board__hint {
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}

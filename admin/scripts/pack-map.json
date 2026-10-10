@@ -1,0 +1,17 @@
+{
+  "$comment": [
+    "Where a second pack may appear on this app, and why. A pack boundary re-points",
+    "a region's colour and its corner radius, so every region that carries one has",
+    "to be a decision rather than a drift.",
+    "",
+    "The Board is one ground. It wears lavender, dark by default, on the document",
+    "element, and nothing beneath it carries a second pack: there is no product mark,",
+    "no pack switcher and no scoped region in the walking skeleton. The map is",
+    "therefore an empty, explicit set — 'a map that says zero is a decision' — so the",
+    "gate holds this app to it the day a boundary appears."
+  ],
+  "ground": "lavender",
+  "defaultMode": "dark",
+  "regions": {},
+  "secondPackRegions": []
+}

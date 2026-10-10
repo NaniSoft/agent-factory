@@ -1,0 +1,17 @@
+# Line endings are a correctness setting, not a style preference. The design
+# system's gate kit reads the lockfile as a graph and parses JSON and source as
+# text; a Windows checkout with `core.autocrlf` on turns every one of them into
+# CRLF, and a parser that anchors on a newline then reads a line with a character
+# on the end of it. `text=auto` lets git normalise the text files, and the
+# lockfile is left alone because it is generated and read as a graph.
+
+* text=auto
+
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+
+pnpm-lock.yaml -text

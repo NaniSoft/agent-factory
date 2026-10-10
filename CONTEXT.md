@@ -54,8 +54,10 @@ _Avoid_: output, report, summary, writeup
 ### The loop
 
 **Board**:
-The human-facing surface on port 5000. The only place work is approved.
-_Avoid_: dashboard, UI, console, inbox
+The human-facing surface, served by the factory at `/admin` on port 5000. The only
+place work is approved. It is rendered with Prism as a static app, but it is still
+one surface and it is named after what it is.
+_Avoid_: admin (an address, not the surface), dashboard, UI, console, inbox
 
 **Decision**:
 What a reviewer does with a work item in Review: approve, request changes, or

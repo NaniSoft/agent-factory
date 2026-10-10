@@ -209,9 +209,24 @@ public static class FactoryApp
         var stylesheets = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         if (Directory.Exists(stylesheets))
         {
+            var webRoot = new PhysicalFileProvider(stylesheets);
+
+            // Default files, so a directory address serves its own index rather than a
+            // 404. The Board app is a static export under `wwwroot/admin`, and an export's
+            // front door is `/admin/`, whose file is `index.html`; without this a request
+            // for `/admin` finds the directory and nothing to serve. It is declared with the
+            // same provider as the static files, because that provider is the published
+            // directory rather than the content root, and it changes nothing for `/`: there
+            // is no `wwwroot/index.html`, so the board page still answers the root as it
+            // always has.
+            app.UseDefaultFiles(new DefaultFilesOptions
+            {
+                FileProvider = webRoot,
+            });
+
             app.UseStaticFiles(new StaticFileOptions
             {
-                FileProvider = new PhysicalFileProvider(stylesheets),
+                FileProvider = webRoot,
                 ServeUnknownFileTypes = false,
             });
         }
@@ -227,6 +242,28 @@ public static class FactoryApp
         }
 
         app.MapRazorPages();
+
+        // The JSON surface the Board app renders. It is a second *reading* of the same
+        // state the board reads and not a second write path: the group carries one GET
+        // and nothing here can move a work item, record a decision or merge anything. The
+        // app that consumes it is a thin renderer over exactly this — the factory's own
+        // judgement, serialised — so the endpoint holds no policy of its own and resolves
+        // the already-registered singletons the board resolves (ADR-0013, ADR-0014).
+        //
+        // The budget is read the way the board's own header reads it, from the loop's
+        // in-flight count against the one code constant, and the mode from the options; a
+        // copy kept here would be a second answer free to drift from the board's. The
+        // serialiser is System.Text.Json, through `Results.Json`, and the property names are
+        // pinned on the view model rather than left to the host's naming policy.
+        //
+        // The surface and the data share one process and one loopback binding, and the app
+        // re-decides nothing: the factory's judgement is the app's only source of truth
+        // (ADR-0013, ADR-0014).
+        app.MapGroup("/api").MapGet("/board", (Orchestrator loop, FactoryOptions options) =>
+            Microsoft.AspNetCore.Http.Results.Json(new Api.BoardView(
+                new Api.BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
+                options.AutoMerge)));
+
         return app;
     }
 }

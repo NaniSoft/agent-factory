@@ -1,0 +1,12 @@
+# Config-only: this is a flat single-app repository, not a pnpm workspace. The
+# file exists because pnpm 11 keeps every setting other than registry and auth in
+# it, and because the pin gate reads it as the second copy of the design-system
+# version — a copy this repository must not hold.
+#
+# First-party prism packages are excluded from the release-age policy: they are
+# ours, resolved from npm by an exact version in the lockfile, and a fresh release
+# is precisely what this repository wants to pick up. A scope and no version,
+# because naming a version here would be the second declaration the pin gate
+# exists to forbid.
+minimumReleaseAgeExclude:
+  - '@nanisoft/*'
