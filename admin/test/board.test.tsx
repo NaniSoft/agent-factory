@@ -50,6 +50,15 @@ const emptyBoard = {
   ],
   projects: [],
   rejections: [],
+  intake: {
+    status: 'polled',
+    summary: 'The factory is serving no projects, so there is nothing to poll.',
+    projects: 0,
+    polled: 0,
+    neverPolled: 0,
+    failing: 0,
+    rows: [],
+  },
 };
 
 beforeEach(() => {
@@ -133,6 +142,69 @@ describe('the board page', () => {
     render(<BoardPage />);
 
     expect(await screen.findByText(/Only this machine can decide what merges/)).toBeTruthy();
+  });
+
+  it('renders a row per served project with its intake state, above the lanes', async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+    await screen.findByText('Add the board endpoint');
+
+    // The section, with the factory's own worst state and its own sentence about an empty
+    // Backlog, read off the section's markers rather than a heading that could be reworded.
+    const section = document.querySelector('[data-intake="intake"]');
+    expect(section).not.toBeNull();
+    expect(section?.getAttribute('data-intake-state')).toBe('failing');
+    expect(
+      within(section as HTMLElement).getByText(
+        /An empty Backlog does not mean there is nothing to do while intake is broken/,
+      ),
+    ).toBeTruthy();
+
+    // One row per served project, each carrying its own state: the three states land at
+    // once, which is the whole point of the section.
+    const nexus = document.querySelector('[data-intake-project="nexus"]');
+    const prism = document.querySelector('[data-intake-project="prism"]');
+    const zeta = document.querySelector('[data-intake-project="zeta"]');
+    expect(nexus?.getAttribute('data-intake-state')).toBe('failing');
+    expect(prism?.getAttribute('data-intake-state')).toBe('polled');
+    expect(zeta?.getAttribute('data-intake-state')).toBe('never-polled');
+
+    // A polled row says what it found, and the state reads as words rather than as a slug.
+    expect(prism?.getAttribute('data-open-issues')).toBe('2');
+    expect(within(prism as HTMLElement).getByText('polled')).toBeTruthy();
+
+    // A failing row shows its classification and when it will be asked again — `never` for
+    // a permanent failure, which is the one a reader has to be able to see.
+    expect(nexus?.getAttribute('data-classification')).toBe('Permanent');
+    expect(nexus?.getAttribute('data-again')).toBe('never');
+    expect(within(nexus as HTMLElement).getByText('Permanent')).toBeTruthy();
+
+    // It is above the lanes: the section precedes the first kanban column.
+    const firstColumn = document.querySelector('[data-column]');
+    expect(firstColumn).not.toBeNull();
+    expect(
+      section!.compareDocumentPosition(firstColumn!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('does not narrow the intake section by the project filter', async () => {
+    // The filter is a way of looking at work items, not at the machine: narrowing to prism
+    // must not hide that nexus cannot be read, or the filter could make a broken factory
+    // look like a working one.
+    navigation.search = new URLSearchParams('project=prism');
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+    await screen.findByText('Tighten the focus ring');
+
+    // The filter does narrow the cards...
+    expect(screen.queryByText('Add the board endpoint')).toBeNull();
+
+    // ...and it leaves every served project's intake row on the board.
+    expect(document.querySelector('[data-intake-project="nexus"]')).not.toBeNull();
+    expect(document.querySelector('[data-intake-project="prism"]')).not.toBeNull();
+    expect(document.querySelector('[data-intake-project="zeta"]')).not.toBeNull();
   });
 
   it('shows an empty state when nothing is on the board', async () => {

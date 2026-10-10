@@ -91,6 +91,15 @@
       "githubKeyName": "PRISM_GITHUB_TOKEN",
       "llmKeyName": "PRISM_ANTHROPIC_API_KEY",
       "sourceFile": "prism.yaml"
+    },
+    {
+      "name": "zeta",
+      "repoUrl": "https://github.com/NaniSoft/zeta",
+      "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
+      "llmModel": "anthropic/claude-sonnet-4-5",
+      "githubKeyName": "ZETA_GITHUB_TOKEN",
+      "llmKeyName": "ZETA_ANTHROPIC_API_KEY",
+      "sourceFile": "zeta.yaml"
     }
   ],
   "rejections": [
@@ -99,5 +108,54 @@
       "reason": "Invalid",
       "message": "repo.url must be an absolute http or https URL"
     }
-  ]
+  ],
+  "intake": {
+    "status": "failing",
+    "summary": "1 of 3 project(s) cannot be read. An empty Backlog does not mean there is nothing to do while intake is broken.",
+    "projects": 3,
+    "polled": 1,
+    "neverPolled": 1,
+    "failing": 1,
+    "rows": [
+      {
+        "project": "nexus",
+        "repoUrl": "https://github.com/NaniSoft/nexus",
+        "status": "failing",
+        "openIssues": null,
+        "failure": "Permanent",
+        "because": "403: your credential cannot read this repository",
+        "atUtc": "2026-10-10T09:00:00.0000000+00:00",
+        "failures": 1,
+        "againAfterUtc": null,
+        "again": "never",
+        "says": "intake failed permanently at 2026-10-10 09:00 UTC: 403: your credential cannot read this repository. This project is not read again — fix it and restart the factory, because project files and the environment are read at start"
+      },
+      {
+        "project": "prism",
+        "repoUrl": "https://github.com/NaniSoft/prism",
+        "status": "polled",
+        "openIssues": 2,
+        "failure": null,
+        "because": null,
+        "atUtc": "2026-10-10T09:00:00.0000000+00:00",
+        "failures": 0,
+        "againAfterUtc": null,
+        "again": "next-pass",
+        "says": "polled at 2026-10-10 09:00 UTC, and 2 open issue(s)"
+      },
+      {
+        "project": "zeta",
+        "repoUrl": "https://github.com/NaniSoft/zeta",
+        "status": "never-polled",
+        "openIssues": null,
+        "failure": null,
+        "because": null,
+        "atUtc": null,
+        "failures": 0,
+        "againAfterUtc": null,
+        "again": "next-pass",
+        "says": "not polled yet — this repository has not been read since the factory started"
+      }
+    ]
+  }
 }

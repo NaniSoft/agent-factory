@@ -270,8 +270,9 @@ public static class FactoryApp
             IWorkItemStore store,
             ProjectLoadReport projects,
             Orchestrator loop,
-            FactoryOptions options) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options)));
+            FactoryOptions options,
+            Poller poller) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller)));
 
         // A reviewer's decision, the JSON twin of the board's own form handler (#45). It
         // does exactly what `Pages/Index.cshtml.cs`'s `OnPostDecision` does and invents no

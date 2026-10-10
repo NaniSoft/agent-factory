@@ -14,10 +14,24 @@ import { Badge } from '@nanisoft/prism-ui/components/badge';
 import { Button } from '@nanisoft/prism-ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@nanisoft/prism-ui/components/card';
 import { Skeleton } from '@nanisoft/prism-ui/components/skeleton';
-import { Status } from '@nanisoft/prism-ui/components/status';
+import { Status, type StatusTone } from '@nanisoft/prism-ui/components/status';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@nanisoft/prism-ui/components/table';
 
 import { DecisionForm } from '@/components/decision-form';
-import { fetchBoard, type BoardView, type CardView, type LaneView } from '@/lib/board';
+import {
+  fetchBoard,
+  type BoardView,
+  type CardView,
+  type IntakeView,
+  type LaneView,
+} from '@/lib/board';
 import type { DecisionResult } from '@/lib/decisions';
 
 /** The board's own cadence, the same five seconds the Razor board refreshes itself on. */
@@ -48,6 +62,22 @@ const LANE_STATE: Record<string, KanbanState> = {
   Done: 'done',
   Escalated: 'blocked',
   Rejected: 'blocked',
+};
+
+/**
+ * The tone and the words an intake state is drawn with.
+ *
+ * The slug is the factory's and the tone is Prism's, exactly as `LANE_STATE` maps a
+ * lane: the factory names the three states — `never-polled`, `polled`, `failing` — and
+ * the renderer chooses the dot and the words a reader meets. `never-polled` is `neutral`
+ * because the factory knows nothing yet and that is not a fault; `polled` is `success`;
+ * and `failing` is `destructive`, because it is the one a reader must be able to find,
+ * and it is the state that makes an empty Backlog untrustworthy.
+ */
+const INTAKE_STATE: Record<string, { tone: StatusTone; label: string }> = {
+  'never-polled': { tone: 'neutral', label: 'not polled yet' },
+  polled: { tone: 'success', label: 'polled' },
+  failing: { tone: 'destructive', label: 'failing' },
 };
 
 /**
@@ -254,6 +284,17 @@ function BoardReady({
         </p>
       ) : null}
 
+      {/*
+        Intake, above the lanes and outside the filter. It is the one thing on this
+        board a reader trusts before anything else, and an empty Backlog is three
+        different facts: the repository was read and had nothing open, the factory has
+        never read it, or the factory tried and was refused. It is rendered whenever
+        the factory serves a project, healthy or not, and it is not narrowed by the
+        project filter — a filter that could hide a failing project could hide the
+        reason there is nothing on the board.
+      */}
+      <IntakeSection intake={board.intake} />
+
       {totalCards === 0 ? (
         <EmptyState01
           reason="first-run"
@@ -287,6 +328,71 @@ function BoardStrip({ board }: { board: BoardView }) {
         {board.autoMerge ? 'auto-merge is on' : 'auto-merge is off'}
       </Badge>
     </div>
+  );
+}
+
+/**
+ * Intake, one row per served project: what the factory last did about that project's
+ * open issues, in the three states a reader has to be able to tell apart.
+ *
+ * It re-decides nothing. The state's slug, the classification, the next-ask and the
+ * row's whole sentence are the factory's own judgement, serialised by
+ * `HowToReadIntake`; the renderer maps the slug to a Prism tone and draws the fields.
+ * The section is drawn whenever the factory serves a project, and a project that
+ * cannot be read is on it however the board is filtered, because an empty Backlog
+ * while intake is broken must not read as nothing to do.
+ */
+function IntakeSection({ intake }: { intake: IntakeView }) {
+  if (intake.rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="board__intake" data-intake="intake" data-intake-state={intake.status}>
+      <h2 className="board__intake-title">Intake</h2>
+      <p className="board__intake-summary" data-intake-summary="intake">
+        {intake.summary}
+      </p>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Project</TableHead>
+            <TableHead>Repository</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Classification</TableHead>
+            <TableHead>What it found</TableHead>
+            <TableHead>Read again</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {intake.rows.map((row) => {
+            const state = INTAKE_STATE[row.status] ?? { tone: 'neutral' as const, label: row.status };
+            return (
+              <TableRow
+                key={row.project}
+                data-intake-project={row.project}
+                data-intake-state={row.status}
+                data-repo-url={row.repoUrl}
+                data-open-issues={row.openIssues ?? ''}
+                data-classification={row.failure ?? ''}
+                data-failures={row.failures}
+                data-again={row.again}
+              >
+                <TableHead scope="row">{row.project}</TableHead>
+                <TableCell>{row.repoUrl}</TableCell>
+                <TableCell>
+                  <Status tone={state.tone} label={state.label} size="sm" />
+                </TableCell>
+                <TableCell>{row.failure ?? ''}</TableCell>
+                <TableCell>{row.says}</TableCell>
+                <TableCell>{row.again}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </section>
   );
 }
 
