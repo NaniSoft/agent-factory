@@ -344,6 +344,7 @@ public class DecisionTests
                 "/api/credentials/{name}",
                 "/api/projects",
                 "/api/projects/{name}",
+                "/api/work-items/{id}/decisions",
                 "Projects",
             ],
             host.Routes());

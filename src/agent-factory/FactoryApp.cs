@@ -273,6 +273,65 @@ public static class FactoryApp
             FactoryOptions options) =>
             Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options)));
 
+        // A reviewer's decision, the JSON twin of the board's own form handler (#45). It
+        // does exactly what `Pages/Index.cshtml.cs`'s `OnPostDecision` does and invents no
+        // capability: `Decisions.TryParse`, then `IWorkItemStore.RecordDecision`, then
+        // `Orchestrator.StepAsync` — and it moves no work item and merges nothing itself,
+        // because the lane a decision means is the loop's answer and the loop is the only
+        // thing here that talks to GitHub. A fourth decision, a request for changes with
+        // no words, a work item outside the decidable lanes and an approval the merge could
+        // not carry out all come back as `applied:false` with the factory's own words in
+        // `refusal`, so a refusal is rendered where the reviewer acted rather than silently.
+        api.MapPost("/work-items/{id}/decisions", async (
+            string id,
+            Api.DecisionRequest request,
+            IWorkItemStore store,
+            Orchestrator loop) =>
+        {
+            string Lane()
+            {
+                return Guid.TryParse(id, out var candidate) && store.Get(candidate) is { } workItem
+                    ? workItem.Swimlane.ToString()
+                    : string.Empty;
+            }
+
+            // A work item that is not one, or a slug that is not one of the three, is not a
+            // decision: nothing here parses an arbitrary name into the set, so a form posted
+            // by hand is refused rather than interpreted and the set cannot grow by accident.
+            if (!Guid.TryParse(id, out var workItemId) || !Decisions.TryParse(request.Decision, out var made))
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(new Api.DecisionResult(
+                    false,
+                    "That is not one of the three decisions. A work item in Review is "
+                        + "approved, sent back for changes, or rejected, and there is nothing else to decide.",
+                    Lane()));
+            }
+
+            try
+            {
+                // The store is the component that knows which lane the work item is in and
+                // what it made of the feedback, so its objection is the reviewer's answer in
+                // its own words. Anything that is not a refusal is a fault and is left to fail
+                // rather than dressed up as a decision that was declined.
+                store.RecordDecision(workItemId, made, request.Feedback);
+            }
+            catch (Exception refused) when (refused is KeyNotFoundException or InvalidOperationException)
+            {
+                return Microsoft.AspNetCore.Http.Results.Json(
+                    new Api.DecisionResult(false, refused.Message, Lane()));
+            }
+
+            // The decision is recorded and the lane it means is the loop's, so this asks the
+            // loop rather than moving the work item: one step applies one transition, and a
+            // decision comes before everything else a step could apply. A refusal here is an
+            // approval whose merge did not land — on the record, parked, and said rather than
+            // silent.
+            var step = await loop.StepAsync();
+
+            return Microsoft.AspNetCore.Http.Results.Json(
+                new Api.DecisionResult(step.Applied, step.Refusal, Lane()));
+        });
+
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes the Razor Projects page already had — add, edit
         // (one write that overwrites), and remove. Each mirrors a page handler exactly and

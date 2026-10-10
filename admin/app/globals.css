@@ -105,6 +105,34 @@
   color: var(--muted-foreground);
 }
 
+/*
+ * The decisions, inside a card. The buttons, the label, the textarea and the refusal
+ * are Prism items; what is here is the stack they sit in — a card is narrow, so the
+ * field and the actions are one column each — and the space between them.
+ */
+.decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.decisions__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.decisions__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.decisions__refusal {
+  margin-top: 0.25rem;
+}
+
 /* The trust statement, and the only thing below the lanes. */
 .board__footer {
   margin-top: 2.5rem;

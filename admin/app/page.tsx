@@ -16,7 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@nanisoft/prism-ui/com
 import { Skeleton } from '@nanisoft/prism-ui/components/skeleton';
 import { Status } from '@nanisoft/prism-ui/components/status';
 
+import { DecisionForm } from '@/components/decision-form';
 import { fetchBoard, type BoardView, type CardView, type LaneView } from '@/lib/board';
+import type { DecisionResult } from '@/lib/decisions';
 
 /** The board's own cadence, the same five seconds the Razor board refreshes itself on. */
 const POLL_MS = 5000;
@@ -108,6 +110,14 @@ function BoardBody() {
   const [reading, setReading] = useState<Reading>({ phase: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
+  /**
+   * What the factory last refused, by work item. Held here rather than on the card
+   * because a refusal has to survive the card moving lane: an approval the merge could
+   * not carry out parks the work item in Escalated, and the loop's own words are still
+   * rendered where the reviewer acted.
+   */
+  const [refusals, setRefusals] = useState<Record<string, string>>({});
+
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -158,6 +168,26 @@ function BoardBody() {
     setAttempt((count) => count + 1);
   }, []);
 
+  /**
+   * What to do with the factory's answer to a decision, whether it applied it or
+   * refused it. A refusal is kept against the work item so it is rendered where the
+   * reviewer acted; either way the factory is read again now, because a decision that
+   * was carried out has moved the work item and the resulting lane belongs on the next
+   * render rather than five seconds from now.
+   */
+  const onDecisionResult = useCallback((workItemId: string, result: DecisionResult) => {
+    setRefusals((current) => {
+      const next = { ...current };
+      if (result.refusal) {
+        next[workItemId] = result.refusal;
+      } else {
+        delete next[workItemId];
+      }
+      return next;
+    });
+    setAttempt((count) => count + 1);
+  }, []);
+
   if (reading.phase === 'loading') {
     return <BoardLoading />;
   }
@@ -180,11 +210,21 @@ function BoardBody() {
     );
   }
 
-  return <BoardReady board={reading.board} project={project} />;
+  return <BoardReady board={reading.board} project={project} refusals={refusals} onDecisionResult={onDecisionResult} />;
 }
 
 /** The board once the factory has answered: the strip, the filter and the lanes. */
-function BoardReady({ board, project }: { board: BoardView; project: string | null }) {
+function BoardReady({
+  board,
+  project,
+  refusals,
+  onDecisionResult,
+}: {
+  board: BoardView;
+  project: string | null;
+  refusals: Record<string, string>;
+  onDecisionResult: (workItemId: string, result: DecisionResult) => void;
+}) {
   const totalCards = board.lanes.reduce((count, lane) => count + lane.cards.length, 0);
 
   // A GET and a query string, so the filter is a way of looking at the board rather
@@ -227,7 +267,7 @@ function BoardReady({ board, project }: { board: BoardView; project: string | nu
           body="Nothing waiting belongs to the project the board is narrowed to. Choose another project, or all of them."
         />
       ) : (
-        <Kanban01 columns={lanes.map(toColumn)} empty="Nothing in this lane." />
+        <Kanban01 columns={lanes.map((lane) => toColumn(lane, refusals, onDecisionResult))} empty="Nothing in this lane." />
       )}
     </>
   );
@@ -291,20 +331,31 @@ function ProjectFilter({ board, project }: { board: BoardView; project: string |
 }
 
 /** One lane as a column, with its cards mapped to the Block's own card shape. */
-function toColumn(lane: LaneView): KanbanColumn {
+function toColumn(
+  lane: LaneView,
+  refusals: Record<string, string>,
+  onDecisionResult: (workItemId: string, result: DecisionResult) => void,
+): KanbanColumn {
   return {
     id: lane.lane,
     label: lane.label,
-    cards: lane.cards.map(toCard),
+    cards: lane.cards.map((card) => toCard(card, refusals, onDecisionResult)),
   };
 }
 
 /**
  * One work item as a card. The title, the Project as a tag, the lane's state and
- * its own words, and the round count — every one of them the factory's own
- * judgement rather than the renderer's.
+ * its own words, the round count, and — where the factory offers any — the decisions a
+ * reviewer can still make about it. Every one of them the factory's own judgement
+ * rather than the renderer's: the offered set is `Decisions.OfferedIn`, serialised onto
+ * the card, so a card in Review offers three, a parked card offers two, and no other
+ * lane offers any.
  */
-function toCard(card: CardView): KanbanCard {
+function toCard(
+  card: CardView,
+  refusals: Record<string, string>,
+  onDecisionResult: (workItemId: string, result: DecisionResult) => void,
+): KanbanCard {
   return {
     id: card.id,
     title: card.title,
@@ -312,12 +363,20 @@ function toCard(card: CardView): KanbanCard {
     stateLabel: card.laneLabel,
     tags: [{ id: card.project, label: card.project }],
     body: (
-      <span className="board__card-body">
+      <div className="board__card-body">
         <span className="board__card-rounds">
           round {card.roundCount} of {card.roundCeiling}
         </span>
         {card.ending ? <span className="board__card-ending">{card.ending}</span> : null}
-      </span>
+        {card.decisions.length > 0 ? (
+          <DecisionForm
+            workItemId={card.id}
+            decisions={card.decisions}
+            refusal={refusals[card.id] ?? null}
+            onResult={(result) => onDecisionResult(card.id, result)}
+          />
+        ) : null}
+      </div>
     ),
   };
 }
