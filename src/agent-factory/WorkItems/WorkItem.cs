@@ -23,6 +23,13 @@ namespace AgentFactory.WorkItems;
 /// rounds, or by a human decline carries none of them, and so nothing the loop does on its
 /// own will ever merge it (ADR-0008).
 /// </para>
+/// <para>
+/// <c>Kind</c> is what a routing round decided about this issue (ADR-0013): "nobody has
+/// looked at this yet" and "this is ready to build" are different facts and a board that
+/// cannot tell them apart is a board whose queue means nothing. The routing pipeline that
+/// would set a verdict is not in this branch, so every work item carries
+/// <see cref="WorkItemKind.Unrouted"/>, which is the honest default rather than a verdict.
+/// </para>
 /// </remarks>
 public sealed record WorkItem(
     Guid Id,
@@ -38,4 +45,5 @@ public sealed record WorkItem(
     DateTimeOffset UpdatedUtc,
     DateTimeOffset? ReviewStartedUtc,
     int MergeAttempts = 0,
-    DateTimeOffset? MergeRetryAfterUtc = null);
+    DateTimeOffset? MergeRetryAfterUtc = null,
+    WorkItemKind Kind = WorkItemKind.Unrouted);

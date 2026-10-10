@@ -345,6 +345,7 @@ public class DecisionTests
                 "/api/credentials/{name}",
                 "/api/projects",
                 "/api/projects/{name}",
+                "/api/work-items/{id}",
                 "/api/work-items/{id}/decisions",
                 "/api/work-items/{id}/workspace",
                 "Projects",

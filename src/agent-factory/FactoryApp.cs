@@ -348,6 +348,19 @@ public static class FactoryApp
             Microsoft.AspNetCore.Http.Results.Json(
                 Api.WorkspaceView.Of(await workspaces.OpenAsync(id, cancellationToken))));
 
+        // The work-item detail (#46): the whole record behind a board card — the work item,
+        // every round it has run with the host's diff, the decisions made and the decisions
+        // still offered, how it ended, and its route. It is a read and nothing else:
+        // `WorkItemDetailView.Of` puts the store's own rows together with the factory's own
+        // judgement (`HowToReadTheDiff`, `HowItEnded`, `Decisions.OfferedIn`,
+        // `HowToReadTheRoute`), and the endpoint holds no policy of its own. An id the store
+        // has never seen is a 404 rather than an empty record, because "no such work item"
+        // and "a work item with nothing on it" are different answers.
+        api.MapGet("/work-items/{id}", (string id, IWorkItemStore store) =>
+            Guid.TryParse(id, out var workItemId) && store.Get(workItemId) is { } workItem
+                ? Microsoft.AspNetCore.Http.Results.Json(Api.WorkItemDetailView.Of(workItem, store))
+                : Microsoft.AspNetCore.Http.Results.NotFound());
+
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes the Razor Projects page already had — add, edit
         // (one write that overwrites), and remove. Each mirrors a page handler exactly and
