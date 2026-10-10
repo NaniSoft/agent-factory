@@ -1,0 +1,62 @@
+{
+  "$comment": [
+    "This app's half of the cross-repository contract, and it is data only.",
+    "",
+    "The laws are not here. They are the failure messages of the gates in",
+    "`@nanisoft/prism-ui/gates`, which this app installs by pinning that package",
+    "exactly, so a change to a law lands once and reaches this app in one release",
+    "and cannot be declined here. What is here is the set of facts only this app",
+    "knows: which stylesheet is its own, how much of it counts as having read",
+    "something, where its export lands, what its pack map describes, and which",
+    "source roots carry no runtime token read.",
+    "",
+    "The floors are deliberately low. This is the walking skeleton's app: one route,",
+    "no internal links yet, and a sheet the design system does almost all of. The",
+    "floors exist so a renamed directory empties a run and fails, rather than",
+    "reporting a repository that rendered nothing."
+  ],
+  "gateKit": 1,
+  "gates": [
+    "pin",
+    "retired-line",
+    "stylesheet-ownership",
+    "hidden-state",
+    "links",
+    "pack-boundary",
+    "runtime-token-read"
+  ],
+  "pin": {
+    "manifest": "package.json",
+    "workspace": "pnpm-workspace.yaml"
+  },
+  "retired-line": {
+    "manifest": "package.json",
+    "lockfile": "pnpm-lock.yaml",
+    "documents": ["README.md", "AGENTS.md"],
+    "minFiles": 10
+  },
+  "stylesheet-ownership": {
+    "sheets": ["app/globals.css"],
+    "minDeclarations": 4
+  },
+  "hidden-state": {
+    "sheets": ["app/globals.css"],
+    "minRules": 2
+  },
+  "links": {
+    "outDir": "out",
+    "minRoutes": 1,
+    "minAnchors": 0
+  },
+  "pack-boundary": {
+    "outDir": "out",
+    "map": "scripts/pack-map.json",
+    "regionResolver": "scripts/pack-regions.mjs",
+    "landing": "/",
+    "markSlot": "product-mark"
+  },
+  "runtime-token-read": {
+    "sourceRoots": ["app", "lib"],
+    "minFiles": 2
+  }
+}

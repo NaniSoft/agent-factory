@@ -25,4 +25,26 @@
     <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The Board app's static export, published beside the entry assembly under
+      wwwroot/admin so the same process serves it at /admin. The app is a flat Next
+      export at the repository root (`../../admin`), built with `pnpm build` into
+      `admin/out`; `FactoryApp` already serves everything under
+      AppContext.BaseDirectory/wwwroot, and this puts the export there without the
+      app and the factory sharing a directory. `Link` maps each file to its place
+      under wwwroot/admin rather than to its position in this project's cone.
+
+      The glob is empty until the app has been built, and an empty glob is an empty
+      item list rather than an error: a checkout that has not run `pnpm build` still
+      builds and still serves the board's own stylesheet. Declared here because a
+      file that is served but not published is a file that exists in development and
+      404s in production: #25's original failure one level down.
+    -->
+    <Content Include="..\..\admin\out\**"
+             Link="wwwroot\admin\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
