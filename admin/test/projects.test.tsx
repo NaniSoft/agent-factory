@@ -56,7 +56,7 @@ describe('the projects page', () => {
     expect(screen.getByText('NEXUS_ANTHROPIC_API_KEY')).toBeTruthy();
     expect(screen.getByText('Served')).toBeTruthy();
 
-    // The loader's own refusal, with its reason and message ,  the UI adds no rule.
+    // The loader's own refusal, with its reason and message: the UI adds no rule.
     expect(screen.getByText('broken.yaml')).toBeTruthy();
     expect(screen.getByText('Partial')).toBeTruthy();
     expect(screen.getByText('repo.url is not an absolute http or https URL')).toBeTruthy();

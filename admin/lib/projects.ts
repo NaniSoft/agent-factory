@@ -5,7 +5,7 @@
  * state the loader decided for each project, and the files it refused with its own
  * reason and message. Camel-cased by name on both sides and pinned there rather than
  * left to a serialiser's naming policy. There is deliberately no codegen between the
- * two ,  the C# records are the contract on the factory side and a fixture that
+ * two: the C# records are the contract on the factory side and a fixture that
  * mirrors the endpoint's own response is what keeps them in step.
  *
  * Nothing here validates: the factory's loader is the only judge of a project file,

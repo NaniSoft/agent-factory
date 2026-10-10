@@ -421,7 +421,7 @@ export default function ProjectsPage() {
               <AlertDescription>
                 A project added here is served: the factory will poll its issues and, with the credentials the
                 project names, open and merge pull requests into it. Nothing is added by default, so a
-                repository is only reached once you name it ,  scope each token to that one repository. Project
+                repository is only reached once you name it. Scope each token to that one repository. Project
                 files are read at start, so a change here is served after a restart of the factory.
               </AlertDescription>
             </Alert>
