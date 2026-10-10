@@ -19,9 +19,9 @@ export type DecisionResult = {
 /**
  * Post one decision about one work item, and read the factory's answer.
  *
- * The API is the factory's own process and lives off this app's base path, at
- * `/api/work-items/{id}/decisions`, so the request is absolute from the origin rather
- * than relative to `/admin`. A refusal is a 200 with `applied: false` and the words
+ * The API is the factory's own process and lives at
+ * `/api/work-items/{id}/decisions`, a sibling of the Board app the same process serves
+ * at the root. A refusal is a 200 with `applied: false` and the words
  * in `refusal` — it is the reviewer's answer, not a fault — so only a non-2xx
  * response is an error here.
  */

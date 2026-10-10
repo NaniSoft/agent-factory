@@ -52,10 +52,10 @@ export type WriteResult = {
 /**
  * Read the factory's served projects and its refusals.
  *
- * The API is the factory's own process and lives off this app's base path, at
- * `/api/projects`, so the request is absolute from the origin rather than relative to
- * `/admin`. `cache: 'no-store'` because a project added since the last read is served
- * only after a restart, and a cached list would hide that.
+ * The API is the factory's own process and lives at `/api/projects`, a sibling of the
+ * Board app the same process serves at the root. `cache: 'no-store'` because a project
+ * added since the last read is served only after a restart, and a cached list would
+ * hide that.
  */
 export async function fetchProjects(signal?: AbortSignal): Promise<ProjectsView> {
   const response = await fetch('/api/projects', { cache: 'no-store', signal });

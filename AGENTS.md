@@ -368,44 +368,18 @@ still running, which is right for a fake that completes inside the call and wron
 round that copies a tree off disk and runs `git` against it; this steps until the machine
 holds nothing, yielding between steps, and fails loudly rather than hanging.
 
-**One test does not prove what a reader might assume.** The fold-restore is asserted as the
-*shape* it is written against — that every section carries a `data-open-key` naming its work
-item, round and path — and **nothing executes the script**. So the suite proves the key is
-right and the restore is written against it; it does not prove a browser reopened anything.
+## The Board, styled by Prism
 
-## The board, styled
-
-`wwwroot/board.css` is the board's stylesheet, and `Index.cshtml` links it as `/board.css`
-rather than `~/board.css` because the tilde form resolves against the *content root* — a
-factory data directory, and in the test host a temporary one — while the stylesheet is
-published beside the entry assembly. `FactoryApp` names that directory explicitly rather than
-leaving it to the content root, and says so in a warning when it is not there: a link to a
-file that is not present renders as a board that is merely plain, which is how #25 presented
-in the first place.
-
-`Review/BoardStylesheetTests.cs` holds it to the rule the ticket set, and the rule is a
-refusal rather than a preference: **the stylesheet renders what the markup already says and
-hides nothing a reviewer is owed.** It is therefore asserted three ways rather than by
-screenshot, because a stylesheet cannot be reviewed as one:
-
-- Every state the board distinguishes has a rule of its own — intake's three
-  (`never-polled`, `polled`, `failing`), a diff's four (`shown`, `empty`, `unfinished`,
-  `unavailable`), a round's two outcomes, a file's three changes, the three decisions. And
-  the four diff states are additionally checked to **not** declare the same properties, which
-  is the form that would catch the real mistake: one rule that grouped several states would
-  leave each state "having a rule" while two of them rendered alike.
-- Nothing is hidden outright — no `display: none`, no `visibility: hidden` — and the
-  selectors for what was left off a bounded diff, that the container bounded its own copy, a
-  round's classification and a refusal are all required to be styled at all. The one bound in
-  the file is `max-height` on a scrollable `<pre>`, so a ninety-minute log does not push the
-  next card off the page and is still reachable.
-- The folds are left alone. Unstyled `<details>` still fold, and that is what the diff's
-  presentation decision depends on, so no rule may set `display` on a `<details>` or a
-  `<summary>`.
-
-And one check is about correspondence rather than taste: **every class in a selector appears
-in the board's own markup**, read off the view sources rather than off one render, because a
-board with one work item in Review renders no diff file and no failure classification at all.
+The Board is a Prism app now (#51, ADR-0014): a static export in `admin/`, composed from
+`@nanisoft/prism-ui` pinned from npm, and served by the same process at the root beside its
+JSON API. There is no hand-written stylesheet in this repository any more and no `board.css`;
+the Razor board and its stylesheet are gone, and the Board is the app. The app writes no Prism
+utility classes and no stylesheet of Prism's own, and the consumer gate kit (`pnpm check`,
+`prism-gates`) holds it to the laws — stylesheet ownership, no hidden state, route and anchor
+honesty, the pack boundary, the runtime-token read — whose wording lives in the pinned package
+rather than here. The design system's `styles.css` is the one sheet, mounted once in the app's
+layout; the .NET process serves the export and the JSON it reads and decides nothing about how
+it looks.
 
 ## The round's files
 
@@ -1376,10 +1350,10 @@ argument for it is under "Every way a loop ends" above. Three things follow:
   feedback threshold would try again — unattended, for ever, for a merge already known to
   fail.
 - **It is not silent.** The loop logs a warning and returns a refusal through
-  `StepResult`, and `Pages/Index.cshtml.cs` renders it on the response the reviewer is
-  holding — a refusal on the next board read would be lost. The card also says plainly
-  which swimlane each decision was applied to, so an approval that did not merge stays
-  readable after the page is read again.
+  `StepResult`, and `POST /api/work-items/{id}/decisions` carries it back in the `refusal`
+  field of the response the reviewer is holding — a refusal on the next board read would be
+  lost. The card also says plainly which swimlane each decision was applied to, so an
+  approval that did not merge stays readable after the board is read again.
 
 One work item's failed merge is contained to that work item: the pipeline behind it keeps
 moving.
@@ -1387,19 +1361,20 @@ moving.
 ## The three decisions
 
 `WorkItems/Decision.cs` is the whole of what a work item leaves Review by: approve,
-request changes, reject. There is no fourth, and a value the board cannot read as one of
-the three is refused rather than guessed at. `Pages/Index.cshtml` renders them as one
-form wherever a reviewer can still act — Review offers all three, a parked work item
-offers two — and that form is the factory's only write path: the process serves one
-route, the board has one reading handler and one writing handler, and a test says all of
-it. The project filter is on the reading handler and is not a third of either: a query
-string that changes what is rendered and nothing else, which
+request changes, reject. There is no fourth, and a value the app cannot read as one of
+the three is refused rather than guessed at. The Board app renders them as one form
+wherever a reviewer can still act — Review offers all three, a parked work item
+offers two — and that form posts to the factory's only write path,
+`POST /api/work-items/{id}/decisions`, which records the decision and asks the loop to apply
+it. The process serves exactly the JSON surface and nothing else; a test names the whole route
+list. The project filter is a way of looking in the app and is not a third of either: a query
+string that changes which cards are drawn and nothing else, which
 `A_filtered_board_still_offers_the_three_decisions_and_still_refuses_the_fourth` asserts by
 pressing a decision on a filtered board and by posting a fourth by hand to it.
 
 The board does not move work items, and it does not merge anything. It records what the
 reviewer decided, in their own words, and asks the loop for one step; which swimlane a
-decision means is the loop's policy (ADR-0005), so a page that decided lanes itself would
+decision means is the loop's policy (ADR-0005), so an endpoint that decided lanes itself would
 be a second state machine that could disagree with the loop about the same work item. That
 one step is also a *second* driver rather than the only one, now that the heartbeat steps
 the loop between decisions, and it is deliberately kept: a reviewer's click has to do
@@ -1472,9 +1447,9 @@ So the examples live in [`worker/examples/`](worker/examples), readable and not 
 | `worker/examples/nexus.project.yaml` | the repository the design is written about |
 | `worker/examples/example.project.yaml` | the same shape with placeholder values |
 
-To serve a project, copy one into `factories/`, or use the board's `/Projects` page. The
-page says so where a repository is chosen, because that is where somebody decides what the
-factory can reach.
+To serve a project, copy one into `factories/`, or use the Board app's Projects surface
+(`/projects`, backed by `GET`/`POST`/`DELETE /api/projects`). The app says so where a
+repository is chosen, because that is where somebody decides what the factory can reach.
 
 **A repository with no commits is not buildable, on purpose (#24).** A round clones the
 base and diffs against the commit it started from; an empty repository has no such commit,

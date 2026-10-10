@@ -20,7 +20,7 @@ public class BoardPortTests
         var options = FactoryOptions.FromConfiguration(new ConfigurationBuilder().Build(), root.Path);
         await using var host = await FactoryHost.StartAsync(root, options);
 
-        var response = await host.Board.GetAsync("/");
+        var response = await host.Board.GetAsync("/api/board");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("http://127.0.0.1:5000/", $"{host.BoardAddress}/");

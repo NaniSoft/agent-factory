@@ -9,7 +9,6 @@ using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Observability;
 using AgentFactory.Polling;
-using AgentFactory.Pages;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
@@ -209,17 +208,6 @@ public sealed class FactoryHost : IAsyncDisposable
             : endpoint.DisplayName ?? "?")
         .Distinct()
         .OrderBy(route => route, StringComparer.Ordinal)
-        .ToList();
-
-    /// <summary>
-    /// The board's handlers, by name. A Razor page is dispatched inside one endpoint, so
-    /// the handlers are where a page's read path and its write path can be told apart.
-    /// </summary>
-    public IReadOnlyList<string> BoardHandlers() => typeof(IndexModel)
-        .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-        .Where(method => method.Name.StartsWith("On", StringComparison.Ordinal))
-        .Select(method => method.Name)
-        .OrderBy(name => name, StringComparer.Ordinal)
         .ToList();
 
     /// <summary>The address the board is actually listening on.</summary>

@@ -169,12 +169,6 @@ public static class FactoryApp
         // pushes the branch, opens the pull request if there is not already one, and merges
         // it, from the host, under a credential no worker container ever held (ADR-0006).
 
-        // The board's only write path is the reviewer's three decisions: the one form the
-        // page renders, in Review. It records the decision and asks the loop to apply it,
-        // so nothing else in the process can be moved by a human and the swimlane a work
-        // item lands in stays the loop's answer rather than the page's.
-        builder.Services.AddRazorPages();
-
         var app = builder.Build();
 
         // A workspace container outlives the process that started it: it is on the
@@ -189,37 +183,33 @@ public static class FactoryApp
         // at start the way it is meant to be.
         _ = app.Services.GetRequiredService<ProjectLoadReport>();
 
-        // The board's stylesheet, and the only static file this process serves.
-        //
-        // `~/board.css` is what `Pages/Index.cshtml` links, so without this the board
-        // rendered entirely unstyled — every state it distinguishes was legible, and none
-        // of it looked like anything (#25).
+        // The Board app: the static Prism export this process serves at the root, beside the
+        // JSON surface under `/api`. It is the human surface now — the app's routes are the
+        // pages, and the only write path is `POST /api/work-items/{id}/decisions` — and the
+        // one file the process serves that is not the app is this `wwwroot` itself.
         //
         // The file provider is named rather than left to the content root. The content root
         // is wherever the factory's own directories happen to be — a temporary directory in
         // the test host, `/app` in the deployment — and it is a factory *data* directory, so
-        // it never carries a `wwwroot` of its own. The stylesheet is a property of the
-        // application rather than of wherever a deployment put it, and `dotnet publish`
-        // puts it beside the entry assembly, which is where this looks.
+        // it never carries a `wwwroot` of its own. The app is a property of the application
+        // rather than of wherever a deployment put it, and `dotnet publish` puts it beside
+        // the entry assembly, which is where this looks.
         //
         // Loopback binding is what keeps this from being a second surface: the same machine
-        // that can open the board can open its stylesheet, and nothing else can reach
-        // either (ADR-0005, ADR-0012). It is also the only file: no directory listing, no
-        // arbitrary path, and nothing derived from a request except the name the board
-        // itself renders.
-        var stylesheets = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        if (Directory.Exists(stylesheets))
+        // that can open the Board can reach the app and its `/api` reads, and nothing else
+        // can reach either (ADR-0005, ADR-0012).
+        var webRootDirectory = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        if (Directory.Exists(webRootDirectory))
         {
-            var webRoot = new PhysicalFileProvider(stylesheets);
+            var webRoot = new PhysicalFileProvider(webRootDirectory);
 
-            // Default files, so a directory address serves its own index rather than a
-            // 404. The Board app is a static export under `wwwroot/admin`, and an export's
-            // front door is `/admin/`, whose file is `index.html`; without this a request
-            // for `/admin` finds the directory and nothing to serve. It is declared with the
-            // same provider as the static files, because that provider is the published
-            // directory rather than the content root, and it changes nothing for `/`: there
-            // is no `wwwroot/index.html`, so the board page still answers the root as it
-            // always has.
+            // Default files, so a directory address serves its own index rather than a 404.
+            // The app is a static export built with `trailingSlash: true`, so each route has
+            // its own directory index (`projects/index.html`, `credentials/index.html`,
+            // `work-items/index.html`) and a direct load or refresh of `/projects` resolves
+            // to it. The root's own front door is `wwwroot/index.html`. It is declared with
+            // the same provider as the static files, because that provider is the published
+            // directory rather than the content root.
             app.UseDefaultFiles(new DefaultFilesOptions
             {
                 FileProvider = webRoot,
@@ -233,16 +223,14 @@ public static class FactoryApp
         }
         else
         {
-            // Said out loud rather than left as a silently unstyled board, which is how
-            // #25 presented in the first place: a link to a file that is not there reads as
-            // a board that is merely plain.
+            // Said out loud rather than left as an app that answers every route with a 404:
+            // a checkout that has not run `pnpm build` publishes no export, and the copy that
+            // ships is put here by `dotnet publish`.
             app.Logger.LogWarning(
-                "No wwwroot beside the entry assembly at {Directory}, so the board will render unstyled: "
-                    + "the copy that ships is published there and this build did not put it there",
-                stylesheets);
+                "No wwwroot beside the entry assembly at {Directory}, so the Board app is not served: "
+                    + "the export ships there and this build did not put it there",
+                webRootDirectory);
         }
-
-        app.MapRazorPages();
 
         // The JSON surface the Board app renders. Most of it is a second *reading* of the
         // same state the board reads; the credentials surface is the one place a secret
@@ -275,9 +263,9 @@ public static class FactoryApp
             Workspaces.ReviewWorkspaces workspaces) =>
             Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller, workspaces)));
 
-        // A reviewer's decision, the JSON twin of the board's own form handler (#45). It
-        // does exactly what `Pages/Index.cshtml.cs`'s `OnPostDecision` does and invents no
-        // capability: `Decisions.TryParse`, then `IWorkItemStore.RecordDecision`, then
+        // A reviewer's decision, the board's one write path now that the Razor form is gone
+        // (#45, #51). It invents no capability: `Decisions.TryParse`, then
+        // `IWorkItemStore.RecordDecision`, then
         // `Orchestrator.StepAsync` — and it moves no work item and merges nothing itself,
         // because the lane a decision means is the loop's answer and the loop is the only
         // thing here that talks to GitHub. A fourth decision, a request for changes with
@@ -362,8 +350,8 @@ public static class FactoryApp
                 : Microsoft.AspNetCore.Http.Results.NotFound());
 
         // The Projects surface (#48): the served set with its load state and the loader's
-        // own refusals, and the three writes the Razor Projects page already had — add, edit
-        // (one write that overwrites), and remove. Each mirrors a page handler exactly and
+        // own refusals, and the three writes — add, edit (one write that overwrites), and
+        // remove. Each mirrors what the board could always do and
         // invents no capability: the file stays the single source of truth, and a write is
         // served only after a restart, which the app says where a repository is chosen. The
         // endpoint holds no validation of its own; `ProjectFiles` is the guard it calls.

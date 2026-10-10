@@ -64,7 +64,7 @@ public sealed record ProjectFileRejectionView(
     [property: JsonPropertyName("reason")] string Reason,
     [property: JsonPropertyName("message")] string Message);
 
-/// <summary>The six values a write posts, exactly as the Razor page's form posts them.</summary>
+/// <summary>The six values a write posts, exactly the shape a project file states.</summary>
 public sealed record ProjectWriteRequest(
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("repoUrl")] string? RepoUrl,

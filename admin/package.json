@@ -2,7 +2,7 @@
   "name": "@nanisoft/agent-factory-admin",
   "version": "0.0.0",
   "private": true,
-  "description": "The agent factory's Board, rendered with Prism and served statically at /admin over the factory's own loopback JSON API.",
+  "description": "The agent factory's Board, rendered with Prism and served statically at the root over the factory's own loopback JSON API.",
   "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=22"

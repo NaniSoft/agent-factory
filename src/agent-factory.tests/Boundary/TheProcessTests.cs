@@ -37,7 +37,7 @@ public class TheProcessTests
         using var root = FactoryRoot.Create();
         await using var host = await FactoryHost.StartAsync(root);
 
-        var response = await host.Board.GetAsync("/");
+        var response = await host.Board.GetAsync("/api/board");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -76,7 +76,7 @@ public class TheProcessTests
                 .First();
 
             using var client = new HttpClient { BaseAddress = new Uri(address) };
-            using var response = await client.GetAsync("/");
+            using var response = await client.GetAsync("/api/board");
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.NotNull(app.Services.GetService<Poller>());

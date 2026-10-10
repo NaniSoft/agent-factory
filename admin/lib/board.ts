@@ -130,10 +130,10 @@ export type BoardView = {
 /**
  * Read the factory's board.
  *
- * The API is the factory's own process and lives off this app's base path, at
- * `/api/board`, so the request is absolute from the origin rather than relative to
- * `/admin`. `cache: 'no-store'` is the point of a board: every read reflects the
- * machine now, and a cached budget would be a claim about a moment that has passed.
+ * The API is the factory's own process and lives at `/api/board`, a sibling of the
+ * Board app the same process serves at the root. `cache: 'no-store'` is the point of a
+ * board: every read reflects the machine now, and a cached budget would be a claim
+ * about a moment that has passed.
  */
 export async function fetchBoard(signal?: AbortSignal): Promise<BoardView> {
   const response = await fetch('/api/board', { cache: 'no-store', signal });

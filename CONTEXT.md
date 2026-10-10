@@ -54,9 +54,9 @@ _Avoid_: output, report, summary, writeup
 ### The loop
 
 **Board**:
-The human-facing surface, served by the factory at `/admin` on port 5000. The only
-place work is approved. It is rendered with Prism as a static app, but it is still
-one surface and it is named after what it is.
+The human-facing surface, served by the factory at the root (`/`) on port 5000. The only
+place work is approved. It is rendered with Prism as a static app over the factory's own
+loopback JSON API, but it is still one surface and it is named after what it is.
 _Avoid_: admin (an address, not the surface), dashboard, UI, console, inbox
 
 **Decision**:
