@@ -13,10 +13,18 @@ import { EmptyState01 } from '@nanisoft/prism-ui/blocks/empty-state-01';
 import { Badge } from '@nanisoft/prism-ui/components/badge';
 import { Button } from '@nanisoft/prism-ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@nanisoft/prism-ui/components/card';
+import { CtaLink } from '@nanisoft/prism-ui/components/cta-link';
 import { Skeleton } from '@nanisoft/prism-ui/components/skeleton';
 import { Status } from '@nanisoft/prism-ui/components/status';
 
-import { fetchBoard, type BoardView, type CardView, type LaneView } from '@/lib/board';
+import {
+  fetchBoard,
+  openWorkspace,
+  type BoardView,
+  type CardView,
+  type LaneView,
+  type WorkspaceView,
+} from '@/lib/board';
 
 /** The board's own cadence, the same five seconds the Razor board refreshes itself on. */
 const POLL_MS = 5000;
@@ -317,9 +325,102 @@ function toCard(card: CardView): KanbanCard {
           round {card.roundCount} of {card.roundCeiling}
         </span>
         {card.ending ? <span className="board__card-ending">{card.ending}</span> : null}
+        {card.lane === 'Review' ? (
+          <WorkspaceAction workItemId={card.id} workspace={card.workspace} />
+        ) : null}
       </span>
     ),
   };
+}
+
+/**
+ * The review workspace, on one card in Review.
+ *
+ * A workspace is the reviewer's own copy of the round's tree, running code-server on
+ * loopback, and this is the one control that opens it. It is a kind of write the board
+ * did not have — it spawns a container — but it moves nothing, and the factory's answer
+ * is the same either way: a link and the time left, or the factory's own words for why
+ * it could not be opened. Nothing here ends in silence (#31, #47).
+ *
+ * The server's answer (`fromTheFactory`) is the truth and travels on the board's card,
+ * so a card that already carries an open workspace renders its link on load. A press
+ * posts to the endpoint and shows the result at once, tagged with the board value it
+ * answered so the board's next poll — a fresh object every five seconds — supersedes it
+ * without an effect: a press is a head start on the next read, not a second source of
+ * truth.
+ */
+function WorkspaceAction({
+  workItemId,
+  workspace: fromTheFactory,
+}: {
+  workItemId: string;
+  workspace: WorkspaceView | null;
+}) {
+  const [pressed, setPressed] = useState<{ answered: WorkspaceView | null; view: WorkspaceView } | null>(
+    null,
+  );
+  const [pending, setPending] = useState(false);
+
+  // The press's answer stands only while the board still carries the value it answered;
+  // a poll hands a new object, the tag no longer matches, and the factory's answer is
+  // shown again. No effect, no second render, no stale copy outliving the read it came
+  // from.
+  const workspace = pressed && pressed.answered === fromTheFactory ? pressed.view : fromTheFactory;
+
+  const open = useCallback(() => {
+    setPending(true);
+    const answered = fromTheFactory;
+    openWorkspace(workItemId)
+      .then((view) => setPressed({ answered, view }))
+      .catch((error: unknown) => {
+        setPressed({
+          answered,
+          view: {
+            active: false,
+            url: null,
+            remainingSeconds: null,
+            error: error instanceof Error ? error.message : 'the factory could not be reached',
+          },
+        });
+      })
+      .finally(() => setPending(false));
+  }, [workItemId, fromTheFactory]);
+
+  if (workspace?.active && workspace.url) {
+    return (
+      <span className="board__workspace">
+        <CtaLink href={workspace.url} newTab variant="outline" size="sm">
+          {workspace.url}
+        </CtaLink>
+        {workspace.remainingSeconds !== null ? (
+          <span className="board__workspace-remaining">{remainingLabel(workspace.remainingSeconds)}</span>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="board__workspace">
+      <Button type="button" variant="outline" size="sm" onClick={open} disabled={pending}>
+        {pending ? 'Opening the workspace' : 'Open workspace'}
+      </Button>
+      {workspace?.error ? <Status tone="destructive" label={workspace.error} /> : null}
+    </span>
+  );
+}
+
+/**
+ * The time left on a workspace, in a reviewer's words. The factory sends whole seconds;
+ * this says them in the largest two units that matter, because "3h 59m remaining" is the
+ * answer to "how long have I got" and "14390 seconds" is not.
+ */
+function remainingLabel(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m remaining`;
+  if (minutes > 0) return `${minutes}m remaining`;
+  return `${safe}s remaining`;
 }
 
 /** The board before the factory has answered: the shape of it, in Prism skeletons. */

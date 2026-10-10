@@ -173,3 +173,91 @@ describe('the board page', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+/**
+ * The review workspace on a card: the "Open workspace" action, the link and time it
+ * answers with, and the factory's own refusal when it cannot open one. The board read
+ * and the workspace post are the only two calls, and the latter's body is the
+ * factory's own view — so every assertion here is about what a reader can read and
+ * press, not about a value the page invented.
+ */
+describe('the review workspace on a card', () => {
+  /** Answer the board read with the fixture, and the workspace post with a given view. */
+  function answerBoardAndWorkspace(workspace: unknown) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/workspace')) {
+        return { ok: true, status: 200, json: async () => workspace };
+      }
+      return { ok: true, status: 200, json: async () => boardFixture };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  const cardOf = (title: string) =>
+    screen.getByText(title).closest('[data-slot="kanban-01-card"]') as HTMLElement;
+
+  it('offers an open action on a card in Review and renders the link and time once opened', async () => {
+    const fetchMock = answerBoardAndWorkspace({
+      active: true,
+      url: 'http://127.0.0.1:7100/',
+      remainingSeconds: 14390,
+      error: null,
+    });
+
+    render(<BoardPage />);
+
+    await screen.findByText('Add the board endpoint');
+    const card = cardOf('Add the board endpoint');
+    fireEvent.click(within(card).getByRole('button', { name: 'Open workspace' }));
+
+    // The link is the loopback address the factory published, and the time beside it
+    // is the lifetime it reported, said in a reviewer's words.
+    const link = await within(card).findByRole('link');
+    expect(link.getAttribute('href')).toBe('http://127.0.0.1:7100/');
+    expect(within(card).getByText('3h 59m remaining')).toBeTruthy();
+
+    // The one call the action makes, to the factory's own route for the card's work item.
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/work-items/11111111-1111-1111-1111-111111111111/workspace',
+      { method: 'POST' },
+    );
+  });
+
+  it('renders a workspace the factory already reported, without pressing anything', async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+
+    // The prism card carries an open workspace in the board the factory returned, so a
+    // re-render shows the link and the time left rather than an action whose click was
+    // forgotten.
+    await screen.findByText('Tighten the focus ring');
+    const card = cardOf('Tighten the focus ring');
+    const link = within(card).getByRole('link');
+    expect(link.getAttribute('href')).toBe('http://127.0.0.1:7101/');
+    expect(within(card).getByText('3h 59m remaining')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: 'Open workspace' })).toBeNull();
+  });
+
+  it("renders the factory's refusal on the card when no workspace can be opened", async () => {
+    answerBoardAndWorkspace({
+      active: false,
+      url: null,
+      remainingSeconds: null,
+      error: 'the latest round left no tree to open',
+    });
+
+    render(<BoardPage />);
+
+    await screen.findByText('Add the board endpoint');
+    const card = cardOf('Add the board endpoint');
+    fireEvent.click(within(card).getByRole('button', { name: 'Open workspace' }));
+
+    // Never silently: the factory's own words are on the card, and the action stays so
+    // the reviewer can try again.
+    expect(await within(card).findByText('the latest round left no tree to open')).toBeTruthy();
+    expect(within(card).getByRole('button', { name: 'Open workspace' })).toBeTruthy();
+    expect(within(card).queryByRole('link')).toBeNull();
+  });
+});

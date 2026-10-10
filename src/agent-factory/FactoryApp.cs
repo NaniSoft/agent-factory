@@ -270,8 +270,23 @@ public static class FactoryApp
             IWorkItemStore store,
             ProjectLoadReport projects,
             Orchestrator loop,
-            FactoryOptions options) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options)));
+            FactoryOptions options,
+            Workspaces.ReviewWorkspaces workspaces) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, workspaces)));
+
+        // The review workspace's open (#47): the same call the board's "Open workspace"
+        // action makes, answered as the view model the card renders rather than as a
+        // redirect. It spawns a container — the one thing on this surface that talks to
+        // the daemon — but it moves no work item and records no decision, and a spawn
+        // that cannot happen comes back as an error on the view rather than as a silence
+        // or a 500. `OpenAsync` is the factory's own judgement of every failure case, so
+        // the endpoint holds none of its own.
+        api.MapPost("/work-items/{id}/workspace", async (
+            Guid id,
+            Workspaces.ReviewWorkspaces workspaces,
+            CancellationToken cancellationToken) =>
+            Microsoft.AspNetCore.Http.Results.Json(
+                Api.WorkspaceView.Of(await workspaces.OpenAsync(id, cancellationToken))));
 
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes the Razor Projects page already had — add, edit

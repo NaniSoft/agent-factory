@@ -105,6 +105,25 @@
   color: var(--muted-foreground);
 }
 
+/*
+ * A card's review workspace: the link and the time left, or the open control and the
+ * factory's refusal. The link, the status and the button are Prism items; what is here
+ * is the row they sit in — wrapping so a long loopback URL never pushes the card wide —
+ * and the muted ink of the remaining time.
+ */
+.board__workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.board__workspace-remaining {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The trust statement, and the only thing below the lanes. */
 .board__footer {
   margin-top: 2.5rem;
