@@ -77,6 +77,28 @@ public class CredentialsEndpointTests
     }
 
     [Fact]
+    public async Task A_write_to_a_name_the_factory_would_not_serve_is_refused_and_writes_nothing()
+    {
+        // The name arrives from a route segment, so a write is guarded exactly as a delete
+        // is: a name that would not be a file the factory serves is refused rather than
+        // handed to a write that could create a path outside the secrets directory.
+        using var root = FactoryRoot.Create()
+            .WithProjectFile("probe.yaml", ProjectFile.For(Project, RepoUrl));
+        await using var host = await FactoryHost.StartAsync(root);
+
+        using var response = await host.Board.PutAsJsonAsync(
+            "/api/credentials/not%20servable",
+            new { value = "a-value-that-must-not-land" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var secrets = Path.Combine(Path.GetDirectoryName(root.FactoriesDirectory)!, "secrets");
+        Assert.False(
+            Directory.Exists(secrets) && Directory.EnumerateFiles(secrets).Any(),
+            "an unservable name must not create a file in the secrets directory");
+    }
+
+    [Fact]
     public async Task A_credential_file_present_but_not_declared_is_listed_and_removed()
     {
         using var root = FactoryRoot.Create()

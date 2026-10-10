@@ -173,6 +173,82 @@ public class BoardEndpointTests
         Assert.Empty(card.GetProperty("decisions").EnumerateArray());
     }
 
+    [Fact]
+    public async Task A_review_card_carries_when_silence_would_merge_it_and_only_when_auto_merge_is_on()
+    {
+        // The countdown is the factory's own field, present only for a card in Review while
+        // auto-merge is on: it is ReviewStartedUtc + the feedback threshold, and with the
+        // mode off there is nothing a clock could say, so it is null.
+        using var root = FactoryRoot.Create();
+        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
+
+        await using (var on = await FactoryHost.StartAsync(root, agent: agent, autoMerge: true))
+        {
+            var workItem = on.Store
+                .Intake("nexus", Nexus, 42, "A work item, end to end", IssueBody, "main")
+                .WorkItem;
+            await on.PromoteAsync(workItem.Id);
+            await on.Settle();
+
+            var since = on.Store.Get(workItem.Id)!.ReviewStartedUtc!.Value;
+            using var response = await on.Board.GetAsync("/api/board");
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var card = CardIn(document.RootElement, "Review");
+
+            Assert.Equal(
+                since + FactoryConstants.FeedbackThreshold,
+                DateTimeOffset.Parse(
+                    card.GetProperty("autoMergeAt").GetString()!,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind));
+        }
+
+        using var offRoot = FactoryRoot.Create();
+        var offAgent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
+        await using var off = await FactoryHost.StartAsync(offRoot, agent: offAgent, autoMerge: false);
+        var waiting = off.Store
+            .Intake("nexus", Nexus, 42, "A work item, end to end", IssueBody, "main")
+            .WorkItem;
+        await off.PromoteAsync(waiting.Id);
+        await off.Settle();
+
+        using var offResponse = await off.Board.GetAsync("/api/board");
+        using var offDocument = JsonDocument.Parse(await offResponse.Content.ReadAsStringAsync());
+        var offCard = CardIn(offDocument.RootElement, "Review");
+
+        Assert.Equal(JsonValueKind.Null, offCard.GetProperty("autoMergeAt").ValueKind);
+    }
+
+    [Fact]
+    public async Task The_filter_offers_a_project_with_work_items_that_is_no_longer_served()
+    {
+        // The served set is the projects the factory is serving; a project file that has
+        // since been removed still has work items a reviewer is judging, and the filter has
+        // to reach them. The board's `projects` stays the served set; `filterProjects` is the
+        // union the filter offers.
+        using var root = FactoryRoot.Create();
+        await using var host = await FactoryHost.StartAsync(root);
+
+        host.Store.Intake("atlas", "https://github.com/NaniSoft/atlas", 7, "Leftover work", IssueBody, "main");
+
+        using var response = await host.Board.GetAsync("/api/board");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var board = document.RootElement;
+
+        Assert.Empty(board.GetProperty("projects").EnumerateArray());
+        Assert.Contains(
+            "atlas",
+            board.GetProperty("filterProjects").EnumerateArray().Select(name => name.GetString()));
+    }
+
+    /// <summary>The one card standing in a lane, from a board read.</summary>
+    private static JsonElement CardIn(JsonElement board, string lane) =>
+        Assert.Single(
+            board.GetProperty("lanes").EnumerateArray()
+                .Single(item => item.GetProperty("lane").GetString() == lane)
+                .GetProperty("cards")
+                .EnumerateArray());
+
     private static async Task<WorkItem> Take(FactoryHost host, int issueNumber)
     {
         var workItem = host.Store

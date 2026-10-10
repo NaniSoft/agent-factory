@@ -322,12 +322,14 @@ public class DecisionTests
 
         // With the Razor board retired (#51) the process serves exactly the JSON surface:
         // the board read (#43), the work-item detail (#46), the decisions write (#45), the
-        // review workspace's open (#47), and the projects (#48) and credentials (#49)
-        // surfaces. Nothing else is addressable — there is no page and no `/Index` or
-        // `Projects` endpoint left — so everything a human can reach arrives through one of
-        // these, and the only one that can move a work item is the decisions write. The
-        // paths are minimal-API templates, and `PUT` and `DELETE` on one path collapse to a
-        // single entry because the pattern is what is listed.
+        // acceptance gate (#52, the restored Backlog-to-Frontier button), the review
+        // workspace's open (#47), and the projects (#48) and credentials (#49) surfaces.
+        // Nothing else is addressable — there is no page and no `/Index` or `Projects`
+        // endpoint left — so everything a human can reach arrives through one of these, and
+        // the only ones that can move a work item are the decisions write and the acceptance
+        // gate (both through the loop). The paths are minimal-API templates, and `PUT` and
+        // `DELETE` on one path collapse to a single entry because the pattern is what is
+        // listed.
         Assert.Equal(
             [
                 "/api/board",
@@ -336,6 +338,7 @@ public class DecisionTests
                 "/api/projects",
                 "/api/projects/{name}",
                 "/api/work-items/{id}",
+                "/api/work-items/{id}/accept",
                 "/api/work-items/{id}/decisions",
                 "/api/work-items/{id}/workspace",
             ],

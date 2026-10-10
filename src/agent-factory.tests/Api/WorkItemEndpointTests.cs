@@ -52,7 +52,6 @@ public class WorkItemEndpointTests
         Assert.Equal("Review", header.GetProperty("laneLabel").GetString());
         Assert.Equal(1, header.GetProperty("roundCount").GetInt32());
         Assert.Equal(3, header.GetProperty("roundCeiling").GetInt32());
-        Assert.Equal("Unrouted", header.GetProperty("kind").GetString());
 
         var round = Assert.Single(review.GetProperty("rounds").EnumerateArray());
         Assert.Equal(1, round.GetProperty("roundNumber").GetInt32());
@@ -78,12 +77,6 @@ public class WorkItemEndpointTests
 
         // A stage is not an ending.
         Assert.Equal(string.Empty, review.GetProperty("ending").GetString());
-
-        // The route is the factory's judgement, which is honestly "nobody has looked" here.
-        var route = review.GetProperty("route");
-        Assert.Equal("Unrouted", route.GetProperty("kind").GetString());
-        Assert.Contains("Nobody has looked at this issue yet", route.GetProperty("say").GetString()!, StringComparison.Ordinal);
-        Assert.False(route.GetProperty("offersAcceptance").GetBoolean());
 
         // A reviewer declines it, and the record of that decision and the ending both show.
         host.Store.RecordDecision(workItem.Id, Decision.Reject, null);

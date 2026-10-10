@@ -3,7 +3,7 @@
  *
  * The shape mirrors `AgentFactory.Api.WorkItemDetailView`: the work item's header, every
  * round it has run with the host's diff, the decisions a reviewer made and the decisions
- * still offered, how it ended, and its route. Every field is camel-cased by name on both
+ * still offered, and how it ended. Every field is camel-cased by name on both
  * sides and pinned there rather than left to a serialiser's naming policy. There is
  * deliberately no codegen between the two — the C# records are the contract on one side and
  * a fixture mirroring the endpoint's own response is what keeps them in step on this side.
@@ -72,14 +72,6 @@ export type DecisionMadeView = {
   appliedToLabel: string | null;
 };
 
-/** What the factory decided about this issue's kind, and whether acceptance is offered. */
-export type RouteView = {
-  kind: string;
-  kindLabel: string;
-  say: string;
-  offersAcceptance: boolean;
-};
-
 /** The work item's own header. */
 export type WorkItemHeaderView = {
   id: string;
@@ -91,8 +83,6 @@ export type WorkItemHeaderView = {
   baseBranch: string;
   lane: string;
   laneLabel: string;
-  kind: string;
-  kindLabel: string;
   roundCount: number;
   roundCeiling: number;
   createdUtc: string;
@@ -109,7 +99,6 @@ export type WorkItemDetailView = {
   offeredDecisions: string[];
   /** Why the work item ended where it did, or empty for a lane that is a stage. */
   ending: string;
-  route: RouteView;
 };
 
 /**

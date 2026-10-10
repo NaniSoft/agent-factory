@@ -11,17 +11,16 @@ using AgentFactory.WorkItems;
 /// What <c>GET /api/work-items/{id}</c> returns: one work item's whole record, serialised,
 /// and nothing the factory would not say about it. The work item's header, every round it
 /// has run (its outcome, failure, payload, agent note, log and the host's diff), the
-/// decisions a reviewer made about it and the decisions still offered, how it ended, and
-/// its route — the factory's judgement, shaped so the renderer re-decides nothing.
+/// decisions a reviewer made about it and the decisions still offered, and how it ended —
+/// the factory's judgement, shaped so the renderer re-decides nothing.
 /// </summary>
 /// <remarks>
 /// <para>
 /// This is the detail behind the work-item card on the board, and it is the same judgement
 /// the board itself renders: the diff's four states come from
-/// <see cref="HowToReadTheDiff"/>, the ending from <see cref="HowItEnded.Describe"/>, the
-/// offered decisions from <see cref="WorkItems.Decisions.OfferedIn"/>, and the route from
-/// <see cref="HowToReadTheRoute"/>. The endpoint that produces it holds no policy, calls no
-/// seam and moves nothing.
+/// <see cref="HowToReadTheDiff"/>, the ending from <see cref="HowItEnded.Describe"/>, and
+/// the offered decisions from <see cref="WorkItems.Decisions.OfferedIn"/>. The endpoint
+/// that produces it holds no policy, calls no seam and moves nothing.
 /// </para>
 /// <para>
 /// The property names are pinned with <see cref="JsonPropertyNameAttribute"/> rather than
@@ -35,8 +34,7 @@ public sealed record WorkItemDetailView(
     [property: JsonPropertyName("rounds")] IReadOnlyList<RoundOnTheBoardView> Rounds,
     [property: JsonPropertyName("decisions")] IReadOnlyList<DecisionMadeView> Decisions,
     [property: JsonPropertyName("offeredDecisions")] IReadOnlyList<string> OfferedDecisions,
-    [property: JsonPropertyName("ending")] string Ending,
-    [property: JsonPropertyName("route")] RouteView Route)
+    [property: JsonPropertyName("ending")] string Ending)
 {
     /// <summary>
     /// One work item's whole record, read from the store's own rows and the factory's own
@@ -56,8 +54,7 @@ public sealed record WorkItemDetailView(
             [.. rounds.Select(RoundOnTheBoardView.Of)],
             [.. decisions.Select(DecisionMadeView.Of)],
             [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
-            HowItEnded.Describe(workItem, rounds, decisions),
-            RouteView.Of(workItem));
+            HowItEnded.Describe(workItem, rounds, decisions));
     }
 }
 
@@ -76,8 +73,6 @@ public sealed record WorkItemHeaderView(
     [property: JsonPropertyName("baseBranch")] string BaseBranch,
     [property: JsonPropertyName("lane")] string Lane,
     [property: JsonPropertyName("laneLabel")] string LaneLabel,
-    [property: JsonPropertyName("kind")] string Kind,
-    [property: JsonPropertyName("kindLabel")] string KindLabel,
     [property: JsonPropertyName("roundCount")] int RoundCount,
     [property: JsonPropertyName("roundCeiling")] int RoundCeiling,
     [property: JsonPropertyName("createdUtc")] string CreatedUtc,
@@ -95,8 +90,6 @@ public sealed record WorkItemHeaderView(
         workItem.BaseBranch,
         workItem.Swimlane.ToString(),
         Swimlanes.Label(workItem.Swimlane),
-        workItem.Kind.ToString(),
-        WorkItemKinds.Label(workItem.Kind),
         workItem.RoundCount,
         FactoryConstants.RoundCeiling,
         workItem.CreatedUtc.ToString("O"),
@@ -257,22 +250,4 @@ public sealed record DecisionMadeView(
             decision.AppliedTo?.ToString(),
             decision.AppliedTo is { } lane ? Swimlanes.Label(lane) : null);
     }
-}
-
-/// <summary>
-/// What the factory decided about this issue's kind: the kind, the sentence a reviewer
-/// reads for it, and whether the card should offer acceptance. It is
-/// <see cref="HowToReadTheRoute"/> serialised, and the renderer re-decides nothing.
-/// </summary>
-public sealed record RouteView(
-    [property: JsonPropertyName("kind")] string Kind,
-    [property: JsonPropertyName("kindLabel")] string KindLabel,
-    [property: JsonPropertyName("say")] string Say,
-    [property: JsonPropertyName("offersAcceptance")] bool OffersAcceptance)
-{
-    public static RouteView Of(WorkItem workItem) => new(
-        workItem.Kind.ToString(),
-        WorkItemKinds.Label(workItem.Kind),
-        HowToReadTheRoute.Say(workItem),
-        HowToReadTheRoute.OffersAcceptance(workItem));
 }

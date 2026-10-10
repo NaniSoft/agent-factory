@@ -16,7 +16,7 @@ using AgentFactory.Projects;
 /// They are camelCase so the TypeScript view model and these records agree by name.
 /// </remarks>
 public sealed record ProjectsView(
-    [property: JsonPropertyName("projects")] IReadOnlyList<ServedProjectView> Projects,
+    [property: JsonPropertyName("projects")] IReadOnlyList<ProjectView> Projects,
     [property: JsonPropertyName("rejections")] IReadOnlyList<ProjectFileRejectionView> Rejections)
 {
     /// <summary>
@@ -25,44 +25,9 @@ public sealed record ProjectsView(
     /// reports for it; a file in <c>rejections</c> is one it could not.
     /// </summary>
     public static ProjectsView From(ProjectLoadReport report) => new(
-        [.. report.Projects.Select(project => new ServedProjectView(
-            project.Name,
-            project.RepoUrl,
-            project.WorkerImage,
-            project.LlmModel,
-            project.GitHubKeyName,
-            project.LlmKeyName,
-            project.SourceFile,
-            "served"))],
-        [.. report.Rejections.Select(rejection => new ProjectFileRejectionView(
-            rejection.FileName,
-            rejection.Reason.ToString(),
-            rejection.Message))]);
+        [.. report.Projects.Select(project => ProjectView.Of(project, "served"))],
+        [.. report.Rejections.Select(ProjectFileRejectionView.Of)]);
 }
-
-/// <summary>
-/// One Project the factory serves: the six values its file states, the file it was read
-/// from, and the load state. Credentials are the names of environment variables and are
-/// never values — the renderer shows which names a Project declares, never what they hold.
-/// </summary>
-public sealed record ServedProjectView(
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("repoUrl")] string RepoUrl,
-    [property: JsonPropertyName("workerImage")] string WorkerImage,
-    [property: JsonPropertyName("llmModel")] string LlmModel,
-    [property: JsonPropertyName("githubKeyName")] string GitHubKeyName,
-    [property: JsonPropertyName("llmKeyName")] string LlmKeyName,
-    [property: JsonPropertyName("sourceFile")] string SourceFile,
-    [property: JsonPropertyName("state")] string State);
-
-/// <summary>
-/// One file in <c>factories/</c> the loader refused, with the reason it decided and the
-/// message it wrote. The renderer draws these where the human acts; it adds no rule.
-/// </summary>
-public sealed record ProjectFileRejectionView(
-    [property: JsonPropertyName("fileName")] string FileName,
-    [property: JsonPropertyName("reason")] string Reason,
-    [property: JsonPropertyName("message")] string Message);
 
 /// <summary>The six values a write posts, exactly the shape a project file states.</summary>
 public sealed record ProjectWriteRequest(

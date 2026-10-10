@@ -27,8 +27,10 @@ import {
 
 import { DecisionForm } from '@/components/decision-form';
 import {
+  acceptWorkItem,
   fetchBoard,
   openWorkspace,
+  type AcceptanceResult,
   type BoardView,
   type CardView,
   type IntakeView,
@@ -270,7 +272,9 @@ function BoardReady({
   }));
   const visibleCards = lanes.reduce((count, lane) => count + lane.cards.length, 0);
 
-  const known = project === null || board.projects.some((served) => served.name === project);
+  // The filter's union, not only the served set: a removed project with leftover work
+  // items is known, so narrowing to it is not read as "the factory has never heard of it".
+  const known = project === null || board.filterProjects.includes(project);
 
   return (
     <>
@@ -282,7 +286,11 @@ function BoardReady({
         <p className="board__in-force" data-project-in-force={project}>
           Showing only <strong>{project}</strong>.
           {known ? null : (
-            <span> The factory has never heard of it: no project by that name is served.</span>
+            <span>
+              {' '}
+              The factory has never heard of it: no project by that name is served and none has work
+              waiting.
+            </span>
           )}
         </p>
       ) : null}
@@ -403,10 +411,11 @@ function IntakeSection({ intake }: { intake: IntakeView }) {
  * The project filter, and it is a GET form rather than a set of links.
  *
  * It is a read, not a write: submitting it changes the query string and what the
- * board draws, and nothing else. Every project the factory serves is a submit
- * button with its own name, so one click narrows the board and one click widens it
- * again, and the project in force is marked with `aria-current`. There is no link
- * out of the app, because a filter is not a destination.
+ * board draws, and nothing else. Every project the factory offers — the served set plus
+ * any that still has work items — is a submit button with its own name, so one click
+ * narrows the board and one click widens it again, and the project in force is marked
+ * with `aria-current`. There is no link out of the app, because a filter is not a
+ * destination.
  */
 function ProjectFilter({ board, project }: { board: BoardView; project: string | null }) {
   return (
@@ -422,17 +431,17 @@ function ProjectFilter({ board, project }: { board: BoardView; project: string |
       >
         All projects
       </Button>
-      {board.projects.map((served) => (
+      {board.filterProjects.map((name) => (
         <Button
-          key={served.name}
+          key={name}
           type="submit"
           name="project"
-          value={served.name}
+          value={name}
           variant="ghost"
           size="sm"
-          aria-current={project === served.name ? 'true' : undefined}
+          aria-current={project === name ? 'true' : undefined}
         >
-          {served.name}
+          {name}
         </Button>
       ))}
     </form>
@@ -483,6 +492,28 @@ function toCard(
           round {card.roundCount} of {card.roundCeiling}
         </span>
         {card.ending ? <span className="board__card-ending">{card.ending}</span> : null}
+        {/*
+          When silence would ship this card, on the card itself rather than only in the
+          strip, because a timeout a reviewer cannot see per work item is one they cannot
+          act on while it still matters. The factory sends the moment only when auto-merge
+          is on and the card is in Review, so its presence is the whole condition.
+        */}
+        {card.autoMergeAt ? (
+          <span className="board__card-auto-merge" data-auto-merge={card.autoMergeAt}>
+            auto-merges at {autoMergeLabel(card.autoMergeAt)} unless a reviewer decides first
+          </span>
+        ) : null}
+        {card.lane === 'Backlog' ? (
+          <AcceptAction
+            workItemId={card.id}
+            refusal={refusals[card.id] ?? null}
+            onResult={(result) => onDecisionResult(card.id, {
+              applied: result.applied,
+              refusal: result.refusal,
+              resultingLane: '',
+            })}
+          />
+        ) : null}
         {card.lane === 'Review' ? (
           <WorkspaceAction workItemId={card.id} workspace={card.workspace} />
         ) : null}
@@ -497,6 +528,50 @@ function toCard(
       </div>
     ),
   };
+}
+
+/**
+ * The acceptance gate, on one card in Backlog.
+ *
+ * Intake is indiscriminate and the board is where a human decides what is worth building,
+ * which is only true if nothing is built until a reviewer says so. This is that button: it
+ * posts to `POST /api/work-items/{id}/accept`, the loop accepts the work item into
+ * Frontier, and the board is read again so the card moves lane. A work item not waiting in
+ * Backlog comes back refused, and the factory's own words are rendered here rather than
+ * leaving the reviewer wondering whether the click was lost.
+ */
+function AcceptAction({
+  workItemId,
+  refusal,
+  onResult,
+}: {
+  workItemId: string;
+  refusal: string | null;
+  onResult: (result: AcceptanceResult) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const accept = useCallback(() => {
+    setBusy(true);
+    acceptWorkItem(workItemId)
+      .then((result) => onResult(result))
+      .catch((error: unknown) => {
+        onResult({
+          applied: false,
+          refusal: error instanceof Error ? error.message : 'the factory could not be reached',
+        });
+      })
+      .finally(() => setBusy(false));
+  }, [onResult, workItemId]);
+
+  return (
+    <span className="board__accept">
+      <Button type="button" size="sm" onClick={accept} disabled={busy}>
+        {busy ? 'Accepting' : 'Accept into build'}
+      </Button>
+      {refusal ? <Status tone="destructive" label={refusal} /> : null}
+    </span>
+  );
 }
 
 /**
@@ -585,6 +660,20 @@ function WorkspaceAction({
         </CtaLink>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * When a card's silence would merge it, in a reviewer's words. The factory sends the moment
+ * as ISO-8601 in UTC; this says it the way the board always has — `yyyy-MM-dd HH:mm UTC` —
+ * because "the moment this ships" is a wall-clock time and not a countdown to compute.
+ */
+function autoMergeLabel(iso: string): string {
+  const at = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return (
+    `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())} ` +
+    `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC`
   );
 }
 
