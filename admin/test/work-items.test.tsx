@@ -152,6 +152,33 @@ describe('the work-item detail page', () => {
     expect(document.querySelector('[data-note="1"]')?.textContent).toContain('Added the endpoint.');
   });
 
+  it('renders the routing verdict, its reason, and the issue it filed', async () => {
+    answerWith(detailFixture);
+
+    render(<WorkItemPage />);
+    await screen.findByText('#42 Add the board endpoint');
+
+    // The route the factory decided, in its own words: the kind, the one sentence it wrote
+    // for the verdict, the round's own reason, and the issue a reviewer can reach.
+    const route = document.querySelector('[data-route]');
+    expect(route).not.toBeNull();
+    expect(route?.getAttribute('data-route-kind')).toBe('Build');
+    expect(within(route as HTMLElement).getByText('Build')).toBeTruthy();
+    expect(
+      within(route as HTMLElement).getByText(
+        /A routing round read this and it is already a build ticket/,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(route as HTMLElement).getByText(
+        'The issue names the endpoint and the shape of its JSON, so it is ready to build.',
+      ),
+    ).toBeTruthy();
+
+    const issue = within(route as HTMLElement).getByRole('link', { name: 'issue #99' });
+    expect(issue.getAttribute('href')).toBe('https://github.com/NaniSoft/nexus/issues/99');
+  });
+
   it('renders the recorded decisions and offers the shared decision form', async () => {
     answerWith(detailFixture);
 

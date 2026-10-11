@@ -50,6 +50,35 @@ export type CardView = {
    * see per work item is one they cannot act on while it still matters.
    */
   autoMergeAt: string | null;
+  /**
+   * The kind the routing round decided this issue is: `Unrouted`, `Build`, `Grill` or
+   * `Wayfinder`. The renderer draws the kind's own words and never works out a kind from a
+   * lane, because a Backlog card is either waiting to be routed or waiting to be accepted
+   * and the two must not read alike.
+   */
+  kind: string;
+  /** The kind's words for a reader, from the factory (`needs grilling`, and so on). */
+  kindLabel: string;
+  /**
+   * The one sentence for this work item's routing kind, from `HowToReadTheRoute.Say`: what
+   * the routing round found and what happens next. It is never null — a work item nobody
+   * has looked at has a sentence of its own — so the card never leaves the reader to infer
+   * a state.
+   */
+  routeReason: string;
+  /**
+   * The issue the factory filed for this verdict (a map's tracker, or the question a Grill
+   * asked), or null when the verdict filed nothing. It is how a reviewer reaches the thing
+   * the factory is waiting on.
+   */
+  routingIssue: number | null;
+  /**
+   * Whether the card should carry the acceptance control at all, from
+   * `HowToReadTheRoute.OffersAcceptance`: a work item waiting in Backlog that is a build
+   * ticket. The app gates its control on this rather than on the lane alone, because an
+   * issue nobody has looked at is not a build ticket.
+   */
+  offersAcceptance: boolean;
 };
 
 /** One lane, as a column: its slug, its words, and the cards standing in it. */

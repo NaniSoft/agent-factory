@@ -18,7 +18,31 @@
           "ending": "",
           "decisions": [],
           "workspace": null,
-          "autoMergeAt": null
+          "autoMergeAt": null,
+          "kind": "Build",
+          "kindLabel": "Build",
+          "routeReason": "A routing round read this and it is already a build ticket. Nothing has been built yet; the button below starts it.",
+          "routingIssue": null,
+          "offersAcceptance": true
+        },
+        {
+          "id": "66666666-6666-6666-6666-666666666666",
+          "project": "zeta",
+          "issueNumber": 4,
+          "title": "Route this before it can be built",
+          "lane": "Backlog",
+          "laneLabel": "Backlog",
+          "roundCount": 0,
+          "roundCeiling": 3,
+          "ending": "",
+          "decisions": [],
+          "workspace": null,
+          "autoMergeAt": null,
+          "kind": "Unrouted",
+          "kindLabel": "Unrouted",
+          "routeReason": "Nobody has looked at this issue yet. A routing round will decide whether it is a build ticket before it can be built, and it costs a container.",
+          "routingIssue": null,
+          "offersAcceptance": false
         }
       ]
     },
@@ -40,7 +64,12 @@
           "ending": "",
           "decisions": ["approve", "request-changes", "reject"],
           "workspace": null,
-          "autoMergeAt": "2026-10-03T10:30:00+00:00"
+          "autoMergeAt": "2026-10-03T10:30:00+00:00",
+          "kind": "Build",
+          "kindLabel": "Build",
+          "routeReason": "A routing round read this and it is already a build ticket. Nothing has been built yet; the button below starts it.",
+          "routingIssue": null,
+          "offersAcceptance": false
         },
         {
           "id": "22222222-2222-2222-2222-222222222222",
@@ -59,7 +88,12 @@
             "remainingSeconds": 14390,
             "error": null
           },
-          "autoMergeAt": "2026-10-03T10:30:00+00:00"
+          "autoMergeAt": "2026-10-03T10:30:00+00:00",
+          "kind": "Build",
+          "kindLabel": "Build",
+          "routeReason": "A routing round read this and it is already a build ticket. Nothing has been built yet; the button below starts it.",
+          "routingIssue": null,
+          "offersAcceptance": false
         }
       ]
     },
@@ -79,7 +113,37 @@
           "ending": "Merged. A reviewer approved it and the change landed.",
           "decisions": [],
           "workspace": null,
-          "autoMergeAt": null
+          "autoMergeAt": null,
+          "kind": "Build",
+          "kindLabel": "Build",
+          "routeReason": "A routing round read this and it is already a build ticket. Nothing has been built yet; the button below starts it.",
+          "routingIssue": null,
+          "offersAcceptance": false
+        }
+      ]
+    },
+    {
+      "lane": "Waiting",
+      "label": "Waiting",
+      "cards": [
+        {
+          "id": "77777777-7777-7777-7777-777777777777",
+          "project": "nexus",
+          "issueNumber": 43,
+          "title": "Decide the sync strategy",
+          "lane": "Waiting",
+          "laneLabel": "Waiting",
+          "roundCount": 1,
+          "roundCeiling": 3,
+          "ending": "",
+          "decisions": [],
+          "workspace": null,
+          "autoMergeAt": null,
+          "kind": "Grill",
+          "kindLabel": "needs grilling",
+          "routeReason": "A routing round read this and it needs deciding with a person before it can be built. Nothing will be spent on a container until somebody answers.",
+          "routingIssue": 99,
+          "offersAcceptance": false
         }
       ]
     },
@@ -99,7 +163,12 @@
           "ending": "Escalated. All 3 rounds are spent, and the reviewer asked for changes, so it is parked for a human rather than built again.",
           "decisions": ["approve", "reject"],
           "workspace": null,
-          "autoMergeAt": null
+          "autoMergeAt": null,
+          "kind": "Unrouted",
+          "kindLabel": "Unrouted",
+          "routeReason": "A routing round looked at this issue and could not answer. It is parked with the reason above.",
+          "routingIssue": null,
+          "offersAcceptance": false
         }
       ]
     },

@@ -249,6 +249,42 @@ function Detail({
         </CardContent>
       </Card>
 
+      {/*
+        The routing verdict: the kind the routing round decided, the factory's one sentence
+        for it, the round's own reason, and the issue it filed where there is one. Every
+        field is the factory's judgement, so the page writes no sentence of its own about
+        what a kind means — and a work item nobody has routed says so rather than reading
+        as one that was decided (ADR-0015).
+      */}
+      <section
+        className="work-item__route"
+        data-route
+        data-route-kind={detail.route.kind}
+        aria-label="Route"
+      >
+        <div className="work-item__tags">
+          <Badge variant="outline">{detail.route.kind}</Badge>
+          {detail.route.issue !== null ? (
+            <CtaLink
+              href={`${workItem.repoUrl}/issues/${detail.route.issue}`}
+              newTab
+              variant="outline"
+              size="sm"
+            >
+              issue #{detail.route.issue}
+            </CtaLink>
+          ) : null}
+        </div>
+        <p className="work-item__route-say" data-route-say>
+          {detail.route.say}
+        </p>
+        {detail.route.reason ? (
+          <p className="work-item__route-reason" data-route-reason>
+            {detail.route.reason}
+          </p>
+        ) : null}
+      </section>
+
       <section className="work-item__rounds" aria-label="Rounds">
         <h2 className="work-item__section-title">Rounds</h2>
         {detail.rounds.length === 0 ? (

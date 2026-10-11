@@ -91,6 +91,21 @@ export type WorkItemHeaderView = {
   mergeAttempts: number;
 };
 
+/**
+ * What the routing round decided about a work item, as the detail renders it: the whole of
+ * the routing judgement. `say` is the factory's one sentence for the kind, `kind` is the
+ * verdict's own name, `reason` is the round's own reason (null for a work item nobody has
+ * routed), and `issue` is the issue the factory filed for the verdict as its number, or
+ * null when nothing was filed.
+ */
+export type RouteView = {
+  say: string;
+  offersAcceptance: boolean;
+  kind: string;
+  reason: string | null;
+  issue: number | null;
+};
+
 export type WorkItemDetailView = {
   workItem: WorkItemHeaderView;
   rounds: RoundOnTheBoardView[];
@@ -99,6 +114,8 @@ export type WorkItemDetailView = {
   offeredDecisions: string[];
   /** Why the work item ended where it did, or empty for a lane that is a stage. */
   ending: string;
+  /** What the routing round decided this work item is, and what a human is asked for. */
+  route: RouteView;
 };
 
 /**

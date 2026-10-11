@@ -52,8 +52,11 @@ const POLL_MS = 5000;
  *
  * - `ready` is muted and means nothing is being asked of the reader yet: Backlog is
  *   waiting for the accept gate, Frontier is queued behind a worker container.
- * - `active` is the cool role that is not an alarm: a round is running, or the work
- *   is in Review waiting on the reader.
+ * - `active` is the cool role that is not an alarm: a round is running, the work
+ *   is in Review waiting on the reader, or it is in Waiting on an answer a person
+ *   owes. Waiting is not an alarm, because the factory has understood the issue well
+ *   enough to know it cannot finish it unattended, and it is not a grave — answering
+ *   in the issue tracker hands the work back.
  * - `done` is the only finished state, and it is the factory's own claim that a
  *   merge landed rather than that a reviewer approved.
  * - `blocked` is the destructive tone, and it is reserved for the two lanes where
@@ -65,6 +68,7 @@ const LANE_STATE: Record<string, KanbanState> = {
   InProgress: 'active',
   Review: 'active',
   Done: 'done',
+  Waiting: 'active',
   Escalated: 'blocked',
   Rejected: 'blocked',
 };
@@ -491,6 +495,25 @@ function toCard(
         <span className="board__card-rounds">
           round {card.roundCount} of {card.roundCeiling}
         </span>
+        {/*
+          The routing verdict, so a card never lets "nobody has looked at this issue yet"
+          read as "ready to build" (ADR-0015). The kind's words and the factory's own
+          sentence for it are drawn as they arrive; the renderer works nothing out from the
+          lane, because Backlog holds both a work item waiting to be routed and one waiting
+          to be accepted. A verdict that filed an issue points at it, so a reviewer can
+          reach the thing the factory is waiting on.
+        */}
+        <div className="board__card-route" data-route={card.kind}>
+          <Badge variant="outline">{card.kindLabel}</Badge>
+          {card.routingIssue !== null ? (
+            <span className="board__card-routing-issue" data-routing-issue={card.routingIssue}>
+              issue #{card.routingIssue}
+            </span>
+          ) : null}
+          <span className="board__card-route-reason" data-route-reason>
+            {card.routeReason}
+          </span>
+        </div>
         {card.ending ? <span className="board__card-ending">{card.ending}</span> : null}
         {/*
           When silence would ship this card, on the card itself rather than only in the
@@ -503,7 +526,7 @@ function toCard(
             auto-merges at {autoMergeLabel(card.autoMergeAt)} unless a reviewer decides first
           </span>
         ) : null}
-        {card.lane === 'Backlog' ? (
+        {card.offersAcceptance ? (
           <AcceptAction
             workItemId={card.id}
             refusal={refusals[card.id] ?? null}
@@ -531,12 +554,15 @@ function toCard(
 }
 
 /**
- * The acceptance gate, on one card in Backlog.
+ * The acceptance gate, on the cards the factory says may be accepted.
  *
  * Intake is indiscriminate and the board is where a human decides what is worth building,
  * which is only true if nothing is built until a reviewer says so. This is that button: it
  * posts to `POST /api/work-items/{id}/accept`, the loop accepts the work item into
- * Frontier, and the board is read again so the card moves lane. A work item not waiting in
+ * Frontier, and the board is read again so the card moves lane. The card draws it only when
+ * the factory's own `offersAcceptance` says so — a Backlog work item a routing round
+ * decided is a build ticket — rather than on the lane alone, because an issue nobody has
+ * looked at is not a build ticket and the loop would refuse it. A work item not waiting in
  * Backlog comes back refused, and the factory's own words are rendered here rather than
  * leaving the reviewer wondering whether the click was lost.
  */

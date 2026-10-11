@@ -122,5 +122,12 @@
     }
   ],
   "offeredDecisions": ["approve", "request-changes", "reject"],
-  "ending": ""
+  "ending": "",
+  "route": {
+    "say": "A routing round read this and it is already a build ticket. Nothing has been built yet; the button below starts it.",
+    "offersAcceptance": false,
+    "kind": "Build",
+    "reason": "The issue names the endpoint and the shape of its JSON, so it is ready to build.",
+    "issue": 99
+  }
 }

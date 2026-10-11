@@ -45,6 +45,7 @@ const emptyBoard = {
     { lane: 'InProgress', label: 'In Progress', cards: [] },
     { lane: 'Review', label: 'Review', cards: [] },
     { lane: 'Done', label: 'Done', cards: [] },
+    { lane: 'Waiting', label: 'Waiting', cards: [] },
     { lane: 'Escalated', label: 'Escalated', cards: [] },
     { lane: 'Rejected', label: 'Rejected', cards: [] },
   ],
@@ -96,13 +97,24 @@ describe('the board page', () => {
 
     // The lanes are present as columns, in the factory's own order and with the
     // lane's own words. Read off the Block's own markers rather than a heading that
-    // could be reworded. The factory renders five swimlanes and then the two
-    // endings, Escalated and Rejected: seven columns, and the park/final ones last.
-    const lanes = ['Backlog', 'Frontier', 'InProgress', 'Review', 'Done', 'Escalated', 'Rejected'];
+    // could be reworded. The factory renders the six swimlanes — Waiting among them,
+    // after Done — and then the two endings, Escalated and Rejected: eight columns,
+    // and the park/final ones last.
+    const lanes = [
+      'Backlog',
+      'Frontier',
+      'InProgress',
+      'Review',
+      'Done',
+      'Waiting',
+      'Escalated',
+      'Rejected',
+    ];
     for (const lane of lanes) {
       expect(document.querySelector(`[data-column="${lane}"]`)).toBeTruthy();
     }
-    expect(document.querySelectorAll('[data-column]').length).toBe(7);
+    expect(document.querySelectorAll('[data-column]').length).toBe(8);
+    expect([...document.querySelectorAll('[data-column]')].map((column) => column.getAttribute('data-column'))).toEqual(lanes);
 
     // The count beside a column's name is the number of cards in it.
     const review = document.querySelector('[data-column="Review"]');
@@ -134,7 +146,7 @@ describe('the board page', () => {
     expect(within(card).getByText(/unless a reviewer decides first/)).toBeTruthy();
   });
 
-  it('offers the acceptance gate on a Backlog card and posts it', async () => {
+  it('offers the acceptance gate where the factory says a card may be accepted, and posts it', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('/accept')) {
         return { ok: true, status: 200, json: async () => ({ applied: true, refusal: null }) };
@@ -146,8 +158,8 @@ describe('the board page', () => {
     render(<BoardPage />);
     await screen.findByText('Add a fresh intake card');
 
-    // The gate is on the Backlog card and nowhere else, gated the way the old board gated
-    // it: a work item already in the build is never offered acceptance.
+    // The gate is on a Backlog card the factory judged a build ticket, and the click posts
+    // to the loop's own accept endpoint.
     const backlog = screen
       .getByText('Add a fresh intake card')
       .closest('[data-slot="kanban-01-card"]') as HTMLElement;
@@ -158,10 +170,76 @@ describe('the board page', () => {
       { method: 'POST' },
     );
 
+    // Acceptance is gated by the factory's `offersAcceptance`, not by the lane alone: an
+    // Unrouted Backlog item is in Backlog and is nevertheless offered no build button, and
+    // a routed-Build item is. A card already in the build is offered none either.
+    const unrouted = screen
+      .getByText('Route this before it can be built')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    expect(within(unrouted).queryByRole('button', { name: 'Accept into build' })).toBeNull();
+
     const review = screen
       .getByText('Add the board endpoint')
       .closest('[data-slot="kanban-01-card"]') as HTMLElement;
     expect(within(review).queryByRole('button', { name: 'Accept into build' })).toBeNull();
+  });
+
+  it('renders a card in the Waiting lane, in the factory order, offering no decisions', async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+
+    // Waiting is a column of its own, between Done and the two endings, and its cards are
+    // drawn there.
+    await screen.findByText('Decide the sync strategy');
+    const waiting = document.querySelector('[data-column="Waiting"]');
+    expect(waiting).not.toBeNull();
+    expect(within(waiting as HTMLElement).getByText('Decide the sync strategy')).toBeTruthy();
+
+    const order = [...document.querySelectorAll('[data-column]')].map((column) =>
+      column.getAttribute('data-column'),
+    );
+    expect(order.indexOf('Waiting')).toBe(order.indexOf('Done') + 1);
+    expect(order.indexOf('Waiting')).toBe(order.indexOf('Escalated') - 1);
+
+    // Waiting is not a lane a reviewer can decide about, so its card carries no decision
+    // buttons and no acceptance gate, however it got there.
+    const card = within(waiting as HTMLElement)
+      .getByText('Decide the sync strategy')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    expect(within(card).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: 'Reject' })).toBeNull();
+    expect(within(card).queryByRole('button', { name: 'Accept into build' })).toBeNull();
+  });
+
+  it('shows a card its route: the kind and the factory\'s own reason', async () => {
+    answerWith(boardFixture);
+
+    render(<BoardPage />);
+    await screen.findByText('Decide the sync strategy');
+
+    // The routing verdict is on the card: the kind's words and the one sentence the factory
+    // wrote for it, so "nobody has looked at this yet" cannot read as "ready to build".
+    const card = screen
+      .getByText('Decide the sync strategy')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    const route = card.querySelector('[data-route]');
+    expect(route).not.toBeNull();
+    expect(route?.getAttribute('data-route')).toBe('Grill');
+    expect(within(card).getByText('needs grilling')).toBeTruthy();
+    expect(within(card).getByText(/it needs deciding with a person before it can be built/)).toBeTruthy();
+
+    // A verdict that filed an issue points at it, so a reviewer can reach the thing the
+    // factory is waiting on.
+    expect(card.querySelector('[data-routing-issue="99"]')).not.toBeNull();
+
+    // An unrouted card says plainly that nobody has looked at it yet.
+    const unrouted = screen
+      .getByText('Route this before it can be built')
+      .closest('[data-slot="kanban-01-card"]') as HTMLElement;
+    expect(unrouted.querySelector('[data-route]')?.getAttribute('data-route')).toBe('Unrouted');
+    expect(within(unrouted).getByText('Unrouted')).toBeTruthy();
+    expect(within(unrouted).getByText(/Nobody has looked at this issue yet/)).toBeTruthy();
   });
 
   it("links each card to its work item's own page", async () => {
