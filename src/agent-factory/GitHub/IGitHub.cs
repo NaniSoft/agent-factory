@@ -41,7 +41,91 @@ public interface IGitHub
     /// The issue the change answers, which is what names the pull request it ships as.
     /// </param>
     Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates one issue, from the host, under the project's own credential. Used for the
+    /// questions and the maps a routing round proposed and the host has decided to publish
+    /// (ADR-0013).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is a write the project did not ask for in the sense of a pull request: it puts
+    /// something in its issue tracker. It is here rather than inside the round because the
+    /// round has no credential that can write anything (ADR-0006), and the agent's own words
+    /// in a title reach GitHub as an ordinary string, never as a shell.
+    /// </para>
+    /// <para>
+    /// It carries no closing keyword handling of any kind, for the same reason
+    /// <c>MergeAsync</c>'s pull request body links rather than closes: this factory can merge
+    /// or publish without a human having read every word, and a body that closed an issue
+    /// would make that a second claim the write had not earned.
+    /// </para>
+    /// </remarks>
+    /// <param name="request">What to create, and under which parent.</param>
+    /// <exception cref="Failures.FactoryFailure">GitHub refused, and the refusal is classified.</exception>
+    Task<CreatedIssue> CreateIssueAsync(NewIssue request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that <paramref name="childNumber"/> is a sub-issue of
+    /// <paramref name="parentNumber"/>, so GitHub's own UI shows the tree the factory built
+    /// rather than the factory holding the only copy of it.
+    /// </summary>
+    /// <remarks>
+    /// The parent is looked up first, and a refusal naming the issue it could not find is
+    /// better than a 404 the caller has to interpret. Native linking is used rather than a
+    /// marker in the body because a marker is invisible in the tracker's own view of what
+    /// blocks what — which is the whole reason to use the native relationship.
+    /// </remarks>
+    /// <exception cref="Failures.FactoryFailure">GitHub refused, and the refusal is classified.</exception>
+    Task MakeASubIssueAsync(string repoUrl, int parentNumber, int childNumber, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that <paramref name="blockedNumber"/> cannot start until
+    /// <paramref name="blockerNumber"/> is closed. GitHub's native blocking relationship, for
+    /// the same reason as the parent link: the frontier should render where a human is
+    /// already looking, not only here.
+    /// </summary>
+    /// <remarks>
+    /// Called once per edge rather than in a batch, because each edge is its own request that
+    /// can be refused on its own and a half-wired map is a map whose frontier a human cannot
+    /// read. An edge that fails is logged by the caller and the map still stands — the
+    /// blocking edges are a convenience for a reader, not the mechanism that stops anything
+    /// being worked.
+    /// </remarks>
+    /// <exception cref="Failures.FactoryFailure">GitHub refused, and the refusal is classified.</exception>
+    Task MakeBlockedByAsync(string repoUrl, int blockedNumber, int blockerNumber, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Closes an issue the factory created and no longer needs — the parent a routing round
+    /// turned into a map of children, which has been superseded by them and would otherwise
+    /// sit in the factory's own intake queue for ever.
+    /// </summary>
+    /// <remarks>
+    /// Closing is done with a comment rather than by closing silently, so the issue says why
+    /// it closed in its own history rather than leaving a reader to infer it from the
+    /// children. It is a close and not a delete: the map is the index that tells a human what
+    /// the factory did with their issue, and deleting it would destroy the only account.
+    /// </remarks>
+    /// <exception cref="Failures.FactoryFailure">GitHub refused, and the refusal is classified.</exception>
+    Task CloseIssueAsync(string repoUrl, int issueNumber, string because, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// An issue the factory created. The number and URL, which is all anything needs of it: the
+/// number is the handle every later call takes and the URL is what a board card links to.
+/// </summary>
+/// <param name="Number">The issue's number in its repository.</param>
+/// <param name="Url">Where a human reads it.</param>
+public sealed record CreatedIssue(int Number, string Url);
+
+/// <summary>
+/// One issue to create, and the parent it belongs under.
+/// </summary>
+/// <param name="RepoUrl">The repository both the parent and the new issue live in.</param>
+/// <param name="ParentNumber">The issue this is a child of, or null for a root.</param>
+/// <param name="Title">The issue's title. The round's words, passed through as data.</param>
+/// <param name="Body">The issue's body, in markdown.</param>
+public sealed record NewIssue(string RepoUrl, int? ParentNumber, string Title, string Body);
 
 /// <summary>
 /// An open issue. The factory's input, and it stays GitHub's object. The labels and

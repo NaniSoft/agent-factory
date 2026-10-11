@@ -36,6 +36,13 @@ using AgentFactory.Failures;
 /// its own tree — so the two are separate facts, and the attempt is what makes a retried
 /// round's landing directory its own rather than the one the first attempt used.
 /// </param>
+/// <param name="Purpose">
+/// Whether this round fetches the repository and builds something, or reads the issue and
+/// decides what kind of work it is (ADR-0013). It is carried rather than worked out from the
+/// work item's kind because the round runner is the component that has to act on it — by
+/// choosing a script and by deciding whether to put a repository URL in the container's
+/// environment at all — and neither of those is the store's business.
+/// </param>
 /// <remarks>
 /// A round carries its own number rather than being asked for one, for the same reason it
 /// carries the work item's id: the round runner has to name a directory the round's files
@@ -55,7 +62,8 @@ public sealed record Round(
     string BaseBranch,
     string Feedback,
     int RoundNumber,
-    int Attempt);
+    int Attempt,
+    RoundPurpose Purpose = RoundPurpose.Build);
 
 /// <summary>How a round ended. What the factory does about it is policy, not observation.</summary>
 /// <remarks>
@@ -143,7 +151,8 @@ public sealed record RoundResult(
     string? AgentNote,
     FailureClass? Failure,
     string? Log,
-    AgentFactory.Results.HostDiff? Diff = null)
+    AgentFactory.Results.HostDiff? Diff = null,
+    Routing.RoutingOutcome? Routing = null)
 {
     /// <summary>
     /// A round whose own last command returned zero, whatever the commands inside it
@@ -154,8 +163,9 @@ public sealed record RoundResult(
         string? payload,
         string? agentNote,
         string? log = null,
-        AgentFactory.Results.HostDiff? diff = null) =>
-        new(RoundOutcome.Produced, payload, agentNote, Failure: null, log, diff);
+        AgentFactory.Results.HostDiff? diff = null,
+        Routing.RoutingOutcome? routing = null) =>
+        new(RoundOutcome.Produced, payload, agentNote, Failure: null, log, diff, routing);
 
     /// <summary>
     /// A round that did not run to completion, and what the round runner made of why.
@@ -180,8 +190,9 @@ public sealed record RoundResult(
         FailureClass failure,
         string? log = null,
         AgentFactory.Results.HostDiff? diff = null,
-        string? payload = null) =>
-        new(RoundOutcome.Failed, payload, null, failure, log, diff);
+        string? payload = null,
+        Routing.RoutingOutcome? routing = null) =>
+        new(RoundOutcome.Failed, payload, null, failure, log, diff, routing);
 
     /// <summary>
     /// A round that ran past the round timeout. Carries no class: the spec's own state

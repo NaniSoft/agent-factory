@@ -320,11 +320,36 @@ var mergesAt = Model.AutoMergeAt(workItem);
             data-rounds="@rounds.Count"
             data-decisions="@decisions.Count"
             data-merge-attempts="@workItem.MergeAttempts"
+            data-kind="@workItem.Kind"
+            data-route-reason="@workItem.RouteReason"
+            data-routing-issue="@(workItem.RoutingIssue?.ToString() ?? string.Empty)"
             data-cause="@cause"@Html.Raw(autoMergeAttribute)>
             <span class="project">@workItem.Project</span>
             <span class="issue">#@workItem.IssueNumber @workItem.IssueTitle</span>
             <span class="base-branch">base @workItem.BaseBranch</span>
             <span class="round-count">round @workItem.RoundCount of @FactoryConstants.RoundCeiling</span>
+
+            @* What the routing round said this issue is, and where a human is being asked to
+                go. It is above the cause and above the rounds because it is upstream of all
+                of them: a reviewer looking at a card wants to know whether this is even the
+                right kind of work before they look at anything else on it (ADR-0013). *@
+            <p class="routing" data-routing="@workItem.Id" data-kind="@workItem.Kind">
+                <span class="kind">@HowToReadTheRoute.Say(workItem)</span>
+                @if (workItem.RouteReason is { Length: > 0 } reason)
+                {
+                    <span class="route-reason">@reason</span>
+                }
+                @if (workItem.RoutingIssue is { } askedOn)
+                {
+                    @* Said as a number and not as a link on purpose: the board is served on
+                        loopback and the tracker is not necessarily reachable from the reviewer's
+                        browser, and a dead link reads as a broken factory. The number is what
+                        they take to the tracker. *@
+                    <span class="routing-issue" data-answered-on="@askedOn">
+                        waiting on an answer in #@askedOn
+                    </span>
+                }
+            </p>
             @if (cause.Length > 0)
             {
                 <span class="cause">@cause</span>
@@ -548,11 +573,18 @@ var mergesAt = Model.AutoMergeAt(workItem);
                     }
                 </ol>
             }
-            @if (workItem.Swimlane == Swimlane.Backlog)
+            @if (HowToReadTheRoute.OffersAcceptance(workItem))
             {
                 @* The gate (#40): intake puts every issue here, and nothing is built until
                     a reviewer accepts it. This is the design's "the board is where a human
-                    decides what is worth building", made into a button. *@
+                    decides what is worth building", made into a button.
+
+                    Offered only for a work item a routing round said was a build ticket
+                    (ADR-0013). Accepting an issue nobody has looked at would spend a
+                    container building something the factory has not yet decided is buildable,
+                    which is the one thing routing exists to prevent — so the button is not
+                    rendered rather than rendered and refused. The loop refuses it as well, for
+                    a caller that posts the form by hand. *@
                 <form class="build" data-build="@workItem.Id" method="post"
                       action="/?handler=Build@(Model.Project is { Length: > 0 } filter ? $"&project={Uri.EscapeDataString(filter)}" : "")">
                     @Html.AntiForgeryToken()

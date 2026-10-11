@@ -374,8 +374,23 @@ public class IntakeTests
         // One seam covering both halves of the boundary: intake reads through it and the
         // merger will write through it. Two seams would be two things that can disagree
         // about what a repository is, which is what one seam is for.
+        //
+        // The last four arrived with the routing layer (ADR-0013). They are on the same seam
+        // rather than a second one for the same reason the merger's four were: a factory
+        // that read issues through one interface and wrote them through another would have
+        // two things that can disagree about what a repository is, and the disagreement
+        // would be about the one thing both halves have to be right about.
         Assert.Equal(
-            ["GetDefaultBranchAsync", "ListOpenIssuesAsync", "OpenPullRequestAsync", "MergeAsync"],
+            [
+                "GetDefaultBranchAsync",
+                "ListOpenIssuesAsync",
+                "OpenPullRequestAsync",
+                "MergeAsync",
+                "CreateIssueAsync",
+                "MakeASubIssueAsync",
+                "MakeBlockedByAsync",
+                "CloseIssueAsync",
+            ],
             typeof(IGitHub).GetMethods().Select(method => method.Name));
     }
 

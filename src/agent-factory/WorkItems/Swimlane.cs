@@ -21,6 +21,27 @@ public enum Swimlane
     /// </summary>
     Done,
 
+    /// <summary>
+    /// Waiting on a person rather than on a container: a work item the factory has
+    /// understood well enough to know it cannot finish unattended (ADR-0013).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is a lane of its own rather than a variety of Escalated, and the difference is
+    /// what the board may offer. Escalated is a parked <em>change</em>, so a human finishes
+    /// it by merging it or declining it and those two decisions are real. A work item here
+    /// has no change to judge at all — a map and a question set are not diffs — so offering
+    /// it a diff-shaped decision would be offering to approve nothing.
+    /// </para>
+    /// <para>
+    /// It is deliberately not terminal either. A human answers in the issue tracker and the
+    /// factory picks the work back up from there, so this is a pause with an exit rather than
+    /// a grave, and the difference from <see cref="Escalated"/> is exactly that: Escalated is
+    /// finished by a human here and nowhere else.
+    /// </para>
+    /// </remarks>
+    Waiting,
+
     Escalated,
     Rejected,
 }
@@ -35,6 +56,7 @@ public static class Swimlanes
         Swimlane.InProgress,
         Swimlane.Review,
         Swimlane.Done,
+        Swimlane.Waiting,
     ];
 
     /// <summary>Terminal and non-terminal, both rendered. Escalated is parked, not final.</summary>
@@ -54,6 +76,14 @@ public static class Swimlanes
     /// that refused a decision about anything but Review would make that impossible
     /// (ADR-0008). Rejected is deliberately absent and cannot be added, which is what
     /// makes a decline final without a later caller having to remember.
+    ///
+    /// Waiting is absent for a different reason, and it is load-bearing. Escalated holds a
+    /// parked <em>change</em>, so a human finishes it by merging or declining and both
+    /// decisions are about something real. A work item in Waiting has no change to judge at
+    /// all — a map and a question set are not diffs — so the two decisions above would both
+    /// be decisions about nothing. It is answered in the issue tracker instead
+    /// (ADR-0013), and the store refusing a decision about it is what keeps the board from
+    /// ever rendering one.
     /// </remarks>
     public static readonly IReadOnlyList<Swimlane> Decidable =
     [

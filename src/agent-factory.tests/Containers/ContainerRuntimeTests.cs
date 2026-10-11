@@ -42,16 +42,46 @@ public class ContainerRuntimeTests
         Assert.Contains("AGENT_FACTORY_BASE_REF=main", create);
 
         // The whole of ADR-0010's protocol, in the order it happens: create it, start it,
-        // read the log it is writing, lift the one file out, lift the tree out, and take
-        // the container away.
+        // read the log it is writing, lift the result out, lift the tree out, lift the
+        // routing verdict out, and take the container away.
+        //
+        // The verdict is the third file and not a third mechanism: a routing round decides
+        // what kind of work an issue is by writing `/out/routing.json`, and it leaves the
+        // same way everything else does — over `docker cp`, on the same boundary, in the
+        // same place in this method (ADR-0013).
         Assert.Equal(
-            ["create", "start", "logs", "cp", "cp", "rm"],
+            ["create", "start", "logs", "cp", "cp", "cp", "rm"],
             docker.Argvs.Select(argv => argv[0]));
 
         Assert.Equal(["start", name], docker.TheOnly("start"));
         Assert.Equal(["logs", "-f", name], docker.TheOnly("logs"));
-        Assert.Equal(["rm", "-f", name], docker.Argv(5));
+        Assert.Equal(["rm", "-f", name], docker.Argv(6));
         Assert.NotNull(run.ResultFile);
+    }
+
+    /// <summary>
+    /// A routing round is given no repository URL, and that absence is the whole of how it
+    /// avoids cloning: the image's entrypoint fetches the tree only when it is told where to
+    /// fetch it from. Asserted here rather than left to the entrypoint, because the cost of
+    /// being wrong is a container spent cloning a repository it was told not to read, and
+    /// nothing in <c>worker/</c> is edited to prevent it (ADR-0013).
+    /// </summary>
+    [Fact]
+    public async Task A_routing_round_is_never_told_which_repository_to_fetch()
+    {
+        using var landing = new Landing();
+        var docker = new FakeDockerCli();
+        var runtime = new ContainerRuntime(docker, Microsoft.Extensions.Logging.Abstractions.NullLogger<ContainerRuntime>.Instance);
+
+        await runtime.RunAsync(ARequest(routing: true), landing.Path, null, CancellationToken.None);
+
+        var create = docker.TheOnly("create");
+        Assert.DoesNotContain(create, argument => argument.StartsWith("AGENT_FACTORY_REPO_URL=", StringComparison.Ordinal));
+
+        // Everything else is unchanged, so a routing round is the same round with one
+        // environment entry missing rather than a different container shape.
+        Assert.Contains("AGENT_FACTORY_BASE_REF=main", create);
+        Assert.Contains("AGENT_FACTORY_MODEL=anthropic/claude-sonnet-4-5", create);
     }
 
     [Fact]
@@ -167,7 +197,13 @@ public class ContainerRuntimeTests
         var run = await runtime.RunAsync(ARequest(), landing.Path, null, CancellationToken.None);
 
         Assert.Null(run.ResultFile);
-        Assert.Equal(["rm", "-f", $"agent-factory-round-{WorkItem:N}"], docker.Argv(5));
+
+        // The `rm` has moved down the list by one, and that is the third file out rather
+        // than a third mechanism: a routing round's verdict is lifted the same way the result
+        // file and the tree are, on the same boundary, in the same place in the method
+        // (ADR-0010, ADR-0013). A round that wrote no result has still had three chances to
+        // be lifted from, and the container still goes.
+        Assert.Equal(["rm", "-f", $"agent-factory-round-{WorkItem:N}"], docker.Argv(6));
     }
 
     [Fact]
@@ -389,15 +425,24 @@ public class ContainerRuntimeTests
             File.ReadAllText(Path.Combine(landing.Path, "shared", "result.json")));
     }
 
-    private static WorkerContainerRequest ARequest() => new(
+    private static WorkerContainerRequest ARequest(bool routing = false) => new(
         $"agent-factory-round-{WorkItem:N}",
         "ghcr.io/nanisoft/agent-factory-worker:1",
         ["shell", "-c", "run git status"],
-        new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["AGENT_FACTORY_REPO_URL"] = "https://github.com/NaniSoft/nexus",
-            ["AGENT_FACTORY_BASE_REF"] = "main",
-        });
+        routing
+            // What the round runner builds for a routing round: the same environment with the
+            // repository URL left out, which is the only difference between fetching
+            // something and not (ADR-0013).
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["AGENT_FACTORY_BASE_REF"] = "main",
+                ["AGENT_FACTORY_MODEL"] = "anthropic/claude-sonnet-4-5",
+            }
+            : new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["AGENT_FACTORY_REPO_URL"] = "https://github.com/NaniSoft/nexus",
+                ["AGENT_FACTORY_BASE_REF"] = "main",
+            });
 
     private static DockerInvocation Say(FakeDockerCli.DockerCall call, params string[] lines)
     {

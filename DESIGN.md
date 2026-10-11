@@ -88,6 +88,48 @@ status. Work items are persisted in SQLite, the factory's store of record, so th
 board and the orchestrator read the same record rather than each keeping its own
 state (ADR-0009).
 
+Acceptance from Backlog into Frontier is a human act: a reviewer presses a button
+on the card, and the loop applies it. Nothing is built until they do.
+
+## Routing: what kind of work is this
+
+A work item does not go from Backlog straight into a build. Before it can be
+accepted it costs one **routing round**: a worker container that reads the issue's
+title and body and returns one of three verdicts (ADR-0013).
+
+| Verdict | Means | Then |
+| --- | --- | --- |
+| `Build` | the issue is already a build ticket | stays in Backlog, waiting for a reviewer's acceptance |
+| `Grill` | buildable, but branches of the design are undecided | a human is asked, in the issue tracker |
+| `Wayfinder` | the way to the destination is not visible | charted as a map of decision tickets |
+
+The routing round does **not** fetch the repository. It is told no repository URL
+and the image's entrypoint fetches the tree only when it is told where to fetch it
+from, so the saving is the whole of why a routing round is cheaper than a build
+round — and nothing in the worker image is edited to achieve it.
+
+What the round writes is a proposal, and the host decides what becomes real. The
+round writes `routing.json` outside the working tree; the host reads it after the
+container is gone, and files the questions or the map as real issues, linked to the
+maintainer's issue with GitHub's own sub-issue and blocking relationships. **The
+questions are filed before the verdict is recorded**, because a work item waiting on
+a question that was never asked anywhere is a card that says the factory needs
+something and gives nobody anywhere to give it.
+
+A routing round is not charged to the round ceiling: it is a container, and it is
+inside the same budget as everything else, but reading an issue is not an attempt
+to build anything. Build rounds are started ahead of routing rounds, so a reviewer's
+acceptance is never made to wait behind the factory's own guess about an issue.
+
+A verdict the factory cannot read — malformed, truncated, a shape this build does
+not know — is **parked with the reason on the card**, never guessed and never
+defaulted to `Build`. Readiness is a column the factory writes, derived from the
+issue; the factory still reads no labels (ADR-0007).
+
+`Waiting` is a swimlane of its own for work items parked on a person rather than on
+a container: a map and a question set are not diffs, so the three review decisions
+are not offered on one.
+
 ## The worker container
 
 Every round gets a fresh, isolated worker container. One exists for exactly one

@@ -54,7 +54,14 @@ public class TraceabilityTests
         // backoff, and comes back with a result. Both are scripted before the first tick,
         // because a tick is what starts the round and the fake agent is the one thing in
         // this factory that has to be told what a round will be before it is asked for.
+        //
+        // **The verdict is scripted first, for a reason worth stating (ADR-0013).** The first
+        // round the machine asks for is now the routing round that reads the issue, so the
+        // script without it would spend the transient failure on deciding what kind of work
+        // this is and then park the work item with nothing built — and this file is about a
+        // work item's *story*, which begins once the factory knows what it is looking at.
         host.Agent
+            .RoutingAs(WorkItemKind.Build, "the issue names one change and one test")
             .FailingTransiently()
             .Producing("files changed, commands run", "the first round's note");
 
@@ -180,6 +187,11 @@ public class TraceabilityTests
         host.GitHub.WithRepository(
             Repo, "main", new OpenIssue(7, "three rounds", "the brief", [], []));
 
+        // The routing round's verdict, then the ceiling's worth of build rounds. Ordered as
+        // the factory will ask for them, because the first thing the machine asks for is the
+        // round that decides what kind of work this is (ADR-0013).
+        host.Agent.RoutingAs(WorkItemKind.Build, "the issue names one change and one test");
+
         for (var round = 1; round <= FactoryConstants.RoundCeiling; round++)
         {
             host.Agent.Producing($"round {round}");
@@ -187,6 +199,13 @@ public class TraceabilityTests
 
         await host.Tick();
         var work = Assert.Single(host.Store.List());
+
+        // The tick above spent the routing round that reads the issue, and routed it as a
+        // build ticket. Recorded here rather than scripted, because this test is about the
+        // *build* rounds' records and routing's own record is a different kind of story —
+        // it says what the work is, not what was done to it (ADR-0013).
+        Assert.Equal(WorkItemKind.Build, work.Kind);
+
         await host.PromoteAsync(work.Id);
 
         for (var round = 1; round <= FactoryConstants.RoundCeiling; round++)
@@ -215,8 +234,16 @@ public class TraceabilityTests
         Assert.Equal(Swimlane.Escalated, host.Store.Get(work.Id)!.Swimlane);
 
         // And the counters agree with the records — which is the property that makes them
-        // measurements rather than decoration. Three rounds, three of them produced.
-        Assert.Equal(3, measurements.Count(FactoryMetrics.RoundsName, outcome: nameof(RoundOutcome.Produced)));
+        // measurements rather than decoration.
+        //
+        // **Four rounds came back and three were spent, and the difference is the routing
+        // layer's whole cost model (ADR-0013).** The routing round was a container: it ran,
+        // it wrote a file, it came back `Produced`, and it is counted as a round that came
+        // back. It is not charged against the round ceiling, so the per-work-item counter
+        // reads 1, 2, 3 and the fourth round is still unreachable. A single counter that
+        // conflated the two would say either "the factory spent a round to look at an issue"
+        // or "the factory ran a container that does not exist", and both would be false.
+        Assert.Equal(4, measurements.Count(FactoryMetrics.RoundsName, outcome: nameof(RoundOutcome.Produced)));
         Assert.Equal(
             [1L, 2L, 3L],
             measurements.Values(FactoryMetrics.RoundsPerWorkItemName, FactoryMetrics.ProjectTag, Nexus).Order().ToList());

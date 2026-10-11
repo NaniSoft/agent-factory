@@ -20,9 +20,22 @@ forbids. `ready-for-agent` is the operator's own pre-filter, applied before the 
 reaches the board. Triage happens in Backlog, on the board, which is the only surface the
 design trusts for human input.
 
-Acceptance from Backlog into Frontier is **automatic** when a container slot frees. The
+Acceptance from Backlog into Frontier was **automatic** when a container slot frees. The
 Board is the one place humans act, and it acts through the three review decisions, not by
 gating intake.
+
+> **This paragraph is superseded (#40).** Acceptance is a reviewer's button on the board,
+> `PromoteAsync`, applied by the loop. It was found to be false of the code: pointing the
+> factory at a repository with 810 open issues built every one of them, because the board
+> was not in the path of anything. The rule above — no label filter on intake — was kept, and
+> only the sentence about what happens afterwards was corrected.
+
+> **And routing is not a label gate either (ADR-0013).** A work item now costs one container
+> before it can be built, because a routing round looks at the issue and decides what kind of
+> work it is. That is a column the factory writes, derived from the issue, and the factory
+> still reads no labels: `ready-for-agent` remains the operator's own pre-filter and the
+> reviewer's button remains the gate. A per-project label vocabulary deciding what the factory
+> builds is the thing this ADR forbids, and routing from the issue's own words is not it.
 
 The order in which `factories/` projects take their turn is derived from the directory —
 sorted by file name — so it is deterministic without anyone maintaining an ordering. The
