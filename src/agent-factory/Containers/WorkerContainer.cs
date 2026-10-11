@@ -48,7 +48,15 @@ public sealed record WorkerContainerRequest(
 /// The end of what the round said, bounded. The whole log went to the caller's progress
 /// channel as the round ran; this is the part worth having in a log line afterwards.
 /// </param>
+/// <param name="RoutingFile">
+/// The routing round's verdict, lifted out the same way and to the same host directory, so
+/// the host can read a work item's kind after the container that decided it is gone
+/// (ADR-0015). Null for every round that wrote no verdict — which is every build round, and
+/// also a routing round that said nothing, and the two are different facts a reader is
+/// entitled to tell apart.
+/// </param>
 public sealed record WorkerContainerRun(
     string? ResultFile,
     string? RoundTree,
-    string LogTail);
+    string LogTail,
+    string? RoutingFile = null);

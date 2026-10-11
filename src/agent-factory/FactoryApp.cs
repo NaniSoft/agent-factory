@@ -81,6 +81,15 @@ public static class FactoryApp
         // LLM key (which goes in) and the GitHub key (which does not) is one method call
         // away from being checkable rather than merely intended (ADR-0006).
         builder.Services.AddSingleton<RoundResultDeriver>();
+
+        // The reader of a routing round's verdict, and the publisher of what it proposed.
+        // One instance of each, and both stateless: the reader turns a file into a verdict
+        // and the publisher turns a verdict into issues, and neither of them has anything to
+        // keep between calls. They are singletons because "one reader of that file's shape"
+        // is a property of the process rather than of any one call, and a per-call reader
+        // would be a second reader the moment somebody injected one by hand (ADR-0015).
+        builder.Services.AddSingleton<Routing.RoutingReader>();
+        builder.Services.AddSingleton<Routing.IssuePublisher>();
         // The reader is the composite: environment first, the secrets directory second (#32) —
         // the directory the board's credentials form writes into, read at use time so a
         // rotation needs no restart.

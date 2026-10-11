@@ -102,6 +102,33 @@ public sealed class WorkerRoundRunner : INOpenCode
         """.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     /// <summary>
+    /// The same script with one word changed, for a routing round. It exists as its own
+    /// constant rather than as a substitution because the recorded label is what a reviewer
+    /// reads in the round's own account of itself: a round labelled "building and testing the
+    /// change" that built nothing is a card describing a round that did not happen.
+    ///
+    /// <para>
+    /// **Both scripts end with the <c>opencode run</c> and nothing after it**, so the claim
+    /// that <c>roundExitCode</c> is the agent's exit code holds for a routing round exactly
+    /// as it holds for a build round. That is the reason this is a near-copy and not a
+    /// rewrite: rewriting it would be how a routing round silently stopped being
+    /// retryable.
+    /// </para>
+    /// </summary>
+    public static readonly string RouteScript = """
+        set -uo pipefail
+        out="${AGENT_FACTORY_OUT:-/out}"
+        cd "$AGENT_FACTORY_WORK"
+        printf '%s' "$AGENT_FACTORY_BRIEF" > "$out/brief.md"
+        run -o 'the brief this round was given' cat "$out/brief.md"
+        run -o 'the agent, deciding what kind of work this issue is' \
+            opencode run --standalone --auto -m "$AGENT_FACTORY_MODEL" --file "$out/brief.md" -- "$AGENT_FACTORY_AGENT_PROMPT"
+        """.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    /// <summary>The script a round of this purpose runs, and why the choice is here and not at the call site.</summary>
+    public static string ScriptFor(RoundPurpose purpose) => purpose == RoundPurpose.Route ? RouteScript : RoundScript;
+
+    /// <summary>
     /// The one message the factory sends the agent. It is fixed too, and it points at the
     /// brief rather than carrying it: the work item's own words are in the file, and a
     /// prompt that quoted them would be a prompt a shell could have rewritten.
@@ -111,10 +138,27 @@ public sealed class WorkerRoundRunner : INOpenCode
             + "the reviewer wrote them. Do that work in this repository, then write a short note to "
             + "/out/note.md saying what you changed and why.";
 
+    /// <summary>
+    /// The message a routing round is given. It names one output file and does not mention a
+    /// repository, a test or a commit, because the round is given none of those — a prompt
+    /// that mentioned them would be asking for work this round cannot do, and the most
+    /// expensive thing an agent can be told is to go and do it anyway.
+    /// </summary>
+    public const string RoutingAgentPrompt =
+        "Read /out/brief.md. It is one issue from this repository, in the maintainer's own words, "
+            + "and it is all you are given. Decide which of the three verdicts the brief names fits it, "
+            + "then write that decision to /out/routing.json in exactly the shape the brief gives. "
+            + "Write nothing else and change nothing; there is no repository here.";
+
+    /// <summary>The prompt a round of this purpose is driven with.</summary>
+    public static string PromptFor(RoundPurpose purpose) =>
+        purpose == RoundPurpose.Route ? RoutingAgentPrompt : AgentPrompt;
+
     private readonly ContainerRuntime _containers;
     private readonly ProjectLoadReport _projects;
     private readonly FactoryOptions _options;
     private readonly RoundResultDeriver _deriver;
+    private readonly Routing.RoutingReader _routing;
     private readonly ICredentialReader _credentials;
     private readonly ILogger<WorkerRoundRunner> _logger;
 
@@ -125,11 +169,30 @@ public sealed class WorkerRoundRunner : INOpenCode
         RoundResultDeriver deriver,
         ICredentialReader credentials,
         ILogger<WorkerRoundRunner> logger)
+        : this(containers, projects, options, deriver, new Routing.RoutingReader(), credentials, logger)
+    {
+    }
+
+    /// <summary>
+    /// The composition the host builds. It takes the reader rather than making one so that
+    /// this component is testable against a real file on disk without a container, which is
+    /// how the routing layer is proved hermetically — and taking it as a dependency is also
+    /// what keeps "one reader of that file's shape" true by construction rather than by care.
+    /// </summary>
+    public WorkerRoundRunner(
+        ContainerRuntime containers,
+        ProjectLoadReport projects,
+        FactoryOptions options,
+        RoundResultDeriver deriver,
+        Routing.RoutingReader routing,
+        ICredentialReader credentials,
+        ILogger<WorkerRoundRunner> logger)
     {
         _containers = containers ?? throw new ArgumentNullException(nameof(containers));
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _deriver = deriver ?? throw new ArgumentNullException(nameof(deriver));
+        _routing = routing ?? throw new ArgumentNullException(nameof(routing));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -193,7 +256,7 @@ public sealed class WorkerRoundRunner : INOpenCode
         var request = new WorkerContainerRequest(
             name,
             project.WorkerImage,
-            ["shell", "-c", RoundScript],
+            ["shell", "-c", ScriptFor(round.Purpose)],
             EnvironmentFor(round, project));
 
         WorkerContainerRun run;
@@ -251,6 +314,18 @@ public sealed class WorkerRoundRunner : INOpenCode
         // rather than only for the one where the result file happened to parse — and the
         // result file's own start commit is the best base for that diff.
         var derived = _deriver.Derive(run.ResultFile, run.LogTail);
+
+        // The routing verdict, read here rather than in the loop, for two reasons. The loop
+        // never learns where on disk a round's files land — the round runner is the one that
+        // knows — and a round's verdict is known to be unreadable *before* the loop is asked
+        // to move a work item on it, which is what stops "the round said nothing" and "the
+        // round said Build" from being the same event on the board.
+        //
+        // Read for every round rather than only for routing ones. A build round writes no
+        // verdict, and the cost of asking is one read that returns "no verdict was written"
+        // — a true statement about a build round, and a different one from the silent
+        // absence a conditional read would leave behind.
+        var routing = _routing.Read(run.RoutingFile);
 
         // The diff, generated here on the host and out of the tree that just came out of
         // the container (ADR-0006). It is the host's own git against a directory on the
@@ -365,7 +440,8 @@ public sealed class WorkerRoundRunner : INOpenCode
                 FailureClass.Transient,
                 run.LogTail,
                 diff,
-                ResultPayload.Of(derived, run.LogTail));
+                ResultPayload.Of(derived, run.LogTail),
+                routing);
         }
 
         // Produced. The round's own last command returned zero, so the round finished, and
@@ -375,7 +451,8 @@ public sealed class WorkerRoundRunner : INOpenCode
             ResultPayload.Of(derived, run.LogTail),
             derived.AgentNote,
             run.LogTail,
-            diff);
+            diff,
+            routing);
     }
 
     /// <summary>
@@ -419,18 +496,29 @@ public sealed class WorkerRoundRunner : INOpenCode
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            // The tree arrives over the network because a worker container is given no
-            // host path to put one in (ADR-0010).
-            ["AGENT_FACTORY_REPO_URL"] = round.RepoUrl,
             ["AGENT_FACTORY_BASE_REF"] = round.BaseBranch,
             ["AGENT_FACTORY_BRIEF"] = RoundBrief.For(round),
-            ["AGENT_FACTORY_AGENT_PROMPT"] = AgentPrompt,
+            ["AGENT_FACTORY_AGENT_PROMPT"] = PromptFor(round.Purpose),
             // The model is the project's to state (#38), and it travels as a variable so
             // the script stays fixed and the reference is never shell syntax.
             ["AGENT_FACTORY_MODEL"] = project.LlmModel,
             // A tree that could configure the agent could point its credential anywhere.
             ["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1",
         };
+
+        // The repository URL is the one environment entry a routing round does not get, and
+        // that absence is the whole mechanism: the image's entrypoint fetches the tree only
+        // when it is told a URL, so leaving it out is what stops a routing round spending its
+        // container cloning a repository it has been told not to read. Nothing in `worker/`
+        // is edited to achieve it, which is the property that keeps the image honest about
+        // its own limits (ADR-0006, ADR-0010).
+        //
+        // The build round keeps it — the tree arrives over the network because a worker
+        // container is given no host path to put one in.
+        if (RoundPurposes.FetchesTheRepository(round.Purpose))
+        {
+            environment["AGENT_FACTORY_REPO_URL"] = round.RepoUrl;
+        }
 
         var canonical = LlmProviders.CanonicalEnvironmentVariableFor(project.LlmModel);
 

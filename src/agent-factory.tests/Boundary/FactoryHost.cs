@@ -77,7 +77,46 @@ public sealed class FactoryHost : IAsyncDisposable
     /// button is: the gate (#40) is production behavior, so a test that wants a work item
     /// built asks for it the way production does rather than moving the lane by hand.
     /// </summary>
-    public Task<bool> PromoteAsync(Guid workItemId) =>
+    /// <remarks>
+    /// <para>
+    /// A work item is routed as <c>Build</c> first, because a reviewer's acceptance of an
+    /// issue the factory has not looked at yet is refused by the loop — nothing can be built
+    /// before it has been decided to be buildable (ADR-0015). Routing it here is the store's
+    /// own method applied directly, which is exactly what a routing round would have done,
+    /// and it is here rather than in the fake agent so that the tests which are about budgets,
+    /// retries and decisions are not all also tests of routing they did not ask for.
+    /// </para>
+    /// <para>
+    /// The refusal itself is not skipped: <see cref="PromoteUnroutedAsync"/> asks the loop
+    /// without routing anything, and that is what the tests about the gate use.
+    /// </para>
+    /// </remarks>
+    public async Task<bool> PromoteAsync(Guid workItemId)
+    {
+        var workItem = Store.Get(workItemId);
+        if (workItem is { Kind: WorkItemKind.Unrouted })
+        {
+            Route(workItemId, WorkItemKind.Build, "the test routed this as a build ticket");
+        }
+
+        return await _app.Services.GetRequiredService<Orchestrator>().PromoteAsync(workItemId);
+    }
+
+    /// <summary>
+    /// Records a routing round's verdict on a work item, as the loop would after the round
+    /// came back. Separate from <see cref="PromoteAsync"/> so a test can put a work item in
+    /// any kind without moving it, and so the routing tests can set up the state a verdict
+    /// leaves behind rather than reimplementing it.
+    /// </summary>
+    public void Route(Guid workItemId, WorkItemKind kind, string because = "the test routed this", int? routingIssue = null) =>
+        Store.RecordRoute(workItemId, kind, because, routingIssue);
+
+    /// <summary>
+    /// The reviewer's acceptance with nothing routed first, which the loop refuses for an
+    /// issue nobody has looked at. This is the gate's own refusal and it is asked of the
+    /// real orchestrator rather than asserted directly.
+    /// </summary>
+    public Task<bool> PromoteUnroutedAsync(Guid workItemId) =>
         _app.Services.GetRequiredService<Orchestrator>().PromoteAsync(workItemId);
 
     /// <summary>

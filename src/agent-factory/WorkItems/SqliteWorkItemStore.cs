@@ -150,6 +150,91 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         }
     }
 
+    public void RecordRoute(Guid workItemId, WorkItemKind kind, string reason, int? routingIssue = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(routingIssue ?? 1);
+
+        // The reason is required whatever the verdict, and that is the whole of the reason
+        // it is required: it is what a reviewer reads on the card, and a verdict with no
+        // words under it is one nobody can check or disagree with.
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException(
+                "a routing round's answer needs its own reason: it is what a reviewer reads on the card, "
+                    + "and an answer nobody can check is not worth recording");
+        }
+
+        if (routingIssue is { } and not > 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(routingIssue), routingIssue, "an issue number is positive");
+        }
+
+        // `Unrouted` here is not "nobody has looked yet" — it is "a round looked and could
+        // not answer", and it is a recording rather than a verdict. It is allowed for exactly
+        // one reason: refusing it would throw away the only account of why a work item is
+        // parked, and a parked work item with no stated reason is the silence the loop's whole
+        // design is against.
+        //
+        // It cannot be confused with the other reading of `Unrouted`, because the two are in
+        // different lanes. An `Unrouted` work item in Backlog has not been routed yet; an
+        // `Unrouted` work item in Escalated had a round try and could not answer. Both are on
+        // the card and they are not the same fact.
+        if (kind == WorkItemKind.Unrouted && routingIssue is not null)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "a round that gave no verdict has nothing to file, so it cannot have an issue");
+        }
+
+        if (kind is WorkItemKind.Grill or WorkItemKind.Wayfinder && routingIssue is null)
+        {
+            throw new InvalidOperationException(
+                $"{kind} waits on a person, and a person answers on an issue. Without one the work item "
+                    + "would sit in Waiting for a question that was never asked anywhere.");
+        }
+
+        // The lane is the verdict's own, derived here rather than passed in — and this is the
+        // one place all three answers are written down.
+        //
+        //   Build      → Backlog. Still a ticket waiting for the reviewer's click it came in
+        //                 for (#40, ADR-0007). Routing is not the gate and does not become one.
+        //   Grill,
+        //   Wayfinder  → Waiting. Nothing a container can build, everything a person has to answer.
+        //   Unrouted   → Escalated. A round ran and could not answer, which is a failure and
+        //                 parks (ADR-0008) rather than being retried into the same silence.
+        //
+        // Two writes rather than one statement because `Move` is the only other writer of a
+        // lane and the review clock is part of a move; keeping one writer per fact is worth a
+        // second statement here.
+        var lane = kind switch
+        {
+            WorkItemKind.Build => Swimlane.Backlog,
+            WorkItemKind.Unrouted => Swimlane.Escalated,
+            _ => Swimlane.Waiting,
+        };
+
+        Move(workItemId, lane);
+
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE work_items
+            SET kind = $kind, route_reason = $routeReason, routing_issue = $routingIssue, updated_utc = $updatedUtc
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        command.Parameters.AddWithValue("$kind", kind.ToString());
+        command.Parameters.AddWithValue("$routeReason", reason.Trim());
+        command.Parameters.AddWithValue("$routingIssue", (object?)routingIssue ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedUtc", _clock.UtcNow.ToString("O"));
+
+        if (command.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to record a route against");
+        }
+    }
+
     public RoundResultRecord RecordRound(
         Guid workItemId,
         RoundOutcome outcome,
@@ -551,7 +636,10 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
                 updated_utc  TEXT    NOT NULL,
                 review_started_utc TEXT NULL,
                 merge_attempts INTEGER NOT NULL DEFAULT 0,
-                merge_retry_after_utc TEXT NULL
+                merge_retry_after_utc TEXT NULL,
+                kind TEXT    NOT NULL DEFAULT 'Unrouted',
+                route_reason TEXT  NULL,
+                routing_issue INTEGER NULL
             );
 
             -- Intake is idempotent against the store: one issue, one work item. The index
@@ -623,6 +711,19 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         // does not fail on a schema this process did not write.
         AddColumnIfMissing(connection, "work_items", "merge_attempts", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "work_items", "merge_retry_after_utc", "TEXT NULL");
+
+        // A work item recorded before the routing round existed is `Unrouted` rather than
+        // `Build`, and that is the honest reading of it: nobody has looked at that issue.
+        // Defaulting the other way would put every pre-existing work item straight into the
+        // build queue and call that a routing round's decision (ADR-0015).
+        AddColumnIfMissing(connection, "work_items", "kind", "TEXT NOT NULL DEFAULT 'Unrouted'");
+        AddColumnIfMissing(connection, "work_items", "route_reason", "TEXT NULL");
+
+        // Where the questions or the map were actually filed, so the board can point at the
+        // issue a human is being asked on rather than describing it. Null for every work item
+        // that was routed `Build` and for every one from before this existed, and both of
+        // those are correct: a build ticket is answered on the maintainer's own issue.
+        AddColumnIfMissing(connection, "work_items", "routing_issue", "INTEGER NULL");
         AddColumnIfMissing(connection, "round_results", "attempts", "INTEGER NOT NULL DEFAULT 1");
         AddColumnIfMissing(connection, "round_results", "failure", "TEXT NULL");
         AddColumnIfMissing(connection, "round_results", "log", "TEXT NULL");
@@ -707,7 +808,22 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         Timestamp(reader.GetString(10)),
         reader.IsDBNull(11) ? null : Timestamp(reader.GetString(11)),
         reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
-        reader.IsDBNull(13) ? null : Timestamp(reader.GetString(13)));
+        reader.IsDBNull(13) ? null : Timestamp(reader.GetString(13)),
+        ReadKind(reader, 14),
+        reader.IsDBNull(15) ? null : reader.GetString(15),
+        reader.IsDBNull(16) ? null : reader.GetInt32(16));
+
+    /// <summary>
+    /// The work item's kind, read back as itself. A row whose kind this build does not
+    /// recognise is read as <see cref="WorkItemKind.Unrouted"/> rather than refused, and the
+    /// reason is the same as the column's default: an unknown verdict is a verdict nobody
+    /// made, so it is the one that means "not looked at yet", and the next routing round
+    /// will overwrite it with a real one.
+    /// </summary>
+    private static WorkItemKind ReadKind(SqliteDataReader reader, int index) =>
+        !reader.IsDBNull(index) && Enum.TryParse<WorkItemKind>(reader.GetString(index), out var kind)
+            ? kind
+            : WorkItemKind.Unrouted;
 
     private static DateTimeOffset Timestamp(string value) =>
         DateTimeOffset.Parse(value, null, System.Globalization.DateTimeStyles.RoundtripKind);
@@ -716,7 +832,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
     private const int SqliteConstraint = 19;
 
     private const string Select = """
-        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc, merge_attempts, merge_retry_after_utc
+        SELECT id, project, repo_url, issue_number, issue_title, issue_body, base_branch, swimlane, round_count, created_utc, updated_utc, review_started_utc, merge_attempts, merge_retry_after_utc, kind, route_reason, routing_issue
         FROM work_items
         """;
 

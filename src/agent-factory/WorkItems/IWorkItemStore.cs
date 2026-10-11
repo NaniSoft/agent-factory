@@ -46,6 +46,54 @@ public interface IWorkItemStore
     void Move(Guid id, Swimlane swimlane);
 
     /// <summary>
+    /// Records what a routing round decided about this work item: the kind, the round's own
+    /// reason for it, and the issue the factory created to carry whatever a human is being
+    /// asked for. The kind and the lane it implies go in one write, because they are one
+    /// fact — a verdict that has been recorded and a verdict whose work item is in the wrong
+    /// lane are the same broken state, and a restart in between them would show it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The lane is not a parameter. <see cref="WorkItemKind.Build"/> stays in Backlog,
+    /// because a routed ticket is still waiting for the reviewer's click that a work item in
+    /// Backlog has always waited for (#40, ADR-0007); the other two kinds go to
+    /// <see cref="Swimlane.Waiting"/>, because they have nothing a container can build and
+    /// everything a person has to answer. Putting that here rather than in the caller is what
+    /// makes it one property rather than a convention two components have to keep agreeing
+    /// on.
+    /// </para>
+    /// <para>
+    /// <paramref name="reason"/> is required and <paramref name="routingIssue"/> is
+    /// required for anything that is not a <see cref="WorkItemKind.Build"/>, and both
+    /// refusals are the same refusal: a human who is asked a question they cannot see the
+    /// answer to cannot answer it, and a verdict nobody can act on is worth less than no
+    /// verdict. A <c>Build</c> needs no issue because the maintainer's own issue is the
+    /// ticket.
+    /// </para>
+    /// </remarks>
+    /// <param name="workItemId">The work item the round was about.</param>
+    /// <param name="kind">
+    /// The verdict, or <see cref="WorkItemKind.Unrouted"/> when the round could not answer.
+    /// That is a recording rather than a verdict — "a round looked and could not say" — and
+    /// it is allowed for exactly one reason: refusing it would throw away the only account
+    /// of why the work item is parked.
+    /// </param>
+    /// <param name="reason">The round's own words, kept whole. Required whatever the verdict.</param>
+    /// <param name="routingIssue">
+    /// The issue the factory created to carry the questions or the map, or null for a
+    /// <see cref="WorkItemKind.Build"/> and for an <see cref="WorkItemKind.Unrouted"/> that
+    /// filed nothing. It is recorded rather than recomputed because it is where a human
+    /// answers and where the board points, and a work item that cannot say which issue to
+    /// read is a work item nobody will ever answer.
+    /// </param>
+    /// <exception cref="KeyNotFoundException">There is no such work item.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The answer carries no reason, or is a kind that waits on a person with no issue for
+    /// them to answer on, or is an <see cref="WorkItemKind.Unrouted"/> carrying one.
+    /// </exception>
+    void RecordRoute(Guid workItemId, WorkItemKind kind, string reason, int? routingIssue = null);
+
+    /// <summary>
     /// Keeps one round's result against the work item and counts the round. Results are
     /// appended, never replaced, so a work item that has run three rounds keeps all
     /// three.

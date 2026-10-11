@@ -28,8 +28,11 @@ using AgentFactory.Workspaces;
 /// </para>
 /// <para>
 /// The lanes are exactly the ones the board's own markup renders, in the same order:
-/// the five swimlanes and then the two parked-and-final lanes, so a card in Escalated or
-/// Rejected has a column of its own and the last two columns are the endings.
+/// the six swimlanes and then the two parked-and-final lanes, so a card in Escalated or
+/// Rejected has a column of its own and the last two columns are the endings. Waiting is
+/// the lane the routing layer added (ADR-0015): it stands after Done and before the two
+/// endings, in the factory's own order, because a work item parked on a person is
+/// finished there rather than here.
 /// </para>
 /// <para>
 /// The property names are pinned with <see cref="JsonPropertyNameAttribute"/> rather than
@@ -74,7 +77,7 @@ public sealed record BoardView(
 
         var workItems = store.List();
 
-        // The five swimlanes and then the two endings, in the factory's own order. The
+        // The six swimlanes and then the two endings, in the factory's own order. The
         // cards are read from the store's own record and its rounds and decisions, so the
         // ending a card carries is the factory's answer and not the renderer's. The
         // auto-merge mode rides onto each card, because a countdown only exists when
@@ -280,6 +283,32 @@ public sealed record LaneView(
 /// a card in Review with auto-merge on, because a countdown a reviewer cannot see per work
 /// item is a countdown they cannot act on while it still matters (ADR-0008).
 /// </param>
+/// <param name="Kind">
+/// The kind the routing round decided this issue is — one of
+/// <see cref="WorkItemKind"/>'s names, with <c>Unrouted</c> meaning nobody has looked at
+/// it yet (ADR-0015). The renderer draws the kind's own words; it never works out a kind
+/// from a lane.
+/// </param>
+/// <param name="KindLabel">The kind's words for a reader, from
+/// <see cref="WorkItemKinds.Label"/>.</param>
+/// <param name="RouteReason">
+/// The one sentence for this work item's routing kind, from
+/// <see cref="HowToReadTheRoute.Say"/>: what the routing round found and what happens next.
+/// It is the factory's judgement, so the card renders it rather than working out a sentence
+/// from the kind. A work item that has not been routed has a sentence of its own — "nobody
+/// has looked at this issue yet" — because that is a fact and not an absence.
+/// </param>
+/// <param name="RoutingIssue">
+/// The issue the factory filed for this verdict — a map's tracker, or the question a
+/// <c>Grill</c> asked — as its number, or null when the verdict filed nothing. It is how a
+/// reviewer reaches the thing the factory is waiting on.
+/// </param>
+/// <param name="OffersAcceptance">
+/// Whether the card should carry the acceptance control at all, from
+/// <see cref="HowToReadTheRoute.OffersAcceptance"/>: a work item waiting in Backlog that
+/// is a build ticket. The app gates its control on this rather than on the lane alone,
+/// because an issue nobody has looked at is not a build ticket (ADR-0015).
+/// </param>
 public sealed record CardView(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("project")] string Project,
@@ -292,7 +321,12 @@ public sealed record CardView(
     [property: JsonPropertyName("ending")] string Ending,
     [property: JsonPropertyName("decisions")] IReadOnlyList<string> Decisions,
     [property: JsonPropertyName("workspace")] WorkspaceView? Workspace,
-    [property: JsonPropertyName("autoMergeAt")] string? AutoMergeAt)
+    [property: JsonPropertyName("autoMergeAt")] string? AutoMergeAt,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("kindLabel")] string KindLabel,
+    [property: JsonPropertyName("routeReason")] string? RouteReason,
+    [property: JsonPropertyName("routingIssue")] int? RoutingIssue,
+    [property: JsonPropertyName("offersAcceptance")] bool OffersAcceptance)
 {
     /// <summary>One work item and its record, read the way the board's own card reads them.</summary>
     public static CardView Of(
@@ -321,7 +355,12 @@ public sealed record CardView(
             HowItEnded.Describe(workItem, store.Rounds(workItem.Id), store.Decisions(workItem.Id)),
             [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
             workspaces.ViewFor(workItem.Id) is { } view ? WorkspaceView.Of(view) : null,
-            autoMergeAt?.ToString("O"));
+            autoMergeAt?.ToString("O"),
+            workItem.Kind.ToString(),
+            WorkItemKinds.Label(workItem.Kind),
+            HowToReadTheRoute.Say(workItem),
+            workItem.RoutingIssue,
+            HowToReadTheRoute.OffersAcceptance(workItem));
     }
 }
 

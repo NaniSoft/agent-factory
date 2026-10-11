@@ -366,6 +366,20 @@ public sealed class Board
 
         var cause = Str(card.Json, "ending");
 
+        // The routing verdict (ADR-0015): the kind the round decided, its reason, the issue
+        // it filed, and whether the card offers acceptance at all. Every field is the
+        // factory's own judgement read back off `/api/board`, so the acceptance control
+        // below is `offersAcceptance` and not a guess about the lane.
+        var kind = Str(card.Json, "kind");
+        var kindLabel = Str(card.Json, "kindLabel");
+        var routeReason = Str(card.Json, "routeReason");
+        var routingIssue = card.Json.TryGetProperty("routingIssue", out var routeIssue)
+            && routeIssue.ValueKind == JsonValueKind.Number
+            ? routeIssue.GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+        var offersAcceptance = card.Json.TryGetProperty("offersAcceptance", out var offers)
+            && offers.ValueKind == JsonValueKind.True;
+
         // The countdown is the factory's own field on the card, present only when silence
         // can merge the work item: a card in Review with auto-merge on. The renderer reads
         // it rather than recomputing the threshold, so what a test asserts is the factory's
@@ -386,6 +400,10 @@ public sealed class Board
             .Append($" data-decisions=\"{decisions.Count}\"")
             .Append($" data-merge-attempts=\"{Int(header, "mergeAttempts")}\"")
             .Append($" data-cause=\"{Esc(cause)}\"")
+            .Append($" data-kind=\"{Esc(kind)}\"")
+            .Append($" data-kind-label=\"{Esc(kindLabel)}\"")
+            .Append($" data-offers-acceptance=\"{(offersAcceptance ? "true" : "false")}\"")
+            .Append(routingIssue.Length > 0 ? $" data-routing-issue=\"{routingIssue}\"" : string.Empty)
             .Append(autoMergeAttribute)
             .Append(">");
 
@@ -397,6 +415,13 @@ public sealed class Board
         if (cause.Length > 0)
         {
             html.Append($"<span class=\"cause\">{Esc(cause)}</span>");
+        }
+
+        // The routing round's own words, so a card never lets "nobody has looked at this
+        // issue yet" read as "ready to build" (ADR-0015).
+        if (routeReason.Length > 0)
+        {
+            html.Append($"<span class=\"route-reason\" data-route-reason=\"true\">{Esc(routeReason)}</span>");
         }
 
         if (at is { } shipsAt)
@@ -446,10 +471,11 @@ public sealed class Board
             html.Append("</ol>");
         }
 
-        // The acceptance gate (#40, restored by #52): a Backlog card carries the control that
-        // accepts it into the build, and it is gated on the lane the way the old board gated
-        // it — a work item not waiting in Backlog is never offered acceptance.
-        if (card.Lane == "Backlog")
+        // The acceptance gate (#40, restored by #52, gated by routing on ADR-0015): a card
+        // offers acceptance only when the factory says it may — a work item waiting in
+        // Backlog that a routing round decided is a build ticket. An issue nobody has looked
+        // at is not a build ticket, so it carries no control the loop would refuse.
+        if (offersAcceptance)
         {
             html.Append($"<form class=\"build\" data-build=\"{Esc(id)}\" method=\"post\" ")
                 .Append($"action=\"/api/work-items/{Esc(id)}/accept\">")

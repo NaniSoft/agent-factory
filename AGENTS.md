@@ -81,6 +81,107 @@ behind, and `A_seam_with_nothing_behind_it_refuses_rather_than_doing_nothing` we
 which keeps the guard it was (a seam that quietly did nothing must fail) aimed at the
 failure it can still have (a call that cannot be made must say which).
 
+## The routing round
+
+**Every open issue costs one container before anything is built, and the round that
+spends it does not read the repository.** `Rounds/RoundPurpose.cs` is the whole of the
+distinction: `Build` fetches and commits, `Route` reads the issue's own words and writes
+a verdict. It is a per-purpose round rather than a flag on a build round because the two
+produce different files and are read by different components — a round that both built
+and routed would make "what did this round decide" and "what did this round change" one
+call with two answers.
+
+**The saving is the absence of one environment entry.** `WorkerRoundRunner.EnvironmentFor`
+does not put `AGENT_FACTORY_REPO_URL` in a routing round's environment, and the image's
+entrypoint fetches the tree only when it is told where to fetch it from. **Nothing in
+`worker/` is edited to achieve this**, which is the property that keeps the image honest
+about its own limits — and the same trick the container budget relies on, which is that
+the factory's costs are bounded by what it chooses to hand over rather than by a
+mechanism inside the box.
+
+`WorkerRoundRunner.RouteScript` and `RoutingAgentPrompt` exist beside `RoundScript` and
+`AgentPrompt` rather than as substitutions, for two reasons: the recorded label is what a
+reviewer reads in the round's own account of itself, and **both scripts end with the
+`opencode run` and nothing after it**, so `roundExitCode` is the agent's exit code for a
+routing round exactly as it is for a build round. That is the reason it is a near-copy
+rather than a rewrite — a rewrite is how a routing round would silently stop being
+retryable.
+
+`Routing/RoutingReader.cs` is the only reader of `routing.json`'s shape, and it behaves
+like the deriver for the same reasons: it observes, it has no way to ask the agent
+anything, and **every entry point returns a `RoutingOutcome` rather than throwing or
+returning null**, because a factory that dropped a work item on the floor for want of a
+parse would report a routing round as a routing round that decided nothing. A verdict this
+build does not recognise is **not** read as `Build`: a default that builds things is the
+one default that spends a container on work nobody decided should be spent.
+
+**The questions are filed before the verdict is recorded**, and that order is the whole of
+`Orchestrator.LandTheRoute`. A `Grill` recorded without its question issue existing would
+leave a work item in Waiting with nothing to answer and nothing pointing at where to answer
+it, so `Routing/IssuePublisher.cs` publishes first and a publication that fails becomes a
+park carrying the refusal. `IssuePublisher` is a separate component rather than more of the
+loop because which issues a map becomes is not policy — it is the shape of a proposal
+somebody else wrote — and because it is then a *named* thing on the GitHub-caller pin in
+`PolicyTests` rather than a general permission.
+
+**A routing round is never charged to the round ceiling.** It does not go through
+`RecordRound`, so it does not bump the work item's round count and "round 1 of 3" stays
+true. `A_work_items_story_ends_with_records_a_reader_can_order_by_round` asserts the
+consequence directly: **four rounds came back and three were spent**, and the two counters
+disagreeing is the design rather than an accident — one says a container ran, the other
+says a reviewer's budget was spent.
+
+**Two ordering rules in `StartARound`, both of them refusals.** Build rounds are asked for
+before routing rounds, so a reviewer's acceptance is never made to wait behind the factory's
+own guess about an issue nobody has read; and `PromoteAsync` refuses an issue that has not
+been routed, so an unrouted work item cannot be accepted by hand. The board does not render
+the button for one, and the loop refuses it anyway — a caller that posts the form by hand
+gets the same answer.
+
+**One guard in `NextToRoute` is load-bearing and it was found by a hang.** It filters on the
+lane *and* on the kind, and excludes in-flight work items. The kind alone was the bug: a
+work item parked by a routing round that could not answer is still `Unrouted`, so filtering
+on the kind alone hands the same work item straight back to the next routing round, for
+ever — a tight loop with no sleep and no ceiling, which is the one shape of failure this
+suite cannot catch with a timeout. The in-flight exclusion is needed because a routing round
+deliberately does *not* move its work item out of Backlog (a card reading "In Progress"
+would claim a worker was building something the round had only read), which is exactly the
+property `NextInFrontier` relied on for build rounds. `FactoryHost.SettleWithin`'s own doc
+comment is where that hazard is written down.
+
+`Swimlane.Waiting` is a lane of its own rather than a variety of Escalated, and the
+difference is what the board may offer: Escalated holds a parked *change*, so a human
+finishes it by merging or declining and both decisions are about something real. A work
+item in Waiting has no change to judge at all, so `Swimlanes.Decidable` is absent for it and
+`SqliteWorkItemStore.RecordDecision` refuses a decision about one.
+
+`RecordRoute` refuses three things and they are one refusal: a verdict with no reason, a
+kind that waits on a person with no issue to answer on, and an `Unrouted` carrying an issue.
+It **allows** `Unrouted` as "a round looked and could not answer", because refusing it would
+throw away the only account of why a work item is parked — and the two readings of
+`Unrouted` cannot be confused, because they are in different lanes.
+
+### Testing the routing layer
+
+Two layers. `Routing/RoutingReaderTests.cs` is hermetic: `routing.json` files written in the
+shape the brief asks the agent to write, and the whole of the degradation behaviour asserted
+as one theory over eight shapes — because the danger is a reader that defaults to `Build`
+turning every truncation into a container spent building something, and no happy-path
+fixture would notice. Its limit is the deriver's own: a fixture this test wrote agrees with
+the reader by construction.
+
+`Routing/RoutingTests.cs` drives the real loop, the real store and the real publisher through
+the fake seams. The assertions are in the order of the chain they defend: a build ticket is
+recorded and still waits for a reviewer; a `Grill` has its questions **published** before it
+is recorded as waiting; questions that could not be filed leave a **park**; and an unreadable
+verdict parks. `FakeNOpenCode.RoutingAs` scripts a real `RoutingOutcome` rather than a flag on
+the store, because that is what the round runner produces and a test that set the kind itself
+would be testing a state the factory cannot otherwise reach.
+
+`FactoryHost.PromoteAsync` routes as `Build` before accepting, and the refusal is still tested
+— `PromoteUnroutedAsync` asks the loop without routing anything. That split exists so the ~75
+call sites that are about budgets, retries and decisions are not all also tests of routing.
+
 ## The worker container
 
 `Containers/ContainerRuntime.cs` is one worker container from creation to removal, and it

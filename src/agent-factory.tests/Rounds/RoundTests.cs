@@ -19,17 +19,28 @@ public class RoundTests
     private const string IssueBody = "What the issue says, in the maintainer's words.";
 
     [Fact]
-    public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
+public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
     {
+        // **This test gained a step, deliberately, for the routing layer (ADR-0015).** It
+        // used to assert that a settle moves a Backlog work item nowhere, which was true and
+        // is no longer the whole truth: a settle spends a container looking at it. What the
+        // lane now says is narrower and still worth asserting — a routing round does not
+        // move the work item, because a card reading "In Progress" would claim a worker was
+        // building something the round had only read.
         using var root = FactoryRoot.Create();
-        var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
+        var agent = new FakeNOpenCode()
+            .RoutingAs(WorkItemKind.Build, "the issue names one endpoint and one test")
+            .Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        // The gate (#40): Backlog is where intake leaves it, and a settle does not move
-        // it — acceptance is a reviewer's act and a transition of its own.
+        // The gate (#40) and routing (ADR-0015) together: a settle reads the issue and
+        // leaves the work item in Backlog, and acceptance is still a reviewer's act and a
+        // transition of its own.
         await host.Settle();
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
+        Assert.Equal(WorkItemKind.Build, host.Store.Get(workItem.Id)!.Kind);
+
         Assert.True(await host.PromoteAsync(workItem.Id));
         Assert.Equal(Swimlane.Frontier, SwimlaneOf(host, workItem.Id));
 
@@ -280,14 +291,31 @@ public class RoundTests
         // reference, so all three are checked. It would not catch a runtime reached by
         // shelling out, which is the gap a reader should know about.
         //
-        // The sixth dependency is `FactoryMetrics` and it is not a sixth boundary: it holds
+// The sixth dependency is `FactoryMetrics` and it is not a sixth boundary: it holds
         // no clock, no transport, no credential reader, no store, no seam and no options,
         // and it counts over an in-process API. The seventh, `FactoryOptions`, is the
-        // auto-merge switch (#36) — settings, not a seam: nothing to call, nothing behind
-        // it. `PolicyTests` asserts that list by hand and names each change as it was made,
-        // so a reader is not left wondering what arrived and why.
+        // auto-merge switch (#36) - settings, not a seam: nothing to call, nothing behind
+        // it.
+        //
+        // **And an eighth arrived for the routing layer (ADR-0015): `IssuePublisher`.** It
+        // is not a boundary either, and the reason is worth the sentence: it holds no clock,
+        // no transport, no credential reader and no options, and the only way it reaches
+        // anything is by calling the `IGitHub` this constructor already had. So the loop has
+        // not gained a new way to reach the outside world - it has gained a collaborator that
+        // uses one it already had. What would have been a real breach, and is what this list
+        // is for, is a `ContainerRuntime`, an `HttpClient`, a `DockerCli` or a second seam,
+        // and none of those is here. `PolicyTests` asserts the same list and argues it.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics", "FactoryOptions"],
+            [
+                "IWorkItemStore",
+                "INOpenCode",
+                "IGitHub",
+                "IssuePublisher",
+                "IClock",
+                "ILogger`1",
+                "FactoryMetrics",
+                "FactoryOptions",
+            ],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()

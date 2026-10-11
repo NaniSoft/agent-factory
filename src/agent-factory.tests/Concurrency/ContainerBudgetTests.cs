@@ -427,27 +427,39 @@ public class ContainerBudgetTests
             defaultBranch: "main",
             OpenIssue.Plain(1, "An issue nobody has looked at", IssueBody));
 
-        // A round that comes straight back, because this is about the work item reaching
-        // Review and not about where a round ends up.
-        var agent = new FakeNOpenCode().Producing("src/Index.cs +12 -3", "Added the endpoint.");
+// A round that comes straight back, because this is about the work item reaching
+        // Review and not about where a round ends up. The first round is the routing
+        // round the workflow now spends on every issue nobody has looked at, and it says
+        // this one is already a build ticket (ADR-0015).
+        var agent = new FakeNOpenCode()
+            .RoutingAs(WorkItemKind.Build, "the issue names one endpoint and one test")
+            .Producing("src/Index.cs +12 -3", "Added the endpoint.");
         await using var host = await FactoryHost.StartAsync(root, agent: agent, github: github);
 
         // One tick: the poll interval has not been waited for by anyone, and the first pass
-        // is due the moment the factory comes up, so the issue is taken — into Backlog,
-        // where the gate (#40) holds it until a reviewer accepts it.
+        // is due the moment the factory comes up, so the issue is taken - into Backlog,
+        // and then routed. It is still in Backlog afterwards, because a routed ticket is
+        // still waiting for the reviewer's click that every Backlog work item waits for.
         await host.Tick();
 
         Assert.Equal([Nexus], github.Polled);
         var workItem = Assert.Single(host.Store.List());
+        Assert.Equal(WorkItemKind.Build, workItem.Kind);
         Assert.Equal(Swimlane.Backlog, SwimlaneOf(host, workItem.Id));
-        Assert.Empty(agent.AskedFor);
 
-        // The reviewer's acceptance, and the next tick builds what was accepted: intake
-        // and building are two acts now, and the tick drives both.
+        // One round was spent, and it was the routing one rather than a build — which is
+        // the claim the whole workflow makes about cost: an issue nobody has looked at
+        // costs a container before it can be judged, and it does not build anything.
+        Assert.Single(agent.AskedFor);
+        Assert.Equal(RoundPurpose.Route, agent.AskedFor[0].Purpose);
+
+        // The reviewer's acceptance, and the next tick builds what was accepted: intake,
+        // routing and building are three acts now, and the tick drives all three.
         await host.PromoteAsync(workItem.Id);
         await host.Tick();
         Assert.Equal(Swimlane.Review, SwimlaneOf(host, workItem.Id));
-        Assert.Single(agent.AskedFor);
+        Assert.Equal(2, agent.AskedFor.Count);
+        Assert.Equal(RoundPurpose.Build, agent.AskedFor[1].Purpose);
 
         // And a second tick before the poll interval has passed is a no-op rather than a
         // second read: the cadence is the poller's own comparison against the clock, not

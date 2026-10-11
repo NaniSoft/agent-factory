@@ -1176,6 +1176,32 @@ public sealed class RefusingGitHub : AgentFactory.GitHub.IGitHub
     public Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken) =>
         throw NoGitHub();
 
+    public Task<AgentFactory.GitHub.CreatedIssue> CreateIssueAsync(
+        AgentFactory.GitHub.NewIssue request,
+        CancellationToken cancellationToken) =>
+        throw NoGitHub();
+
+    public Task MakeASubIssueAsync(
+        string repoUrl,
+        int parentNumber,
+        int childNumber,
+        CancellationToken cancellationToken) =>
+        throw NoGitHub();
+
+    public Task MakeBlockedByAsync(
+        string repoUrl,
+        int blockedNumber,
+        int blockerNumber,
+        CancellationToken cancellationToken) =>
+        throw NoGitHub();
+
+    public Task CloseIssueAsync(
+        string repoUrl,
+        int issueNumber,
+        string because,
+        CancellationToken cancellationToken) =>
+        throw NoGitHub();
+
     private static NotSupportedException NoGitHub() =>
         new("there is no GitHub behind this seam, and a round's diff does not need one");
 }

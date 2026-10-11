@@ -87,12 +87,13 @@ public class BoardEndpointTests
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var board = document.RootElement;
 
-        // The lanes are the board's own set, in the board's own order: the five swimlanes
+        // The lanes are the board's own set, in the board's own order: the six swimlanes
         // and then the two endings. Written out rather than read from the constant, because
         // a test that read it would prove only that the endpoint agrees with itself.
+        // Waiting is the routing layer's lane (ADR-0015), between Done and the two endings.
         var lanes = board.GetProperty("lanes").EnumerateArray().ToList();
         Assert.Equal(
-            ["Backlog", "Frontier", "InProgress", "Review", "Done", "Escalated", "Rejected"],
+            ["Backlog", "Frontier", "InProgress", "Review", "Done", "Waiting", "Escalated", "Rejected"],
             [.. lanes.Select(lane => lane.GetProperty("lane").GetString()!)]);
 
         // The lane's words come from the factory's own label, so "InProgress" reads as
@@ -121,6 +122,15 @@ public class BoardEndpointTests
         Assert.Equal(
             ["approve", "request-changes", "reject"],
             [.. card.GetProperty("decisions").EnumerateArray().Select(decision => decision.GetString()!)]);
+
+        // The routing verdict rides on the card (ADR-0015): the kind the routing round
+        // decided, the kind's words, the factory's own sentence for it, and whether this
+        // card may offer acceptance. The work item was routed Build to be accepted, and it
+        // is now in Review, so acceptance is not offered.
+        Assert.Equal("Build", card.GetProperty("kind").GetString());
+        Assert.Equal("Build", card.GetProperty("kindLabel").GetString());
+        Assert.Contains("already a build ticket", card.GetProperty("routeReason").GetString());
+        Assert.False(card.GetProperty("offersAcceptance").GetBoolean());
 
         // Every other lane is present and empty.
         Assert.All(

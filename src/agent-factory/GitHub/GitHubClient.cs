@@ -289,6 +289,214 @@ public sealed class GitHubClient : IGitHub
     }
 
     /// <inheritdoc />
+    public async Task<CreatedIssue> CreateIssueAsync(NewIssue request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Title);
+
+        var repository = RepositoryRef.Parse(request.RepoUrl);
+        var token = TokenFor(ProjectServing(repository));
+
+        // The parent is resolved before the create rather than being handed to the endpoint
+        // as a number, for two reasons and the first is the load-bearing one: a create that
+        // succeeded and then failed to be linked would leave an orphan issue in a human's
+        // tracker with a title that says it is part of something. Resolving first means the
+        // only way this can happen is a refusal before anything is created at all.
+        int? parentId = null;
+        if (request.ParentNumber is { } parentNumber)
+        {
+            parentId = await IssueIdAsync(repository, parentNumber, token, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var answer = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/issues",
+            token,
+            json: new Dictionary<string, object?>
+            {
+                ["title"] = request.Title,
+                ["body"] = request.Body,
+
+                // Labels are applied for humans reading the tracker and for the tools around
+                // it. They are deliberately not read back by the factory — the work item's
+                // kind is a column the factory writes (ADR-0007, ADR-0015), so a label here
+                // is presentation and not an input, and nothing this process does changes if
+                // somebody edits or removes it.
+                ["labels"] = new[] { RoutingLabel },
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"an issue on {repository.FullName}");
+
+        var created = Read(answer);
+        var number = created.GetProperty("number").GetInt32();
+        var url = created.TryGetProperty("html_url", out var html) ? html.GetString() ?? string.Empty : string.Empty;
+
+        // Second pass, and deliberately after the create rather than instead of it. The
+        // issue has to exist before it can be made a child of anything, so "create and link
+        // in one request" is not available; what is available is doing the link immediately
+        // after and refusing the whole thing if it fails, so a caller never sees a created
+        // issue it was not told about.
+        if (request.ParentNumber is { } parent && parentId is { } id)
+        {
+            await LinkAsSubIssueAsync(repository, id, number, token, cancellationToken).ConfigureAwait(false);
+        }
+
+        _logger.LogInformation(
+            "Opened {Repository}#{Created} as a child of #{Parent}: {Title}",
+            repository.FullName,
+            number,
+            request.ParentNumber,
+            request.Title);
+
+        return new CreatedIssue(number, url);
+    }
+
+    /// <inheritdoc />
+    public async Task MakeASubIssueAsync(
+        string repoUrl,
+        int parentNumber,
+        int childNumber,
+        CancellationToken cancellationToken)
+    {
+        var repository = RepositoryRef.Parse(repoUrl);
+        var token = TokenFor(ProjectServing(repository));
+
+        var parent = await IssueIdAsync(repository, parentNumber, token, cancellationToken)
+            .ConfigureAwait(false);
+        var child = await IssueIdAsync(repository, childNumber, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        await LinkAsSubIssueAsync(repository, parent, child, token, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task MakeBlockedByAsync(
+        string repoUrl,
+        int blockedNumber,
+        int blockerNumber,
+        CancellationToken cancellationToken)
+    {
+        var repository = RepositoryRef.Parse(repoUrl);
+        var token = TokenFor(ProjectServing(repository));
+
+        // GitHub's own dependency relationship rather than a line in a body. The reason is
+        // that a blocking edge written in prose is invisible in the one view where somebody
+        // asks "what can I work on", and this factory's whole claim about its maps is that a
+        // human can read the frontier without opening the factory.
+        var blocked = await IssueIdAsync(repository, blockedNumber, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        var answer = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/issues/{blocked}/dependencies/blocked_by",
+            token,
+            json: new Dictionary<string, object?> { ["issue_id"] = blockerNumber },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"a blocking edge on {repository.FullName}#{blockedNumber}");
+    }
+
+    /// <inheritdoc />
+    public async Task CloseIssueAsync(
+        string repoUrl,
+        int issueNumber,
+        string because,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(because);
+
+        var repository = RepositoryRef.Parse(repoUrl);
+        var token = TokenFor(ProjectServing(repository));
+
+        // A comment and then a close, rather than a close. GitHub's `state_reason` field can
+        // carry a reason, but a reason that only exists on the close event is a reason a
+        // reader has to know to go and look for; a comment puts it in the issue's own
+        // conversation, in order, next to the children that replaced it.
+        var comment = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/issues/{issueNumber}/comments",
+            token,
+            json: new Dictionary<string, object?> { ["body"] = because },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(comment, $"a closing comment on {repository.FullName}#{issueNumber}");
+
+        var closed = await AskAsync(
+            HttpMethod.Patch,
+            $"{repository.ApiPath}/issues/{issueNumber}",
+            token,
+            json: new Dictionary<string, object?>
+            {
+                ["state"] = "closed",
+
+                // Not `completed`: this issue was not delivered, it was superseded by its
+                // own children. GitHub's two words for "done" mean different things here
+                // and saying the wrong one would put a completed-looking label on an issue
+                // whose work has not been done.
+                ["state_reason"] = "not_planned",
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(closed, $"closing {repository.FullName}#{issueNumber}");
+    }
+
+    /// <summary>
+    /// An issue's node id, which is what GitHub's own relationship endpoints take rather than
+    /// a number. Resolved rather than composed from a number because the factory does not
+    /// have to be right about GitHub's internal id encoding to link two issues, and a
+    /// composed id that happens to be wrong fails in a way that looks like a permissions
+    /// problem.
+    /// </summary>
+    private async Task<int> IssueIdAsync(
+        RepositoryRef repository,
+        int issueNumber,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+
+        var answer = await AskAsync(
+            HttpMethod.Get,
+            $"{repository.ApiPath}/issues/{issueNumber}",
+            token,
+            json: null,
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"{repository.FullName}#{issueNumber}");
+
+        var node = Read(answer);
+        return node.TryGetProperty("node_id", out var id) && id.GetString() is { Length: > 0 } value
+            ? value.Length
+            : throw new PermanentFailure(
+                $"GitHub answered for {repository.FullName}#{issueNumber} without the node id its own relationship "
+                    + "endpoints need, so this factory cannot link it to anything");
+    }
+
+    private async Task LinkAsSubIssueAsync(
+        RepositoryRef repository,
+        int parentId,
+        int childId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var parent = new Dictionary<string, object?> { ["id"] = parentId };
+
+        var answer = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/issues/{childId}/sub_issues",
+            token,
+            json: new Dictionary<string, object?> { ["sub_issue_id"] = parentId, ["parent"] = parent },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"a sub-issue link on {repository.FullName}");
+    }
+
+    /// <summary>The label every issue the factory creates carries, for humans reading the tracker.</summary>
+    private const string RoutingLabel = "agent-factory";
+
+    /// <inheritdoc />
     public async Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken)
     {
         // Everything that can be refused without leaving the building is refused first, so

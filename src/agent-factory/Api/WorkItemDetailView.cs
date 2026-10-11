@@ -11,15 +11,17 @@ using AgentFactory.WorkItems;
 /// What <c>GET /api/work-items/{id}</c> returns: one work item's whole record, serialised,
 /// and nothing the factory would not say about it. The work item's header, every round it
 /// has run (its outcome, failure, payload, agent note, log and the host's diff), the
-/// decisions a reviewer made about it and the decisions still offered, and how it ended —
-/// the factory's judgement, shaped so the renderer re-decides nothing.
+/// decisions a reviewer made about it and the decisions still offered, how it ended, and
+/// what the routing round decided it is — the factory's judgement, shaped so the renderer
+/// re-decides nothing.
 /// </summary>
 /// <remarks>
 /// <para>
 /// This is the detail behind the work-item card on the board, and it is the same judgement
 /// the board itself renders: the diff's four states come from
-/// <see cref="HowToReadTheDiff"/>, the ending from <see cref="HowItEnded.Describe"/>, and
-/// the offered decisions from <see cref="WorkItems.Decisions.OfferedIn"/>. The endpoint
+/// <see cref="HowToReadTheDiff"/>, the ending from <see cref="HowItEnded.Describe"/>, the
+/// offered decisions from <see cref="WorkItems.Decisions.OfferedIn"/>, and the routing
+/// verdict from <see cref="HowToReadTheRoute"/>. The endpoint
 /// that produces it holds no policy, calls no seam and moves nothing.
 /// </para>
 /// <para>
@@ -34,7 +36,8 @@ public sealed record WorkItemDetailView(
     [property: JsonPropertyName("rounds")] IReadOnlyList<RoundOnTheBoardView> Rounds,
     [property: JsonPropertyName("decisions")] IReadOnlyList<DecisionMadeView> Decisions,
     [property: JsonPropertyName("offeredDecisions")] IReadOnlyList<string> OfferedDecisions,
-    [property: JsonPropertyName("ending")] string Ending)
+    [property: JsonPropertyName("ending")] string Ending,
+    [property: JsonPropertyName("route")] RouteView Route)
 {
     /// <summary>
     /// One work item's whole record, read from the store's own rows and the factory's own
@@ -54,7 +57,51 @@ public sealed record WorkItemDetailView(
             [.. rounds.Select(RoundOnTheBoardView.Of)],
             [.. decisions.Select(DecisionMadeView.Of)],
             [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
-            HowItEnded.Describe(workItem, rounds, decisions));
+            HowItEnded.Describe(workItem, rounds, decisions),
+            RouteView.Of(workItem));
+    }
+}
+
+/// <summary>
+/// What the routing round decided about a work item, as the detail renders it — the whole
+/// of the routing judgement, serialised so the renderer writes no sentence of its own
+/// (ADR-0015).
+/// </summary>
+/// <param name="Say">
+/// The one sentence for this work item's kind, from <see cref="HowToReadTheRoute.Say"/>:
+/// what the routing round found and what happens next, in the reviewer's terms.
+/// </param>
+/// <param name="OffersAcceptance">
+/// Whether the detail should offer acceptance at all, from
+/// <see cref="HowToReadTheRoute.OffersAcceptance"/> — the same judgement the card carries,
+/// so a detail and its card cannot disagree about whether a click is real.
+/// </param>
+/// <param name="Kind">The kind's own name, one of <see cref="WorkItemKind"/>.</param>
+/// <param name="Reason">
+/// The routing round's own reason for its verdict, as the loop recorded it, or null for a
+/// work item that has not been routed.
+/// </param>
+/// <param name="Issue">
+/// The issue the factory filed for this verdict as its number, or null when nothing was
+/// filed.
+/// </param>
+public sealed record RouteView(
+    [property: JsonPropertyName("say")] string Say,
+    [property: JsonPropertyName("offersAcceptance")] bool OffersAcceptance,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("reason")] string? Reason,
+    [property: JsonPropertyName("issue")] int? Issue)
+{
+    public static RouteView Of(WorkItem workItem)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        return new RouteView(
+            HowToReadTheRoute.Say(workItem),
+            HowToReadTheRoute.OffersAcceptance(workItem),
+            workItem.Kind.ToString(),
+            workItem.RouteReason,
+            workItem.RoutingIssue);
     }
 }
 

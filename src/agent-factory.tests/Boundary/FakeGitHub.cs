@@ -16,6 +16,10 @@ public sealed class FakeGitHub : IGitHub
     private readonly List<string> _polled = [];
     private readonly Dictionary<string, int> _branchesResolved = new(StringComparer.Ordinal);
     private readonly List<MergeAttempt> _merges = [];
+    private readonly List<IssueFiled> _issues = [];
+    private readonly List<(int Parent, int Child)> _subIssues = [];
+    private readonly List<(int Blocked, int Blocker)> _blocking = [];
+    private readonly List<IssueClosed> _closed = [];
 
     /// <summary>
     /// What a merge refuses with, and how the factory has read it, or null when merges
@@ -34,6 +38,18 @@ public sealed class FakeGitHub : IGitHub
         FailureClass.Permanent,
         NoMergerBehindTheSeam);
 
+    /// <summary>
+    /// What issue writes refuse with, or null when they land. Starts as null rather than as
+    /// a standing refusal, because the opposite of the merger's default is the honest
+    /// default here: a routing round that says <c>Build</c> creates nothing at all, so most
+    /// tests never reach these and a fake that refused them by default would be refusing
+    /// calls nothing makes.
+    /// </summary>
+    private Refusal? _issueRefusal;
+
+    /// <summary>The issue number the fake hands out next, so created issues are distinguishable.</summary>
+    private int _nextIssueNumber = 1000;
+
     private const string NoMergerBehindTheSeam =
         "nothing is configured to land this merge: the fake GitHub refuses every merge until a test asks for one, "
             + "so that a test which wants Done has to say so";
@@ -43,6 +59,23 @@ public sealed class FakeGitHub : IGitHub
 
     /// <summary>Every merge the loop asked for, in the order it asked.</summary>
     public IReadOnlyList<MergeAttempt> Merges => _merges;
+
+    /// <summary>
+    /// Every issue the factory created, in the order it created them, each with the parent
+    /// it was filed under. The numbering is the fake's own and starts above the numbers a
+    /// test wrote down, so a test can tell a child the factory made from the parent it
+    /// started with without either number being ambiguous.
+    /// </summary>
+    public IReadOnlyList<IssueFiled> IssuesCreated => _issues;
+
+    /// <summary>Every parent link the factory made, as (parent, child).</summary>
+    public IReadOnlyList<(int Parent, int Child)> SubIssues => _subIssues;
+
+    /// <summary>Every blocking edge the factory made, as (blocked, blocker).</summary>
+    public IReadOnlyList<(int Blocked, int Blocker)> BlockingEdges => _blocking;
+
+    /// <summary>Every issue the factory closed, and what it said as it closed it.</summary>
+    public IReadOnlyList<IssueClosed> IssuesClosed => _closed;
 
     /// <summary>
     /// What the repository is like: the branch a change is built against, and every open
@@ -129,6 +162,21 @@ public sealed class FakeGitHub : IGitHub
         return this;
     }
 
+    /// <summary>
+    /// Issues cannot be created, linked or closed, and the factory has read that as this
+    /// kind of failure. This is the shape a project with a credential scoped to pull requests
+    /// and no more produces, and it is the reason the routing layer posts its children before
+    /// it records a verdict: a factory that recorded "needs grilling" and then failed to ask
+    /// would leave a work item waiting for a question nobody was ever asked.
+    /// </summary>
+    public FakeGitHub RefusingToWriteIssues(
+        FailureClass failure = FailureClass.Permanent,
+        string message = "the credential cannot write issues")
+    {
+        _issueRefusal = new Refusal(failure, message);
+        return this;
+    }
+
     public Task<string> GetDefaultBranchAsync(string repoUrl, CancellationToken cancellationToken)
     {
         var script = Read(repoUrl);
@@ -164,6 +212,72 @@ public sealed class FakeGitHub : IGitHub
         return _mergeRefusal is { } refusal
             ? Task.FromException(Refusing(refusal))
             : Task.CompletedTask;
+    }
+
+    public Task<CreatedIssue> CreateIssueAsync(NewIssue request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Recorded before the refusal is answered, so an issue the factory tried and could
+        // not file is still an attempt a test can read — the same reason merges are recorded
+        // first.
+        if (_issueRefusal is { } refused)
+        {
+            return Task.FromException<CreatedIssue>(Refusing(refused));
+        }
+
+        var number = _nextIssueNumber++;
+        _issues.Add(new IssueFiled(request.RepoUrl, number, request.Title, request.ParentNumber));
+
+        if (request.ParentNumber is { } parent)
+        {
+            _subIssues.Add((parent, number));
+        }
+
+        return Task.FromResult(new CreatedIssue(number, $"https://github.test/{request.RepoUrl}/issues/{number}"));
+    }
+
+    public Task MakeASubIssueAsync(
+        string repoUrl,
+        int parentNumber,
+        int childNumber,
+        CancellationToken cancellationToken)
+    {
+        if (_issueRefusal is { } refused)
+        {
+            return Task.FromException(Refusing(refused));
+        }
+
+        _subIssues.Add((parentNumber, childNumber));
+        return Task.CompletedTask;
+    }
+
+    public Task MakeBlockedByAsync(
+        string repoUrl,
+        int blockedNumber,
+        int blockerNumber,
+        CancellationToken cancellationToken)
+    {
+        if (_issueRefusal is { } refused)
+        {
+            return Task.FromException(Refusing(refused));
+        }
+
+        _blocking.Add((blockedNumber, blockerNumber));
+        return Task.CompletedTask;
+    }
+
+    public Task CloseIssueAsync(string repoUrl, int issueNumber, string because, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(because);
+
+        if (_issueRefusal is { } refused)
+        {
+            return Task.FromException(Refusing(refused));
+        }
+
+        _closed.Add(new IssueClosed(repoUrl, issueNumber, because));
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -211,3 +325,12 @@ public sealed class FakeGitHub : IGitHub
 /// to ship to, and which issue's change it was.
 /// </summary>
 public sealed record MergeAttempt(string RepoUrl, int IssueNumber);
+
+/// <summary>
+/// One issue the factory created, read back off the fake: its number, its title, and the
+/// issue it was filed under.
+/// </summary>
+public sealed record IssueFiled(string RepoUrl, int Number, string Title, int? Parent);
+
+/// <summary>One issue the factory closed, and the reason it left in the issue's own history.</summary>
+public sealed record IssueClosed(string RepoUrl, int Number, string Because);

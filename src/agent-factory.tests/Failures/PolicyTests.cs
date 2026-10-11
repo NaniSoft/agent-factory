@@ -340,11 +340,18 @@ public class PolicyTests
                 && called.Name == "get_IsRetryable"
                 && caller?.DeclaringType != typeof(RoundResult))
             {
-                asked.Add(caller?.Name ?? "?");
+                asked.Add($"{Owner(caller)?.Name}.{Method(caller)}");
             }
         }
 
-        Assert.Equal(["LandIfTheRoundIsOver"], asked.Distinct().Order(StringComparer.Ordinal));
+        // **Named through `Owner().Method()` rather than through `caller.Name`, which changed
+        // when the routing layer made the landing method async.** A method's body compiles
+        // into a state machine, so a read from inside an `async` method arrives attributed to
+        // `<LandTheRoute>d__37.MoveNext`; reading `caller.Name` alone reported `MoveNext`,
+        // which is the compiler's artefact rather than the reader, and a list naming a
+        // compiler's artefact names nothing. The recovery is the same one the GitHub-caller
+        // pin below uses and for the same reason.
+        Assert.Equal(["Orchestrator.LandIfTheRoundIsOverAsync"], asked.Distinct().Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -560,6 +567,19 @@ public class PolicyTests
         // round's diff holds nothing that could reach GitHub, and nothing in the process
         // calls the GitHub seam on a code path a diff could be on. The seam is called from
         // two places — intake, and the loop merging — and the board is neither.
+        //
+        // **A third was added for the routing layer and the list below says so
+        // (ADR-0015).** `IssuePublisher` files the tickets a routing round proposed, which is
+        // a GitHub write on the loop's behalf rather than on a diff's. It is named
+        // individually rather than folded into "the loop" so that this stays a short list of
+        // named things allowed to reach the network instead of a general permission: the
+        // publisher reaches the same single seam, under the same credential, on the same host,
+        // after the container that proposed the tickets is gone (ADR-0006), and it is
+        // stateless with no transport of its own.
+        //
+        // The availability claim this test exists for is untouched. A reviewer reads a diff
+        // long after a routing round filed whatever its verdict asked for, and the diff is
+        // still git, on this host, against a directory on this machine.
         // Named by owner and method rather than by declaring type: an async method's body
         // compiles into a state machine, so the caller is `<Approve>d__18` and the method
         // is `MoveNext` unless it is recovered the way `Method` recovers it.
@@ -572,9 +592,11 @@ public class PolicyTests
 
         Assert.All(readers, caller =>
             Assert.True(
-                caller.StartsWith("Poller.", StringComparison.Ordinal) || caller.StartsWith("Orchestrator.", StringComparison.Ordinal),
-                $"only intake and the loop may ask GitHub anything, and {caller} does: a round's diff is generated on "
-                    + "the host from the tree the round left, and a board that fetched one from the API would be showing a "
+                caller.StartsWith("Poller.", StringComparison.Ordinal)
+                    || caller.StartsWith("Orchestrator.", StringComparison.Ordinal)
+                    || caller.StartsWith("IssuePublisher.", StringComparison.Ordinal),
+                $"only intake, the loop and the issue publisher may ask GitHub anything, and {caller} does: a round's diff is "
+                    + "generated on the host from the tree the round left, and a board that fetched one from the API would be showing a "
                     + "second opinion from the service that produced the change (ADR-0006)"));
 
         // And the diff reader itself is a git process against a directory, with no client,
@@ -744,8 +766,22 @@ public class PolicyTests
         // fifth and is gone with the Razor board (#51): the JSON decision endpoint records
         // and steps without opening a scope of its own.
         //
+        // **It grew by two entries for the routing layer (ADR-0015)**, and neither is a new
+        // component taking a work item's identity:
+        //
+        // - `Orchestrator.LandTheRoute` is the loop landing a routing round, which is the
+        //   same "this round belongs to this work item" fact the other `Orchestrator`
+        //   entries already carry. It is a separate method rather than more of
+        //   `LandIfTheRoundIsOver` because the two landings write different things: one
+        //   records a diff and one records a verdict, and a scope opened once for both would
+        //   mean the verdict's records inherit a round number that means something else.
+        // - `IssuePublisher.PublishAsync` *is* a new component handed a work item, and it is
+        //   here rather than exempted because a component that files issues in somebody's
+        //   tracker on a work item's behalf and does not name that work item in its records
+        //   is exactly the thing this list exists to make somebody argue for.
+        //
         // What this does *not* prove is that every record those components write is inside a
-        // scope — a component can open one and then log outside it, and this cannot see that.
+        // scope - a component can open one and then log outside it, and this cannot see that.
         // `TraceabilityTests` is the other half: it drives the real components and reads the
         // identity off the records themselves.
         var opened = CallsMadeBy(typeof(FactoryApp).Assembly)
@@ -759,8 +795,10 @@ public class PolicyTests
         Assert.Equal(
             [
                 "GitHubClient.MergeAsync",
+                "IssuePublisher.PublishAsync",
                 "Orchestrator.Apply",
-                "Orchestrator.LandIfTheRoundIsOver",
+                "Orchestrator.LandIfTheRoundIsOverAsync",
+                "Orchestrator.LandTheRoute",
                 "Orchestrator.MergeWhatNobodyReviewed",
                 "Orchestrator.RetryAParkedMerge",
                 "Orchestrator.StartARound",
@@ -882,8 +920,34 @@ public class PolicyTests
         // way for the loop to start a container, read a credential or keep time from anything
         // but the four things it was given. What it can now do is *count*, which is a
         // narrower thing than any of the five it already could.
+        //
+        // **And this list grew by one more, deliberately and visibly, for the routing layer
+        // (ADR-0015): `IssuePublisher`.** The same reasoning applies and it is worth spelling
+        // out, because "the loop's dependencies did not change" is exactly the claim that
+        // erodes one dependency at a time.
+        //
+        // The publisher is not a boundary. It holds no clock, no transport, no credential
+        // reader and no options; it reaches the network only by calling the seam the loop is
+        // *already* given, so the loop has not gained a new way to reach anything — it has
+        // gained a collaborator that uses an existing one. What it can now do is ask the seam
+        // to create an issue, which is narrower than the four things it could already do,
+        // because it is a write the loop was already authorised to make (it merges).
+        //
+        // What is deliberately *not* here is anything the loop would need in order to decide
+        // for itself: no container runtime, no credential reader, no HTTP client, no second
+        // seam. Those would be a second opinion about a repository, and this list is the
+        // check that they cannot arrive.
         Assert.Equal(
-            ["IWorkItemStore", "INOpenCode", "IGitHub", "IClock", "ILogger`1", "FactoryMetrics", "FactoryOptions"],
+            [
+                "IWorkItemStore",
+                "INOpenCode",
+                "IGitHub",
+                "IssuePublisher",
+                "IClock",
+                "ILogger`1",
+                "FactoryMetrics",
+                "FactoryOptions",
+            ],
             typeof(Orchestrator)
                 .GetConstructors()
                 .Single()

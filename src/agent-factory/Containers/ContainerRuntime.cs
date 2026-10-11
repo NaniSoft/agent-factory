@@ -33,6 +33,13 @@ public sealed class ContainerRuntime
     /// <summary>Where the image writes the round's one result file, outside the working tree.</summary>
     public const string ResultPathInContainer = "/out/result.json";
 
+    /// <summary>
+    /// Where a routing round writes its verdict, outside the working tree and beside the
+    /// result file. A third channel out is a third file rather than a third mechanism: it is
+    /// lifted the same way, over the same boundary, at the same moment (ADR-0010).
+    /// </summary>
+    public const string RoutingPathInContainer = "/out/routing.json";
+
     /// <summary>Where the image puts the repository the round fetched.</summary>
     public const string WorkPathInContainer = "/work";
 
@@ -43,6 +50,14 @@ public sealed class ContainerRuntime
     /// the commit out of it and pushes it (ADR-0006).
     /// </summary>
     public const string RoundTreeFolder = "tree";
+
+    /// <summary>
+    /// The routing verdict's own name inside a round's landing directory. Named here
+    /// because two components have to agree on it — this runtime puts it there and the
+    /// routing reader looks for it there — and a path written out at each end is two
+    /// chances to disagree.
+    /// </summary>
+    public const string RoutingFileName = "routing.json";
 
     /// <summary>How much of a finished round's log is kept for the log line that follows it.</summary>
     private const int LogTailBytes = 8192;
@@ -111,7 +126,19 @@ public sealed class ContainerRuntime
                 Path.Combine(landing, RoundTreeFolder),
                 cancellationToken);
 
-            return new WorkerContainerRun(result, tree, tail.Text);
+            // The third file out, and it is lifted for every round rather than for the ones
+            // that are meant to write one: a build round writes no verdict, and asking for
+            // it costs one `docker cp` that comes back empty. Lifting it unconditionally is
+            // what keeps "a routing round that wrote nothing" arriving as an absent file the
+            // reader can say so about, rather than as a round whose verdict went missing
+            // because the factory only looked in the right place for some rounds.
+            var routing = await LiftAsync(
+                request.Name,
+                RoutingPathInContainer,
+                Path.Combine(landing, RoutingFileName),
+                cancellationToken);
+
+            return new WorkerContainerRun(result, tree, tail.Text, routing);
         }
         finally
         {

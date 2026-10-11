@@ -23,6 +23,14 @@ namespace AgentFactory.WorkItems;
 /// rounds, or by a human decline carries none of them, and so nothing the loop does on its
 /// own will ever merge it (ADR-0008).
 /// </para>
+/// <para>
+/// <c>Kind</c> and <c>RouteReason</c> are what the routing round decided about this issue,
+/// and they are a column rather than a label because the factory derives them from the
+/// issue's own words and reads no labels of its own (ADR-0007, ADR-0015). A work item with
+/// no route has <see cref="WorkItemKind.Unrouted"/> rather than a default verdict, because
+/// "nobody has looked at this yet" and "this is ready to build" are different facts and a
+/// board that cannot tell them apart is a board whose queue means nothing.
+/// </para>
 /// </remarks>
 public sealed record WorkItem(
     Guid Id,
@@ -38,4 +46,7 @@ public sealed record WorkItem(
     DateTimeOffset UpdatedUtc,
     DateTimeOffset? ReviewStartedUtc,
     int MergeAttempts = 0,
-    DateTimeOffset? MergeRetryAfterUtc = null);
+    DateTimeOffset? MergeRetryAfterUtc = null,
+    WorkItemKind Kind = WorkItemKind.Unrouted,
+    string? RouteReason = null,
+    int? RoutingIssue = null);

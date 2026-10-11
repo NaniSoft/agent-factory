@@ -49,6 +49,7 @@ public sealed class Orchestrator
     private readonly IWorkItemStore _store;
     private readonly INOpenCode _agent;
     private readonly IGitHub _github;
+    private readonly Routing.IssuePublisher _publisher;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
     private readonly FactoryMetrics _metrics;
@@ -107,6 +108,7 @@ public sealed class Orchestrator
         IWorkItemStore store,
         INOpenCode agent,
         IGitHub github,
+        Routing.IssuePublisher publisher,
         IClock clock,
         ILogger<Orchestrator> logger,
         FactoryMetrics metrics,
@@ -115,6 +117,7 @@ public sealed class Orchestrator
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _github = github ?? throw new ArgumentNullException(nameof(github));
+        _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
@@ -163,7 +166,7 @@ public sealed class Orchestrator
     /// </summary>
     private async Task<StepResult> StepOnceAsync()
     {
-        if (LandARoundThatIsOver())
+        if (await LandARoundThatIsOverAsync())
         {
             return StepResult.Moved;
         }
@@ -201,11 +204,11 @@ public sealed class Orchestrator
     /// recorded. The order is the dictionary's, and it does not matter which finishes
     /// first — they are independent attempts at independent work items.
     /// </remarks>
-    private bool LandARoundThatIsOver()
+    private async Task<bool> LandARoundThatIsOverAsync()
     {
         foreach (var run in _inFlight.Values.ToList())
         {
-            if (LandIfTheRoundIsOver(run))
+            if (await LandIfTheRoundIsOverAsync(run))
             {
                 return true;
             }
@@ -660,12 +663,35 @@ public sealed class Orchestrator
     /// — the page — renders the refusal rather than leaving a reviewer wondering whether
     /// their click was lost.
     /// </para>
+    /// <para>
+    /// <strong>An issue nobody has routed cannot be accepted, and that is a second
+    /// refusal rather than a smaller version of the first.</strong> A work item in Backlog
+    /// is either a routed build ticket or an issue the factory has not looked at yet, and
+    /// accepting the second would spend a container building something a routing round said
+    /// nothing about — which is the exact thing ADR-0015 exists to stop. The board does not
+    /// offer the button for one, so this is the store-side half of that: a caller that posts
+    /// the form by hand is refused by the same rule rather than being trusted.
+    /// </para>
     /// </remarks>
     public async Task<bool> PromoteAsync(Guid workItemId)
     {
         var workItem = _store.List().FirstOrDefault(item => item.Id == workItemId);
         if (workItem is not { Swimlane: Swimlane.Backlog })
         {
+            return false;
+        }
+
+        if (!WorkItemKinds.IsBuildable(workItem.Kind))
+        {
+            _logger.LogInformation(
+                "{Project}#{Issue} is {Kind} and cannot be accepted into the build: {Reason}",
+                workItem.Project,
+                workItem.IssueNumber,
+                WorkItemKinds.Label(workItem.Kind),
+                workItem.Kind == WorkItemKind.Unrouted
+                    ? "nothing has looked at it yet, and a routing round is what decides whether it is a build ticket"
+                    : "it is not a build ticket at all");
+
             return false;
         }
 
@@ -693,6 +719,15 @@ public sealed class Orchestrator
     /// no "not the one already running" guard here to forget.
     /// </para>
     /// <para>
+    /// **That reasoning is about build rounds only, and a routing round is the case that
+    /// breaks it** (ADR-0015): a routing round holds its work item's container without
+    /// moving the work item, so the lane gives no protection and
+    /// <see cref="NextToRoute"/> has to exclude in-flight work items explicitly. The
+    /// asymmetry is the point — a card that said "In Progress" while the round had only read
+    /// an issue would be claiming a worker was building something, so the lane is
+    /// deliberately not moved and the guard has to be somewhere else.
+    /// </para>
+    /// <para>
     /// Within the budget the order is by least-loaded project rather than by age, and that
     /// is the answer to "one noisy repository cannot starve the rest". A global budget on
     /// its own bounds the machine; it does not stop a project with a thousand open issues
@@ -710,11 +745,22 @@ public sealed class Orchestrator
             return false;
         }
 
-        var next = NextInFrontier();
+        // Built first, routed second, and that ordering is the argument above rather than an
+        // implementation detail: `NextInFrontier` is asked before `NextToRoute`, so an
+        // approved ticket is never made to wait behind the factory's own guess about an issue
+        // a reviewer has not read.
+        var next = NextInFrontier() ?? NextToRoute();
         if (next is null)
         {
             return false;
         }
+
+        // A work item nobody has routed yet is not a work item to build, whatever lane it is
+        // in. This is what stops a routing round being spent on something already looked at,
+        // and it is read from the kind rather than from the lane because the kind is the
+        // fact: Backlog holds unrouted issues *and* routed build tickets at the same time,
+        // and only one of them is eligible for a build round.
+        var purpose = RoundPurposes.IsRoutable(next.Kind) ? RoundPurpose.Route : RoundPurpose.Build;
 
         // The round's number is the work item's rounds so far, plus this one. The scope
         // carries the identity and the round number, and the call below is made *inside* it
@@ -728,14 +774,26 @@ public sealed class Orchestrator
         // is what keeps the loop from being blocked inside a container it knows nothing
         // about, and what makes the timeout a comparison against the clock. The token is
         // the round's own: ending the round ends the call.
-        var inFlight = new InFlight(next.Id, next.Project, next.IssueNumber, next.RoundCount + 1, _clock.UtcNow);
+        var inFlight = new InFlight(
+            next.Id, next.Project, next.IssueNumber, next.RoundCount + 1, _clock.UtcNow, purpose);
         inFlight.Pending = AskForTheRound(RoundFor(inFlight), inFlight.Token);
 
         _inFlight.Add(next.Id, inFlight);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
-        _store.Move(next.Id, Swimlane.InProgress);
+
+        // A build round takes its work item into In Progress because a container is holding
+        // it. A routing round does not: it is holding the same slot, but the work item is
+        // still in Backlog and still waiting for a reviewer, and moving it to In Progress
+        // would put a card in a lane meaning "a worker is building this" for a round that is
+        // only deciding what kind of work it is.
+        if (purpose == RoundPurpose.Build)
+        {
+            _store.Move(next.Id, Swimlane.InProgress);
+        }
+
         _logger.LogInformation(
-            "Round {Round} of {Project}#{Issue} started; {Busy} of {Budget} worker containers are in use.",
+            "{Purpose} round {Round} of {Project}#{Issue} started; {Busy} of {Budget} worker containers are in use.",
+            purpose == RoundPurpose.Route ? "A routing" : "Round",
             inFlight.RoundNumber,
             next.Project,
             next.IssueNumber,
@@ -744,6 +802,46 @@ public sealed class Orchestrator
 
         return true;
     }
+
+    /// <summary>
+    /// The oldest work item nobody has looked at yet, and only those.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Both conditions are load-bearing, and the lane is not the one that looks
+    /// redundant.</strong> A work item parked by a routing round that could not answer is
+    /// still <see cref="WorkItemKind.Unrouted"/> — that is precisely what "parked" means
+    /// here — so filtering on the kind alone hands the same work item straight back to the
+    /// next routing round, for ever. A tight loop with no sleep and no ceiling, which is the
+    /// one shape of failure this suite cannot even catch with a timeout. <c>Backlog</c> is
+    /// where an issue waits to be looked at; every other lane is a place it has already
+    /// been.
+    /// </para>
+    /// <para>
+    /// It is otherwise read from <see cref="WorkItemKind.Unrouted"/> rather than from the
+    /// lane, because the kind is the fact and the lane is where that fact is currently
+    /// parked. The moment a fourth verdict exists, "unrouted" is still exactly the set of
+    /// things with nobody's eyes on them.
+    /// </para>
+    /// <para>
+    /// <strong>The in-flight exclusion is here rather than relying on the lane, for the same
+    /// reason and it is a deliberate departure from <see cref="NextInFrontier"/>.</strong> A
+    /// build round moves its work item to In Progress, so a build round's work item cannot be
+    /// chosen again — that is why the frontier needs no such guard. A routing round
+    /// deliberately does not move its work item, because a card in "In Progress" would claim
+    /// a worker is building something the round has only read. So for a routing round the lane
+    /// gives no protection at all, and without this guard the second slot in the budget would
+    /// start a second round for the work item the first one is still holding — which is a
+    /// duplicate-key throw from a container budget of two, on every tick, for ever.
+    /// </para>
+    /// </remarks>
+    private WorkItem? NextToRoute() =>
+        _store.List()
+            .Where(item => item.Swimlane == Swimlane.Backlog && RoundPurposes.IsRoutable(item.Kind))
+            .Where(item => !_inFlight.ContainsKey(item.Id))
+            .OrderBy(item => item.CreatedUtc)
+            .ThenBy(item => item.IssueNumber)
+            .FirstOrDefault();
 
     /// <summary>
     /// The work item in Frontier whose project is holding the fewest containers right now,
@@ -801,7 +899,7 @@ public sealed class Orchestrator
     /// not released its container, and the slot it holds is the reason a third round
     /// cannot start while two are still being tried.
     /// </remarks>
-    private bool LandIfTheRoundIsOver(InFlight run)
+    private async Task<bool> LandIfTheRoundIsOverAsync(InFlight run)
     {
         if (run.IsWaitingToRetry)
         {
@@ -851,6 +949,11 @@ public sealed class Orchestrator
         _inFlight.Remove(run.WorkItemId);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
         run.Dispose();
+
+        if (run.Purpose == RoundPurpose.Route)
+        {
+            return await LandTheRoute(run, result).ConfigureAwait(false);
+        }
 
         var round = _store.RecordRound(
             run.WorkItemId,
@@ -913,6 +1016,146 @@ public sealed class Orchestrator
     /// and it cannot: the attempt ceiling ends the round, and the round timeout ends the
     /// attempt.
     /// </remarks>
+    /// <summary>
+    /// Lands a routing round: records what it decided, and files whatever it decided a human
+    /// has to be given.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A routing round is never charged to the round ceiling.</strong> It does not go
+    /// through <c>RecordRound</c> at all, so it does not bump the work item's round count and
+    /// the board's "round 1 of 3" stays true — a round that read an issue and said "this
+    /// needs a map" has not attempted to build anything, and charging it as an attempt would
+    /// spend a reviewer's budget on the factory's own housekeeping. It is still a container,
+    /// and it is still inside the budget: the cost is bounded even though the count is not.
+    /// </para>
+    /// <para>
+    /// <strong>The questions are filed before the verdict is recorded, and that order is the
+    /// point.</strong> A verdict of <c>Grill</c> recorded without the question issue existing
+    /// would leave a work item in Waiting with nothing to answer and nothing pointing at
+    /// where to answer it — a card saying the factory needs something from somebody and giving
+    /// that somebody nowhere to give it. So the publication comes first, and a publication
+    /// that fails turns the verdict into a park carrying the refusal.
+    /// </para>
+    /// <para>
+    /// A round that did not run to completion parks rather than being retried. The retry
+    /// policy has already spent itself on whatever the failure was — three attempts, holding
+    /// the slot — and the work item still has a reviewer's click available, which is a
+    /// different and better answer than the same routing round being asked for again
+    /// (ADR-0008).
+    /// </para>
+    /// </remarks>
+    private async Task<bool> LandTheRoute(InFlight run, RoundResult result)
+    {
+        using var trace = _logger.ForWorkItem(
+            run.WorkItemId, run.Project, run.IssueNumber, run.RoundNumber);
+
+        var workItem = _store.Get(run.WorkItemId);
+        if (workItem is null)
+        {
+            // Not reachable: the round is landing, so the work item was there when the round
+            // was started. Said rather than ignored because the alternative is a null
+            // reference in a component whose whole argument is that it never guesses.
+            _logger.LogWarning(
+                "A routing round came back for {Project}#{Issue} and there is no work item to record it against.",
+                run.Project,
+                run.IssueNumber);
+
+            return true;
+        }
+
+        if (result.Outcome != RoundOutcome.Produced)
+        {
+            Park(workItem, DescribeARoundThatCouldNotAnswer(result));
+
+            return true;
+        }
+
+        // The reader's own words for why, carried through unchanged. A round that wrote
+        // nothing readable and a round that wrote something wrong are both "the factory
+        // cannot act on this", and the distinction is the reader's to draw rather than this
+        // method's.
+        if (result.Routing is not { } outcome)
+        {
+            Park(
+                workItem,
+                "the routing round came back with no verdict at all, so nothing has said what kind of work this is");
+
+            return true;
+        }
+
+        if (outcome is not { IsReadable: true, Proposal: { } proposal })
+        {
+            Park(workItem, outcome.UnreadableBecause ?? "the routing round's verdict could not be read");
+
+            return true;
+        }
+
+        int? filedAs;
+        try
+        {
+            filedAs = await _publisher.PublishAsync(workItem, proposal, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (FactoryFailure refused)
+        {
+            // The questions were not filed, so the verdict cannot be acted on and is not
+            // recorded. The reason names the refusal, because a project whose credential can
+            // push but cannot write issues will hit this on every routing round, and the card
+            // has to say that rather than showing a work item waiting on a question that is
+            // nowhere.
+            Park(workItem, $"the factory could not file what {proposal.Verdict} asks for: {refused.Message}");
+
+            return true;
+        }
+
+        _store.RecordRoute(workItem.Id, proposal.Verdict, proposal.Because, filedAs);
+
+        _logger.LogInformation(
+            "{Project}#{Issue} was routed {Verdict}: {Because}{Filed}",
+            workItem.Project,
+            workItem.IssueNumber,
+            proposal.Verdict,
+            proposal.Because,
+            filedAs is { } issue ? $". Its questions or map are in #{issue}" : string.Empty);
+
+        _metrics.RoundCameBack(workItem.Project, RoundOutcome.Produced);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Parks a work item whose routing round could not answer, keeping the round's own
+    /// account of why on the card. Deliberately <em>not</em> through the merge-failure path
+    /// and not through a decision: neither of those is what happened, and borrowing either
+    /// would put a counter on the work item that a later merge would then inherit.
+    /// </summary>
+    private void Park(WorkItem workItem, string because)
+    {
+        _store.RecordRoute(workItem.Id, WorkItemKind.Unrouted, because);
+
+        _logger.LogWarning(
+            "{Project}#{Issue} is parked: {Because}",
+            workItem.Project,
+            workItem.IssueNumber,
+            because);
+    }
+
+    /// <summary>
+    /// What a routing round that did not finish should be told, in one sentence. The payload
+    /// and the log carry the rest: a rate-limited round's payload is the only account of what
+    /// stopped it (story 29), and this is the one-line version of the same fact on the card.
+    /// </summary>
+    private static string DescribeARoundThatCouldNotAnswer(RoundResult result) => result.Outcome switch
+    {
+        RoundOutcome.TimedOut =>
+            "a routing round ran past the round timeout without saying what kind of work this is",
+        _ when result.Failure == FailureClass.Transient =>
+            "a routing round failed transiently without saying what kind of work this is",
+        _ =>
+            "a routing round did not run to completion, so nothing has said what kind of work this is",
+    };
+
     private bool WaitOutTheBackoff(InFlight run)
     {
         var backoff = FactoryConstants.RetryBackoff(run.Attempts);
@@ -997,7 +1240,8 @@ public sealed class Orchestrator
             workItem.BaseBranch,
             BriefFor(run.WorkItemId),
             run.RoundNumber,
-            run.Attempts);
+            run.Attempts,
+            run.Purpose);
     }
 
     /// <summary>
@@ -1074,11 +1318,21 @@ public sealed class Orchestrator
         string project,
         int issueNumber,
         int roundNumber,
-        DateTimeOffset startedUtc) : IDisposable
+        DateTimeOffset startedUtc,
+        RoundPurpose purpose) : IDisposable
     {
         private readonly CancellationTokenSource _rounds = new();
 
         public Guid WorkItemId { get; } = workItemId;
+
+        /// <summary>
+        /// What this round is for, held here rather than read back off the work item because
+        /// the work item's kind may have changed underneath it — a routing round's whole job
+        /// is to change it — and a round that landed against the wrong lane would be the one
+        /// bug in this component that nothing else could catch. It is the value the round was
+        /// asked for with, which is the only thing that can still be true at landing time.
+        /// </summary>
+        public RoundPurpose Purpose { get; } = purpose;
 
         /// <summary>
         /// The project this round is for, kept here because the loop has to be able to ask

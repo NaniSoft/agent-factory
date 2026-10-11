@@ -2,6 +2,8 @@ namespace AgentFactory.Tests.Boundary;
 
 using AgentFactory.Failures;
 using AgentFactory.Rounds;
+using AgentFactory.Routing;
+using AgentFactory.WorkItems;
 
 /// <summary>
 /// The agent, faked. One call is one round: it hands back a value the test wrote down
@@ -98,6 +100,44 @@ public sealed class FakeNOpenCode : INOpenCode
     /// <summary>The next round ran, changed files, and came back with a result.</summary>
     public FakeNOpenCode Producing(string? resultPayload = null, string? agentNote = null) =>
         Yielding(RoundResult.Produced(resultPayload, agentNote));
+
+    /// <summary>
+    /// The next round came back with a verdict on what kind of work its issue is
+    /// (ADR-0015).
+    /// </summary>
+    /// <remarks>
+    /// Scripted as a real <see cref="Routing.RoutingOutcome"/> rather than as a flag on the
+    /// store, because the round runner produces exactly this and a test that set the kind
+    /// itself would be testing a state the factory cannot reach any other way. A routing
+    /// round that writes a verdict is still <see cref="RoundOutcome.Produced"/>: it ran to
+    /// completion and it wrote a file, which is the same boundary every other round is
+    /// judged on and the same one decides whether it is retried.
+    /// </remarks>
+    public FakeNOpenCode RoutingAs(
+        WorkItemKind kind,
+        string because = "the issue is a build ticket",
+        IReadOnlyList<ProposedQuestion>? questions = null,
+        ProposedMap? map = null) =>
+        Yielding(RoundResult.Produced(
+            "the agent read the issue and wrote a verdict",
+            agentNote: null,
+            log: null,
+            diff: null,
+            routing: RoutingOutcome.Read(new RoutingProposal(kind, because, questions ?? [], map))));
+
+    /// <summary>
+    /// The next routing round wrote something this build cannot read, which is the shape
+    /// that parks a work item — and the reason "the round said nothing" and "the round said
+    /// Build" have to stay two different events.
+    /// </summary>
+    public FakeNOpenCode RoutingThatCannotAnswer(
+        string because = "the round wrote a verdict this build cannot read") =>
+        Yielding(RoundResult.Produced(
+            "the agent wrote something",
+            agentNote: null,
+            log: null,
+            diff: null,
+            routing: RoutingOutcome.Unreadable(because)));
 
     /// <summary>
     /// The next round never got to run: the container would not start, or the files could
