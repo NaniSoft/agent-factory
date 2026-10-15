@@ -7,7 +7,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Infrastructure.Results;
-using AgentFactory.Rounds;
+using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
 using AgentFactory;

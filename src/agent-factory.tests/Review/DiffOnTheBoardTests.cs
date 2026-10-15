@@ -4,9 +4,10 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.Results;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Results;
 using AgentFactory.Infrastructure.Results;
-using AgentFactory.Rounds;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Xunit.Sdk;
@@ -1127,7 +1128,7 @@ public sealed class RefusingGitHub : AgentFactory.GitHub.IGitHub
         CancellationToken cancellationToken) =>
         throw NoGitHub();
 
-    public Task<IReadOnlyList<AgentFactory.GitHub.IssueComment>> ReadCommentsAsync(
+    public Task<IReadOnlyList<IssueComment>> ReadCommentsAsync(
         string repoUrl,
         int issueNumber,
         CancellationToken cancellationToken) =>

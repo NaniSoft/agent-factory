@@ -8,7 +8,7 @@ using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Infrastructure.Results;
-using AgentFactory.Rounds;
+using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
 using AgentFactory.WorkItems;

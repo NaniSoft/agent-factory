@@ -10,7 +10,7 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Infrastructure.Results;
-using AgentFactory.Rounds;
+using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
 using AgentFactory.WorkItems;

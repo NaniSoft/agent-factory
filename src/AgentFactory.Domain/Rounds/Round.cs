@@ -1,8 +1,9 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Domain.Rounds;
 
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Results;
-using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.Routing;
 
 /// <summary>
 /// One round: the whole attempt at a work item. The agent builds, tests and corrects
@@ -75,14 +76,14 @@ public sealed record Round(
     int RoundNumber,
     int Attempt,
     RoundPurpose Purpose = RoundPurpose.Build,
-    IReadOnlyList<GitHub.IssueComment>? Conversation = null)
+    IReadOnlyList<IssueComment>? Conversation = null)
 {
     /// <summary>
     /// The issue's comments, in order, or an empty list when the issue has none or the
     /// conversation could not be read — which the loop logs rather than leaving to a round
     /// that cannot tell the difference.
     /// </summary>
-    public IReadOnlyList<GitHub.IssueComment> Conversation { get; init; } = Conversation ?? [];
+    public IReadOnlyList<IssueComment> Conversation { get; init; } = Conversation ?? [];
 }
 
 /// <summary>
@@ -135,7 +136,7 @@ public sealed record RoundResult(
     FailureClass? Failure,
     string? Log,
     HostDiff? Diff = null,
-    Routing.RoutingOutcome? Routing = null)
+    RoutingOutcome? Routing = null)
 {
     /// <summary>
     /// A round whose own last command returned zero, whatever the commands inside it
@@ -147,7 +148,7 @@ public sealed record RoundResult(
         string? agentNote,
         string? log = null,
         HostDiff? diff = null,
-        Routing.RoutingOutcome? routing = null) =>
+        RoutingOutcome? routing = null) =>
         new(RoundOutcome.Produced, payload, agentNote, Failure: null, log, diff, routing);
 
     /// <summary>
@@ -174,7 +175,7 @@ public sealed record RoundResult(
         string? log = null,
         HostDiff? diff = null,
         string? payload = null,
-        Routing.RoutingOutcome? routing = null) =>
+        RoutingOutcome? routing = null) =>
         new(RoundOutcome.Failed, payload, null, failure, log, diff, routing);
 
     /// <summary>

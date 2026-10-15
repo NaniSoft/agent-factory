@@ -1,4 +1,4 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Application.Rounds;
 
 using AgentFactory.Domain.Failures;
 

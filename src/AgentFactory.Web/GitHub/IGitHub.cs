@@ -1,5 +1,7 @@
 namespace AgentFactory.GitHub;
 
+using AgentFactory.Domain.Issues;
+
 /// <summary>
 /// The one GitHub-facing seam. Polling and merging are the same boundary, so they are
 /// one interface rather than two that can disagree about what a repository is.
@@ -165,14 +167,6 @@ public sealed record OpenIssue(
     /// <summary>An issue with nothing else on it: no labels, nobody assigned.</summary>
     public static OpenIssue Plain(int number, string title, string body) => new(number, title, body, [], []);
 }
-
-/// <summary>
-/// One turn of an issue's conversation: who said it, what they said, and when. The
-/// created time is carried because it is how the loop tells an answer from the silence it
-/// landed in — a Waiting work item watches its questions issue for anything said after the
-/// question was asked, and a timestamp is the only honest test of that.
-/// </summary>
-public sealed record IssueComment(string Author, string Body, DateTimeOffset CreatedUtc);
 
 /// <summary>A pull request the factory opened. Always a real one, so a merge is revertible.</summary>
 public sealed record PullRequest(int Number, string Url);

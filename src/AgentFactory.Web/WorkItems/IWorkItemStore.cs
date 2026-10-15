@@ -4,7 +4,6 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Rounds;
 
 /// <summary>
 /// The store of record. Work items are persisted, so a restart does not discard an
@@ -14,12 +13,13 @@ using AgentFactory.Rounds;
 /// <para>
 /// <strong>This is a port and it has not moved yet, which is deliberate rather than
 /// forgotten.</strong> `AgentFactory.Application` declares the eight ports, and this is
-/// one of them. It cannot get there until three of its own types can: <c>RoundOutcome</c>
-/// has moved to `Domain`, but <c>RecordRound</c> also takes a
-/// <see cref="HostDiff"/> and hands back a <see cref="RoundResultRecord"/>, and
-/// both of those are persistence shape that belongs beside the store
-/// (docs/architecture.md, "The dependency rule"). It moves the moment they do - the
-/// Results slice for the diff, the store slice for the records - and nothing about this
+/// one of them. It cannot get there until its own shapes can, and the Results slice and
+/// the Rounds slice have both been answered: <c>RoundOutcome</c>, <c>HostDiff</c> and
+/// <c>RoundResult</c> are all `Domain` now, so every type this interface names except the
+/// store's own records already lives inward of it. What is left is
+/// <c>WorkItemRecord</c>, <c>RoundResultRecord</c> and <c>DecisionRecord</c> - persistence
+/// shape that belongs beside the store and is #77's to move (docs/architecture.md,
+/// "The dependency rule"). It moves the moment those do, and nothing about this
 /// interface changes when it does.
 /// </para>
 /// </remarks>

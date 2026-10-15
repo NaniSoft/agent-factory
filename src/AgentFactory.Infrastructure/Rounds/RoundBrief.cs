@@ -1,5 +1,8 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Infrastructure.Rounds;
 
+using AgentFactory.Domain.Issues;
+using AgentFactory.Domain.Rounds;
+using AgentFactory.Infrastructure.Routing;
 using System.Text;
 
 /// <summary>
@@ -103,7 +106,7 @@ public static class RoundBrief
             .AppendLine()
             .AppendLine("```json")
             .AppendLine("{")
-            .AppendLine("  \"schema\": \"" + Routing.RoutingReader.Schema + "\",")
+            .AppendLine("  \"schema\": \"" + RoutingReader.Schema + "\",")
             .AppendLine("  \"verdict\": \"Build\",")
             .AppendLine("  \"because\": \"the issue names what to change and a reviewer could judge it\"")
             .AppendLine("}")
@@ -198,7 +201,7 @@ public static class RoundBrief
     /// is no conversation, because a section of nothing reads like a round that forgot to
     /// look.
     /// </summary>
-    private static void Conversation(StringBuilder brief, IReadOnlyList<GitHub.IssueComment> conversation)
+    private static void Conversation(StringBuilder brief, IReadOnlyList<IssueComment> conversation)
     {
         if (conversation.Count == 0)
         {

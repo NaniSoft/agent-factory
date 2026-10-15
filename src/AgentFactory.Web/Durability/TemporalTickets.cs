@@ -1,8 +1,8 @@
 namespace AgentFactory.Durability;
 
 using AgentFactory.Application;
+using AgentFactory.Application.Rounds;
 using AgentFactory.GitHub;
-using AgentFactory.Rounds;
 using AgentFactory.Routing;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection;
@@ -108,9 +108,9 @@ public sealed class TemporalTickets : BackgroundService, ITicketStarter
 
             var activities = new TicketActivities(
                 _services.GetRequiredService<IWorkItemStore>(),
-                _services.GetRequiredService<AgentFactory.Rounds.INOpenCode>(),
-                _services.GetRequiredService<AgentFactory.Routing.IssuePublisher>(),
-                _services.GetRequiredService<AgentFactory.GitHub.IGitHub>(),
+                _services.GetRequiredService<INOpenCode>(),
+                _services.GetRequiredService<IssuePublisher>(),
+                _services.GetRequiredService<IGitHub>(),
                 _loggerFactory.CreateLogger<TicketActivities>());
 
             using var worker = new TemporalWorker(

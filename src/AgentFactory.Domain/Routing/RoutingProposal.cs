@@ -1,6 +1,5 @@
-namespace AgentFactory.Routing;
+namespace AgentFactory.Domain.Routing;
 
-using AgentFactory.WorkItems;
 using AgentFactory.Domain.WorkItems;
 
 /// <summary>

@@ -1,4 +1,6 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Application.Rounds;
+
+using AgentFactory.Domain.Rounds;
 
 /// <summary>
 /// The orchestrator's interface for running one round. One call, one round, one result.

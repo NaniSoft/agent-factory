@@ -1,14 +1,17 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Infrastructure.Rounds;
 
+using AgentFactory.Application;
 using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
-using AgentFactory.Application;
+using AgentFactory.Application.Rounds;
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Infrastructure.Projects;
 using AgentFactory.Infrastructure.Results;
+using AgentFactory.Infrastructure.Routing;
 using Microsoft.Extensions.Logging;
 
 // The host diff. The round's tree is on the host because the host has to be able to reach
@@ -121,7 +124,7 @@ public sealed class RoundRunner : INOpenCode
     private readonly ProjectLoadReport _projects;
     private readonly FactoryOptions _options;
     private readonly RoundResultDeriver _deriver;
-    private readonly Routing.RoutingReader _routing;
+    private readonly RoutingReader _routing;
     private readonly ICredentialReader _credentials;
     private readonly ILogger<RoundRunner> _logger;
 
@@ -132,7 +135,7 @@ public sealed class RoundRunner : INOpenCode
         RoundResultDeriver deriver,
         ICredentialReader credentials,
         ILogger<RoundRunner> logger)
-        : this(processes, projects, options, deriver, new Routing.RoutingReader(), credentials, logger)
+        : this(processes, projects, options, deriver, new RoutingReader(), credentials, logger)
     {
     }
 
@@ -147,7 +150,7 @@ public sealed class RoundRunner : INOpenCode
         ProjectLoadReport projects,
         FactoryOptions options,
         RoundResultDeriver deriver,
-        Routing.RoutingReader routing,
+        RoutingReader routing,
         ICredentialReader credentials,
         ILogger<RoundRunner> logger)
     {

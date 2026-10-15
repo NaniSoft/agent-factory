@@ -1,6 +1,5 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Domain.Rounds;
 
-using AgentFactory.WorkItems;
 using AgentFactory.Domain.WorkItems;
 
 /// <summary>

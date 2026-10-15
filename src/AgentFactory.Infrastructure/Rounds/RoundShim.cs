@@ -1,4 +1,4 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Infrastructure.Rounds;
 
 using System.Text;
 

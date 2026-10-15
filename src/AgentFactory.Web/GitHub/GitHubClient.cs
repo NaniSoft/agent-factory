@@ -9,6 +9,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.WorkItems;

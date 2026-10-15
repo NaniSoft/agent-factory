@@ -5,8 +5,10 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
-using AgentFactory.Rounds;
 using AgentFactory.Routing;
+using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.Routing;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 

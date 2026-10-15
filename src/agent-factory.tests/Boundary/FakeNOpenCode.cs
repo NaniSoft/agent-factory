@@ -1,10 +1,10 @@
 namespace AgentFactory.Tests.Boundary;
 
+using AgentFactory.Application.Rounds;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Rounds;
-using AgentFactory.Routing;
 using AgentFactory.WorkItems;
 
 /// <summary>
@@ -108,7 +108,7 @@ public sealed class FakeNOpenCode : INOpenCode
     /// (ADR-0015).
     /// </summary>
     /// <remarks>
-    /// Scripted as a real <see cref="Routing.RoutingOutcome"/> rather than as a flag on the
+    /// Scripted as a real <see cref="RoutingOutcome"/> rather than as a flag on the
     /// store, because the round runner produces exactly this and a test that set the kind
     /// itself would be testing a state the factory cannot reach any other way. A routing
     /// round that writes a verdict is still <see cref="RoundOutcome.Produced"/>: it ran to

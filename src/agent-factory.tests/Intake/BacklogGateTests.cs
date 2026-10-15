@@ -3,7 +3,6 @@ namespace AgentFactory.Tests.Intake;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Loop;
-using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection;

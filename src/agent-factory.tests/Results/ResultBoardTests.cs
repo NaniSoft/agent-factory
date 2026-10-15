@@ -4,7 +4,7 @@ using AgentFactory.Application.Results;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Results;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Rounds;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 

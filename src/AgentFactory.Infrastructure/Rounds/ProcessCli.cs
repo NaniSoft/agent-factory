@@ -1,5 +1,6 @@
-namespace AgentFactory.Rounds;
+namespace AgentFactory.Infrastructure.Rounds;
 
+using AgentFactory.Application.Rounds;
 using AgentFactory.Domain.Failures;
 using System.ComponentModel;
 using System.Diagnostics;

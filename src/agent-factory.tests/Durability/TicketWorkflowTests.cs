@@ -4,6 +4,9 @@ using AgentFactory.Durability;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Routing;
+using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.Routing;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -92,7 +95,7 @@ public class TicketWorkflowTests
         // and neither ran twice for one ticket.
         Assert.Equal(2, agent.AskedFor.Count);
         Assert.Equal(
-            [AgentFactory.Rounds.RoundPurpose.Route.ToString(), AgentFactory.Rounds.RoundPurpose.Build.ToString()],
+            [RoundPurpose.Route.ToString(), RoundPurpose.Build.ToString()],
             agent.AskedFor.Select(round => round.Purpose.ToString()));
 
         var merge = Assert.Single(github.Merges);

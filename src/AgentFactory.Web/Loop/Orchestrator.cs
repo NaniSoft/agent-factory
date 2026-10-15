@@ -2,12 +2,13 @@ namespace AgentFactory.Loop;
 
 using AgentFactory.Application.Clock;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application.Rounds;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
-using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 
@@ -208,7 +209,7 @@ public sealed class Orchestrator
         foreach (var item in _store.List().Where(item =>
             item.Swimlane == Swimlane.Waiting && item.RoutingIssue is { }))
         {
-            IReadOnlyList<GitHub.IssueComment> conversation;
+            IReadOnlyList<IssueComment> conversation;
             try
             {
                 conversation = await _github.ReadCommentsAsync(
@@ -898,10 +899,10 @@ public sealed class Orchestrator
         // fatal: a conversation that cannot be read is a round with less to go on and not
         // a reason to spend a container finding that out again. The refusal is logged and
         // the next round reads again.
-        IReadOnlyList<GitHub.IssueComment> conversation;
+        IReadOnlyList<IssueComment> conversation;
         try
         {
-            var all = new List<GitHub.IssueComment>();
+            var all = new List<IssueComment>();
             all.AddRange(await _github.ReadCommentsAsync(
                 next.RepoUrl, next.IssueNumber, CancellationToken.None).ConfigureAwait(false));
 
@@ -1504,7 +1505,7 @@ public sealed class Orchestrator
         int roundNumber,
         DateTimeOffset startedUtc,
         RoundPurpose purpose,
-        IReadOnlyList<GitHub.IssueComment> conversation) : IDisposable
+        IReadOnlyList<IssueComment> conversation) : IDisposable
     {
         private readonly CancellationTokenSource _rounds = new();
 
@@ -1514,7 +1515,7 @@ public sealed class Orchestrator
         /// re-reading the conversation mid-round would hand attempt two a different work
         /// order than the one attempt one was given.
         /// </summary>
-        public IReadOnlyList<GitHub.IssueComment> Conversation { get; } = conversation;
+        public IReadOnlyList<IssueComment> Conversation { get; } = conversation;
 
         public Guid WorkItemId { get; } = workItemId;
 

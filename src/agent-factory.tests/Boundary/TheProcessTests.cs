@@ -5,10 +5,11 @@ using AgentFactory;
 using System.Net;
 
 using AgentFactory.Domain.Failures;
+using AgentFactory.Application.Rounds;
+using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
-using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;

@@ -1,7 +1,8 @@
 namespace AgentFactory.Tests.Routing;
 
-using AgentFactory.Routing;
+using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Infrastructure.Routing;
 using AgentFactory.WorkItems;
 
 /// <summary>
