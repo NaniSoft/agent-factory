@@ -11,6 +11,7 @@ using AgentFactory.Application.Rounds;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;

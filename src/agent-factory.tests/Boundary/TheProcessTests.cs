@@ -7,6 +7,7 @@ using System.Net;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Infrastructure.Rounds;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;

@@ -3,9 +3,9 @@ namespace AgentFactory.Tests.Rounds;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
-using AgentFactory.Routing;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
@@ -301,7 +301,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // auto-merge switch (#36) - settings, not a seam: nothing to call, nothing behind
         // it.
         //
-        // **And an eighth arrived for the routing layer (ADR-0015): `IssuePublisher`.** It
+        // **And an eighth arrived for the routing layer (ADR-0015): the publisher.** It
         // is not a boundary either, and the reason is worth the sentence: it holds no clock,
         // no transport, no credential reader and no options, and the only way it reaches
         // anything is by calling the `IGitHub` this constructor already had. So the loop has
@@ -309,12 +309,18 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // uses one it already had. What would have been a real breach, and is what this list
         // is for, is a `ContainerRuntime`, an `HttpClient`, a `DockerCli` or a second seam,
         // and none of those is here. `PolicyTests` asserts the same list and argues it.
+        //
+        // **The eighth entry was renamed when the Routing slice moved, and the rename is the
+        // point.** It used to name the concrete `IssuePublisher`, which is the one place the
+        // loop held a type from the far side of the boundary; it names the port
+        // `IIssuePublisher` now, declared in `Application` and implemented in
+        // `Infrastructure` (docs/architecture.md, rule 1). Same eight, same order, same claim.
         Assert.Equal(
             [
                 "IWorkItemStore",
                 "INOpenCode",
                 "IGitHub",
-                "IssuePublisher",
+                "IIssuePublisher",
                 "IClock",
                 "ILogger`1",
                 "FactoryMetrics",

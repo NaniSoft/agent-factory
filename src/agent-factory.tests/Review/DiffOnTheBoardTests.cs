@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Review;
 
 using AgentFactory.Application;
+using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.Results;
@@ -1118,12 +1119,12 @@ public class DiffOnTheBoardTests
 /// to be called. Every call throws, so a board that rendered a diff by asking the API
 /// would fail here rather than quietly pass.
 /// </summary>
-public sealed class RefusingGitHub : AgentFactory.GitHub.IGitHub
+public sealed class RefusingGitHub : IGitHub
 {
     public Task<string> GetDefaultBranchAsync(string repoUrl, CancellationToken cancellationToken) =>
         throw NoGitHub();
 
-    public Task<IReadOnlyList<AgentFactory.GitHub.OpenIssue>> ListOpenIssuesAsync(
+    public Task<IReadOnlyList<OpenIssue>> ListOpenIssuesAsync(
         string repoUrl,
         CancellationToken cancellationToken) =>
         throw NoGitHub();
@@ -1134,16 +1135,16 @@ public sealed class RefusingGitHub : AgentFactory.GitHub.IGitHub
         CancellationToken cancellationToken) =>
         throw NoGitHub();
 
-    public Task<AgentFactory.GitHub.PullRequest> OpenPullRequestAsync(
-        AgentFactory.GitHub.PullRequestRequest request,
+    public Task<PullRequest> OpenPullRequestAsync(
+        PullRequestRequest request,
         CancellationToken cancellationToken) =>
         throw NoGitHub();
 
     public Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken) =>
         throw NoGitHub();
 
-    public Task<AgentFactory.GitHub.CreatedIssue> CreateIssueAsync(
-        AgentFactory.GitHub.NewIssue request,
+    public Task<CreatedIssue> CreateIssueAsync(
+        NewIssue request,
         CancellationToken cancellationToken) =>
         throw NoGitHub();
 

@@ -1,14 +1,14 @@
 namespace AgentFactory.Durability;
 
 using AgentFactory.Application.Credentials;
+using AgentFactory.Application.GitHub;
 using AgentFactory.Application.Rounds;
+using AgentFactory.Application.Routing;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.GitHub;
-using AgentFactory.Routing;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 using Temporalio.Activities;
@@ -71,7 +71,7 @@ public record MergeLanded(bool Merged, string? ParkedBecause);
 public sealed class TicketActivities(
     IWorkItemStore store,
     INOpenCode agent,
-    IssuePublisher publisher,
+    IIssuePublisher publisher,
     IGitHub github,
     ILogger<TicketActivities> logger) : ITicketActivities
 {

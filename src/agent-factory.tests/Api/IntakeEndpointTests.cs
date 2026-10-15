@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Api;
 
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory;

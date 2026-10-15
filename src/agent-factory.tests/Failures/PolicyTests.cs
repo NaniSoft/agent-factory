@@ -11,7 +11,6 @@ using AgentFactory.Polling;
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Results;
 using AgentFactory.Infrastructure.Results;
-using AgentFactory.Routing;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Infrastructure.Rounds;
@@ -635,6 +634,17 @@ public class PolicyTests
         // after the round that proposed the tickets is gone (ADR-0006), and it is
         // stateless with no transport of its own.
         //
+        // **And this entry did not change when the Routing slice moved, which is worth
+        // saying because the architecture document predicted it would.** The loop now holds
+        // the port `IIssuePublisher` rather than the concrete publisher, but what this
+        // assertion names is the *caller* — the component whose body makes the call — and
+        // the component is still called `IssuePublisher`. The four names below are a
+        // predicate over who may reach the seam, not a list of types the loop depends on, so
+        // the one pin that had to change is the constructor list beside `Orchestrator` and
+        // this one is unchanged and still true. The class is now an adapter in
+        // `Infrastructure` behind a port in `Application`; what it is allowed to reach has
+        // not moved.
+        //
         // **And a fourth family for the durable workflow, deliberately and visibly.**
         // `TicketActivities` reads the conversation a round travels with and merges what a
         // reviewer approved — the same two reads and one write the loop makes, made on the
@@ -990,7 +1000,7 @@ public class PolicyTests
         // narrower thing than any of the five it already could.
         //
         // **And this list grew by one more, deliberately and visibly, for the routing layer
-        // (ADR-0015): `IssuePublisher`.** The same reasoning applies and it is worth spelling
+        // (ADR-0015): the publisher.** The same reasoning applies and it is worth spelling
         // out, because "the loop's dependencies did not change" is exactly the claim that
         // erodes one dependency at a time.
         //
@@ -1001,6 +1011,16 @@ public class PolicyTests
         // to create an issue, which is narrower than the four things it could already do,
         // because it is a write the loop was already authorised to make (it merges).
         //
+        // **And this entry was renamed, deliberately and visibly, when the Routing slice
+        // moved (`docs/architecture.md`, rule 1).** The list used to name the concrete
+        // `IssuePublisher`, which was the one place the loop reached a type on the far side
+        // of the boundary. It names `IIssuePublisher` now — a port declared in `Application`
+        // and implemented in `Infrastructure` — and that is the pin working rather than the
+        // pin being relaxed: nothing was deleted, the width is the same eight, and the name
+        // is now the one the rule requires. What the entry has always been about is the
+        // shape of the list, and the shape has not changed; the collaborator is the same
+        // collaborator, reached one layer further in.
+        //
         // What is deliberately *not* here is anything the loop would need in order to decide
         // for itself: no credential reader, no HTTP client, no second
         // seam. Those would be a second opinion about a repository, and this list is the
@@ -1010,7 +1030,7 @@ public class PolicyTests
                 "IWorkItemStore",
                 "INOpenCode",
                 "IGitHub",
-                "IssuePublisher",
+                "IIssuePublisher",
                 "IClock",
                 "ILogger`1",
                 "FactoryMetrics",

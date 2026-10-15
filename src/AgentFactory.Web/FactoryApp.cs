@@ -2,9 +2,11 @@ namespace AgentFactory;
 
 using AgentFactory.Application.Clock;
 using AgentFactory.Application.Credentials;
+using AgentFactory.Application.GitHub;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application.Rounds;
+using AgentFactory.Application.Routing;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
@@ -18,7 +20,6 @@ using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
-using AgentFactory.Routing;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -90,7 +91,7 @@ public static class FactoryApp
         // is a property of the process rather than of any one call, and a per-call reader
         // would be a second reader the moment somebody injected one by hand (ADR-0015).
         builder.Services.AddSingleton<RoutingReader>();
-        builder.Services.AddSingleton<IssuePublisher>();
+        builder.Services.AddSingleton<IIssuePublisher, IssuePublisher>();
         // The reader is the composite: environment first, the secrets directory second (#32) —
         // the directory the board's credentials form writes into, read at use time so a
         // rotation needs no restart.

@@ -1,11 +1,11 @@
-namespace AgentFactory.Routing;
+namespace AgentFactory.Infrastructure.Routing;
 
+using AgentFactory.Application.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application.Routing;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.GitHub;
-using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 using System.Text;
 
@@ -33,7 +33,7 @@ using System.Text;
 /// </remarks>
 public sealed class IssuePublisher(
     IGitHub github,
-    ILogger<IssuePublisher> logger)
+    ILogger<IssuePublisher> logger) : IIssuePublisher
 {
     /// <summary>
     /// Files whatever the proposal asks a human to be given, and returns the issue it was

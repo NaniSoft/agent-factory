@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Intake;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;

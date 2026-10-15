@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Boundary;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 
 /// <summary>

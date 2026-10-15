@@ -3,8 +3,9 @@ namespace AgentFactory.Tests.Durability;
 
 using AgentFactory.Durability;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
-using AgentFactory.Routing;
+using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging.Abstractions;

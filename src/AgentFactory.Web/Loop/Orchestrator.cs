@@ -3,12 +3,13 @@ namespace AgentFactory.Loop;
 using AgentFactory.Application.Clock;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Rounds;
+using AgentFactory.Application.Routing;
 using AgentFactory.Application;
+using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.GitHub;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 
@@ -53,7 +54,7 @@ public sealed class Orchestrator
     private readonly IWorkItemStore _store;
     private readonly INOpenCode _agent;
     private readonly IGitHub _github;
-    private readonly Routing.IssuePublisher _publisher;
+    private readonly IIssuePublisher _publisher;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
     private readonly FactoryMetrics _metrics;
@@ -112,7 +113,7 @@ public sealed class Orchestrator
         IWorkItemStore store,
         INOpenCode agent,
         IGitHub github,
-        Routing.IssuePublisher publisher,
+        IIssuePublisher publisher,
         IClock clock,
         ILogger<Orchestrator> logger,
         FactoryMetrics metrics,

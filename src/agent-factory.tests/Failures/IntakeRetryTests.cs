@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Failures;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
