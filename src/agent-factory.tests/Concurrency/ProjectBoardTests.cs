@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Concurrency;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// The board's visible half of the container budget: grouped and filtered by project.

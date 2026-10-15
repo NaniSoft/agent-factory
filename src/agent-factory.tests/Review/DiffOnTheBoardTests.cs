@@ -10,7 +10,7 @@ using AgentFactory.Domain.Results;
 using AgentFactory.Infrastructure.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Xunit.Sdk;
 
 /// <summary>

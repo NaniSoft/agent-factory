@@ -14,7 +14,7 @@ using AgentFactory.Infrastructure.Results;
 using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using AgentFactory;
 using Microsoft.Extensions.Logging.Abstractions;
 

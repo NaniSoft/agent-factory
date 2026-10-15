@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Routing;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Routing;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// Reading a routing round's verdict, hermetically. No Docker, no model, no loop and no

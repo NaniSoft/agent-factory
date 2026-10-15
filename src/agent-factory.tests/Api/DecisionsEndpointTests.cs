@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Api;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using System.Net.Http.Json;
 using System.Net;
 using System.Text.Json;

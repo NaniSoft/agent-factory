@@ -6,7 +6,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// The board's account of intake: never polled, polled, and failing — three rendered states

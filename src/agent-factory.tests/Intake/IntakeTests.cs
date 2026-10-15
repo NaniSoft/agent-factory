@@ -7,7 +7,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// Intake: the factory reads the open issues of every project it serves and turns them

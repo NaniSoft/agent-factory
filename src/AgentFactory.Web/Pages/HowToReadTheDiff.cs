@@ -3,7 +3,7 @@ namespace AgentFactory.Pages;
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// One round's change, as the board shows it, and why it is shown that way.

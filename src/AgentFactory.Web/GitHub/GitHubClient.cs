@@ -13,7 +13,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>

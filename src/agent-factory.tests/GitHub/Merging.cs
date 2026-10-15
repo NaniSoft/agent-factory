@@ -12,6 +12,7 @@ using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
 using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -126,7 +127,7 @@ public sealed class Merging : IDisposable
     /// The round whose change this is, as the store holds it — the record the merger reads
     /// the tree's path from and the board renders it on.
     /// </summary>
-    public AgentFactory.WorkItems.RoundResultRecord Round { get; }
+    public RoundResultRecord Round { get; }
 
     public FactoryOptions Options { get; }
 

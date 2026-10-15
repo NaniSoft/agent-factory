@@ -4,7 +4,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// Why a work item ended up where it is, said in a reviewer's words. Escalated and

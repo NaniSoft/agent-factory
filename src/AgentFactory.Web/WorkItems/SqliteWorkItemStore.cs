@@ -1,6 +1,7 @@
 namespace AgentFactory.WorkItems;
 
 using AgentFactory.Application.Clock;
+using AgentFactory.Application.WorkItems;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Results;

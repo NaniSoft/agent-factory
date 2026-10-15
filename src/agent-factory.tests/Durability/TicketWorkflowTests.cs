@@ -10,6 +10,7 @@ using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging.Abstractions;
 using Temporalio.Client;
 using Temporalio.Worker;

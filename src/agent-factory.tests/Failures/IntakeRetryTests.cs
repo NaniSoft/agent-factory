@@ -7,7 +7,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using AgentFactory;
 using Microsoft.Extensions.Logging;
 

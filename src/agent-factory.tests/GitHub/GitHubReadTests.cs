@@ -10,6 +10,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text;

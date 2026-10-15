@@ -5,7 +5,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// The agent, faked. One call is one round: it hands back a value the test wrote down

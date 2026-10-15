@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Application.WorkItems;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Results;
@@ -11,16 +11,25 @@ using AgentFactory.Domain.WorkItems;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>This is a port and it has not moved yet, which is deliberate rather than
-/// forgotten.</strong> `AgentFactory.Application` declares the eight ports, and this is
-/// one of them. It cannot get there until its own shapes can, and the Results slice and
-/// the Rounds slice have both been answered: <c>RoundOutcome</c>, <c>HostDiff</c> and
-/// <c>RoundResult</c> are all `Domain` now, so every type this interface names except the
-/// store's own records already lives inward of it. What is left is
-/// <c>WorkItemRecord</c>, <c>RoundResultRecord</c> and <c>DecisionRecord</c> - persistence
-/// shape that belongs beside the store and is #77's to move (docs/architecture.md,
-/// "The dependency rule"). It moves the moment those do, and nothing about this
-/// interface changes when it does.
+/// <strong>This is a port, and it is declared here because the inside says what it
+/// needs.</strong> `AgentFactory.Application` declares the eight ports and
+/// `Infrastructure` implements them; this one landed last of the eight because its own
+/// shapes had to be able to reach it first, and they now have — every type this interface
+/// names, the store's own records included, is `Application`'s or `Domain`'s. What is
+/// still outside is the one implementation of it, `SqliteWorkItemStore`, and a port is
+/// allowed to be implemented on the far side of the boundary.
+/// </para>
+/// <para>
+/// <strong>Its records moved here with it, and that is the judgement worth writing
+/// down.</strong> `WorkItemRecord`, `RoundResultRecord`, `DecisionRecord` and
+/// `PendingRound` are the shapes rows take, so they read as persistence shape — and they
+/// are not in `Infrastructure`, which is where the thing that maps them to columns is.
+/// They are the <em>port's</em> shape: what the inside says a round, a decision and a
+/// pending round are, which is something a caller needs in order to call the port at all.
+/// Putting them in `Infrastructure` would put them beyond the reach of the interface that
+/// names them, which is impossible — a signature that cannot name its own types does not
+/// compile. So they are here, and no field of any of them is a column: there are no
+/// attributes, and every type is the BCL's or the factory's own.
 /// </para>
 /// </remarks>
 public interface IWorkItemStore

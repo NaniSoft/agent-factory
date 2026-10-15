@@ -10,7 +10,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>

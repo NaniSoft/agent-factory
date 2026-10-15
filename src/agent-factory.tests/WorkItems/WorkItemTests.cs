@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.WorkItems;
 
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// Work items are the factory's own record of an issue, they are persisted, and the

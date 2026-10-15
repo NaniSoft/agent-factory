@@ -4,7 +4,7 @@ using AgentFactory.Application;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Application.Routing;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

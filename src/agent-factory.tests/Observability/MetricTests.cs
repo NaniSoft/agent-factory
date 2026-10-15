@@ -7,7 +7,7 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using System.Net;
 
 /// <summary>

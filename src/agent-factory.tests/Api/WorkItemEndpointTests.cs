@@ -5,7 +5,7 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using AgentFactory;
 using System.Net;
 using System.Text.Json;

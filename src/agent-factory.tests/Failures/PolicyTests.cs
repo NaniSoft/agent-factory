@@ -15,7 +15,7 @@ using AgentFactory.Domain.Rounds;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using System.Reflection;
 
 /// <summary>

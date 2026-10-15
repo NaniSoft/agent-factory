@@ -10,7 +10,7 @@ using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// The routing layer end to end through the real loop, the real store and the real board's

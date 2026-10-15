@@ -9,7 +9,7 @@ using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 using Temporalio.Activities;
 using Temporalio.Common;

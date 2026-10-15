@@ -6,7 +6,7 @@ using AgentFactory.Domain.Results;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// A round's result on the board, over the real HTTP surface, with the agent faked. The

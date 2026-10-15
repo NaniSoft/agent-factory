@@ -72,6 +72,18 @@ as an HTTP endpoint — the caller is outside, the contract is the inside's.
   and `Infrastructure` is allowed to read it precisely because it already points
   inward.
 - `FactoryPaths` → **`Infrastructure`.** It resolves directories on a disk.
+- `WorkItems/WorkItemRecord`, `RoundResultRecord`, `DecisionRecord`, `PendingRound` →
+  **`Application`**, beside `IWorkItemStore` rather than beside `SqliteWorkItemStore`.
+  They are the shapes rows take, so they read as persistence shape and the first
+  guess is `Infrastructure` — and `Infrastructure` is where the thing that maps
+  them to columns is, so the guess looks right. It is not available: a port's
+  signatures name these types, and a signature cannot name a type that lives
+  beyond it. What they are is the **port's** vocabulary — what the inside says a
+  round, a decision and a pending round are — which is something a caller needs
+  in order to call the port at all. No field of any of them is a column: no
+  attributes, and every type is the BCL's or the factory's own. The one place
+  the two halves touch is `SqliteWorkItemStore` itself, which is still in `Web`
+  and is the thing this map's store slice moves.
 - `Observability/WorkItemScope`, `Observability/ProjectScope` → **`Application`.**
   The scope vocabulary is the factory's own ("this record is about work item 4,
   project nexus, issue 42, round 2") and a record is written from inside.

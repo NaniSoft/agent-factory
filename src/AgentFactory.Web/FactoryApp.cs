@@ -21,6 +21,7 @@ using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
 using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;

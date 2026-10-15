@@ -7,7 +7,7 @@ using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Pages;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using System.Text.Json.Serialization;
 
 /// <summary>

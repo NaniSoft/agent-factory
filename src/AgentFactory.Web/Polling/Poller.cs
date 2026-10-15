@@ -9,7 +9,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>

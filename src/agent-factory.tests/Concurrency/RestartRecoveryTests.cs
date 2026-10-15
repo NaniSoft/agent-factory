@@ -5,7 +5,7 @@ using AgentFactory.GitHub;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// What a restart does to a round that was in flight when the process died.

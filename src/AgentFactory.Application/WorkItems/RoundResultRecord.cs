@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Application.WorkItems;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Results;

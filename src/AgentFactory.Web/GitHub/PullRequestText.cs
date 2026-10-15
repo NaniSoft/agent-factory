@@ -1,6 +1,5 @@
 namespace AgentFactory.GitHub;
 
-using AgentFactory.WorkItems;
 using AgentFactory.Domain.WorkItems;
 
 /// <summary>

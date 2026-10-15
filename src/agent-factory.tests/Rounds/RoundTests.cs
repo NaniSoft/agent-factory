@@ -8,7 +8,7 @@ using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using System.Xml.Linq;
 
 /// <summary>

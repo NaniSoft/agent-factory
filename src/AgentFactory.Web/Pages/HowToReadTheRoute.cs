@@ -1,6 +1,6 @@
 namespace AgentFactory.Pages;
 
-using AgentFactory.WorkItems;
+using AgentFactory.Application.WorkItems;
 using AgentFactory.Domain.WorkItems;
 
 /// <summary>
