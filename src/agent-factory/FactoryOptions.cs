@@ -47,6 +47,19 @@ public sealed record FactoryOptions(
             DatabasePath: configuration["Factory:DatabasePath"] ?? Path.Combine(root, "data", "agent-factory.db"),
             BoardUrl: configuration["Factory:BoardUrl"] is { Length: > 0 } url ? new Uri(url) : DefaultBoardUrl,
             AutoMerge: configuration["Factory:AutoMerge"] is { Length: > 0 } autoMerge
-                && autoMerge.Equals("true", StringComparison.OrdinalIgnoreCase));
+                && autoMerge.Equals("true", StringComparison.OrdinalIgnoreCase))
+        {
+            TemporalEndpoint = configuration["Factory:Temporal:Endpoint"],
+        };
     }
+
+    /// <summary>
+    /// The Temporal endpoint the per-ticket workflows run against, or null for store-only
+    /// mode. Configured, the ticket's story is a durable workflow: a round in flight
+    /// survives a restart of this process, and the board's clicks reach the workflow as
+    /// updates. Null, the factory runs exactly as it always did — the loop steps tickets
+    /// from the store, and a restart mid-round strands the round, which is the gap the
+    /// workflow exists to close.
+    /// </summary>
+    public string? TemporalEndpoint { get; init; }
 }

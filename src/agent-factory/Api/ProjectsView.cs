@@ -29,11 +29,10 @@ public sealed record ProjectsView(
         [.. report.Rejections.Select(ProjectFileRejectionView.Of)]);
 }
 
-/// <summary>The six values a write posts, exactly the shape a project file states.</summary>
+/// <summary>The five values a write posts, exactly the shape a project file states.</summary>
 public sealed record ProjectWriteRequest(
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("repoUrl")] string? RepoUrl,
-    [property: JsonPropertyName("workerImage")] string? WorkerImage,
     [property: JsonPropertyName("llmModel")] string? LlmModel,
     [property: JsonPropertyName("githubKeyName")] string? GitHubKeyName,
     [property: JsonPropertyName("llmKeyName")] string? LlmKeyName);

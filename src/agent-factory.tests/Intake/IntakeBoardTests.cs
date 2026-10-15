@@ -360,7 +360,7 @@ public class IntakeBoardTests
         // `Move`, a `MergeAsync` or a `RecordDecision` here would be a second way for
         // something to change state outside the loop.
         Assert.Equal(
-            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
+            ["IWorkItemStore", "IGitHub", "ITicketStarter", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
             typeof(Poller)
                 .GetConstructors()
                 .Single()

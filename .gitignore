@@ -32,3 +32,6 @@ data/
 # `dotnet test --blame-hang` writes its dumps here. A local artefact of a hung run, and a
 # dump is a great many megabytes of this repository's memory.
 TestResults/
+
+# Local agent-tool state (ZCode session plans)
+.zcode/

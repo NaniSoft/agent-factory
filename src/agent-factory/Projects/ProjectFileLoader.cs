@@ -10,7 +10,7 @@ using YamlDotNet.RepresentationModel;
 /// reported; it never throws into the running factory.
 /// </summary>
 /// <remarks>
-/// The schema is exactly <c>name</c>, <c>repo.url</c>, <c>worker.image</c>,
+/// The schema is exactly <c>name</c>, <c>repo.url</c>,
 /// <c>llm.model</c>, <c>keys.github</c> and <c>keys.llm</c>. Nothing further is
 /// accepted: no prompts, no per-issue overrides, no board configuration, no plugin
 /// list. Credentials are referenced by environment variable name and are never read
@@ -18,12 +18,11 @@ using YamlDotNet.RepresentationModel;
 /// </remarks>
 internal static class ProjectFileLoader
 {
-    private static readonly string[] TopLevelFields = ["name", "repo", "worker", "llm", "keys"];
+    private static readonly string[] TopLevelFields = ["name", "repo", "llm", "keys"];
 
     private static readonly string[] IncludeFields = ["include", "extends", "import"];
 
     private static readonly string[] RepoFields = ["url"];
-    private static readonly string[] WorkerFields = ["image"];
     private static readonly string[] LlmFields = ["model"];
     private static readonly string[] KeyFields = ["github", "llm"];
 
@@ -113,13 +112,12 @@ internal static class ProjectFileLoader
         foreach (var project in report.Projects)
         {
             logger.LogInformation(
-                "Serving project {Name} from {File}: repository {Repository}, worker image {Image}, LLM model {Model}, "
+                "Serving project {Name} from {File}: repository {Repository}, LLM model {Model}, "
                     + "GitHub credential named {GitHubKey}, LLM credential named {LlmKey}. Names, not values — this loader "
                     + "never reads a credential.",
                 project.Name,
                 project.SourceFile,
                 project.RepoUrl,
-                project.WorkerImage,
                 project.LlmModel,
                 project.GitHubKeyName,
                 project.LlmKeyName);
@@ -179,7 +177,7 @@ internal static class ProjectFileLoader
         if (stream.Documents[0].RootNode is not YamlMappingNode root)
         {
             throw Refused(fileName, ProjectRejectionReason.Invalid,
-                "a project file is a mapping of the five fields the factory accepts");
+                "a project file is a mapping of the four fields the factory accepts");
         }
 
         if (SharesAField(root))
@@ -199,7 +197,7 @@ internal static class ProjectFileLoader
         foreach (var field in fields.Keys.Where(field => !TopLevelFields.Contains(field, StringComparer.Ordinal)))
         {
             throw Refused(fileName, ProjectRejectionReason.Invalid,
-                $"{field} is not a field of a project file, and nothing beyond the five is accepted");
+                $"{field} is not a field of a project file, and nothing beyond the four is accepted");
         }
 
         foreach (var field in TopLevelFields.Where(field => !fields.ContainsKey(field)))
@@ -209,13 +207,11 @@ internal static class ProjectFileLoader
         }
 
         var repo = Group(fileName, "repo", RepoFields, fields["repo"]);
-        var worker = Group(fileName, "worker", WorkerFields, fields["worker"]);
         var llm = Group(fileName, "llm", LlmFields, fields["llm"]);
         var keys = Group(fileName, "keys", KeyFields, fields["keys"]);
 
         var name = Scalar(fileName, "name", fields["name"]);
         var repoUrl = Scalar(fileName, "repo.url", repo);
-        var workerImage = Scalar(fileName, "worker.image", worker);
         var llmModel = Scalar(fileName, "llm.model", llm);
         var githubKey = Scalar(fileName, "keys.github", keys);
         var llmKey = Scalar(fileName, "keys.llm", keys);
@@ -251,7 +247,7 @@ internal static class ProjectFileLoader
                 "keys.llm is not the name of an environment variable, and credentials are referenced by name");
         }
 
-        return new Project(name, repoUrl, workerImage, llmModel, githubKey, llmKey, fileName);
+        return new Project(name, repoUrl, llmModel, githubKey, llmKey, fileName);
     }
 
     private static YamlMappingNode Group(string fileName, string field, string[] allowed, YamlNode node)

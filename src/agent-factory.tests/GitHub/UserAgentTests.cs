@@ -182,7 +182,7 @@ public class UserAgentTests
     private static GitHubClient ClientOver(GitHubApi api) => new(
         new HttpClient(api) { BaseAddress = new Uri("https://api.github.com/") },
         new ProjectLoadReport(
-            [new Project("nexus", RepoUrl, "image", "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
+            [new Project("nexus", RepoUrl, "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
             []),
         new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
         new SqliteWorkItemStore(

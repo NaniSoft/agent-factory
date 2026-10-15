@@ -28,7 +28,8 @@ public class PolicyTests
         // cancellation that fires on a delay would each be a clock of its own, and the
         // first thing a retry policy does is to add one.
         //
-        // **This assertion changed, deliberately and visibly, for the container budget.**
+        // **This assertion changed, deliberately and visibly, twice: for the heartbeat, and
+        // again for the workflow worker's reconnect loop.**
         // It used to read "there is no Task.Delay anywhere in the assembly", which was
         // right until the heartbeat landed and wrong the moment it did. The heartbeat is
         // the one legitimate exception: a driver that does not wait cannot know when to
@@ -45,19 +46,23 @@ public class PolicyTests
         // impossible, because the only way this fails is by finding one of them exactly.
         var calls = CallsMadeBy(typeof(FactoryApp).Assembly).ToList();
 
-        // The one wait in the process, named. A tick between steps of the machine is a tick
+        // The waits in the process, named. A tick between steps of the machine is a tick
         // and not a wait: nothing is held up behind it, and every cadence it drives — the
         // poll interval, the round timeout, the retry backoffs, the feedback threshold — is
-        // still a comparison the policy makes for itself.
+        // still a comparison the policy makes for itself. **The list gained its second
+        // name, deliberately and visibly, when the durable workflow landed:** the workflow
+        // worker reconnects on its own schedule, and a reconnect loop that does not wait
+        // cannot reconnect. Both are hosted services that wait so the policy does not have
+        // to; neither is inside the policy.
         Assert.Equal(
-            ["FactoryDriver.ExecuteAsync"],
+            ["FactoryDriver.ExecuteAsync", "TemporalTickets.ExecuteAsync"],
             CallersOf(calls, "System.Threading.Tasks.Task:Delay"));
-
-        // And exactly one, counted rather than de-duplicated. The list above names the
-        // method and would be satisfied by a second delay in that same method — a heartbeat
-        // that waited twice over would look identical to one that waited once, and the whole
-        // of the exception is that there is one wait and it is the driver's.
-        Assert.Equal(1, TimesCalled(calls, "System.Threading.Tasks.Task:Delay"));
+        // And exactly three, counted rather than de-duplicated. The list above names the
+        // methods and would be satisfied by a delay smuggled in anywhere else — the driver
+        // owns one, and the workflow worker's reconnect loop owns two, one for a server
+        // that would not answer and one for a worker that stopped. All three are the
+        // hosted services' own, and there is no fourth.
+        Assert.Equal(3, TimesCalled(calls, "System.Threading.Tasks.Task:Delay"));
 
         var waited = CallersOf(calls, "System.Threading.Thread:Sleep")
             .Concat(CallersOf(calls, "System.Threading.Timer:..ctor"))
@@ -81,12 +86,13 @@ public class PolicyTests
         // is the assertion that says the arrangement cost nothing, and it is here rather
         // than in the client's own tests because the claim is about the *assembly*.
         //
-        // It is the two assertions above, unchanged, plus the observation that they now have
-        // more code to be right about. Both still pass with a client in the process, and
-        // both would fail if the client had bounded a request with a cancellation that
-        // fires on a delay rather than with the transport's own refusal to hang.
+        // It is the first test's two assertions, unchanged, plus the observation that they
+        // now have more code to be right about. Both still pass with a client in the
+        // process, and both would fail if the client had bounded a request with a
+        // cancellation that fires on a delay rather than with the transport's own refusal
+        // to hang.
         Assert.Equal(
-            ["FactoryDriver.ExecuteAsync"],
+            ["FactoryDriver.ExecuteAsync", "TemporalTickets.ExecuteAsync"],
             CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.Tasks.Task:Delay"));
 
         var timed = CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.CancellationTokenSource:CancelAfter");
@@ -108,16 +114,20 @@ public class PolicyTests
     public void The_one_gate_in_the_factory_is_the_loops_step_and_it_waits_for_no_one()
     {
         // With a heartbeat there are two things that can ask the machine for a step at once
-        // — a reviewer's click and a tick — and without a gate the budget itself would be a
-        // race: two callers could both read one round in flight and both start a second, and
-        // the count that is supposed to bound concurrency would bound nothing.
+        // — a reviewer's click and a tick — and without a gate the concurrency count itself
+        // would be a race: two callers could both read one round in flight and both start a
+        // second, and the count that is supposed to bound concurrency would bound nothing.
         //
-        // So there is one gate, it is on the loop's own step, and it is the only
-        // SemaphoreSlim in the process. Naming it here is what stops it quietly becoming a
-        // queue with a deadline: a gate that could time out would be a second policy, and
-        // one with a second waiter would be contention the loop has no opinion about.
+        // So there is one gate on the loop's own step, and it is the only SemaphoreSlim in
+        // the process that guards a policy. **The list gained its second name, deliberately
+        // and visibly, when the durable workflow landed:** the workflow client's connect is
+        // guarded so two board clicks cannot build two clients — a one-at-a-time guard
+        // around construction, not a gate on policy. Naming both here is what stops either
+        // quietly becoming a queue with a deadline: a gate that could time out would be a
+        // second policy, and one with a waiting room would be contention nobody has an
+        // opinion about.
         Assert.Equal(
-            ["Orchestrator.StepAsync"],
+            ["Orchestrator.StepAsync", "TemporalTickets.ClientAsync"],
             CallsMadeBy(typeof(FactoryApp).Assembly)
                 .Where(call => call.Called.DeclaringType?.Name == "SemaphoreSlim"
                     && call.Called.Name is "WaitAsync" or "Wait")
@@ -128,18 +138,18 @@ public class PolicyTests
     }
 
     [Fact]
-    public void The_container_budget_is_a_code_constant_and_rounds_are_started_in_one_place()
+    public void The_round_concurrency_is_a_code_constant_and_rounds_are_started_in_one_place()
     {
-        // Two, sized for this machine's 7.19 GB, in which each worker runs an agent, a
-        // toolchain and a build. Written out rather than read from the constant: a test
-        // that read the constant would prove only that the policy is whatever the constant
-        // says. And it is code, not configuration: the project file schema has six fields
-        // and refuses a seventh, so there is nowhere for a project to raise its own
-        // budget even if one wanted to.
-        Assert.Equal(2, FactoryConstants.ContainerBudget);
+        // Two, sized for this machine, on which each round is an agent, a toolchain and a
+        // build in its own working tree. Written out rather than read from the constant: a
+        // test that read the constant would prove only that the policy is whatever the
+        // constant says. And it is code, not configuration: the project file schema has four
+        // fields and refuses a fifth, so there is nowhere for a project to raise its own
+        // ceiling even if one wanted to.
+        Assert.Equal(2, FactoryConstants.RoundConcurrency);
 
         // And it is code, not configuration. Nothing a project file or an options object can
-        // set touches the budget, so a project cannot buy itself a third container and no
+        // set touches the ceiling, so a project cannot buy itself a third round and no
         // deployment can quietly raise the machine's ceiling: the number is in one class and
         // a change to it is a deliberate edit in one obvious place.
         Assert.DoesNotContain(
@@ -147,18 +157,26 @@ public class PolicyTests
             property => property.Name.Contains("Budget", StringComparison.OrdinalIgnoreCase)
                 || property.Name.Contains("Concurrent", StringComparison.OrdinalIgnoreCase));
 
-        // The loop is the only component that asks for a round, and so the only one that
-        // can spend the budget. This is the structural half of "the budget is what bounds
-        // concurrency": a second caller of the agent seam would be a second way to start a
-        // container, and nothing in the loop could see it or count it. Checked by caller
+        // The loop is the only component in store-only mode that asks for a round, and the
+        // workflow's round activities are the only callers in workflow mode — so the whole
+        // of the process's round-starting is three methods in two components, all named.
+        // This is the structural half of "the concurrency is what bounds
+        // it": a fourth caller of the agent seam would be a second way to start a
+        // round, and nothing that counts could see it. Checked by caller
         // rather than by grep, for the reason the rest of this file is.
         //
-        // The one caller is the loop's own escape hatch rather than the method that decides
+        // The loop's one caller is its own escape hatch rather than the method that decides
         // to start a round: AskForTheRound is the single place a call to the agent can be
         // made, so an agent that throws before it has a task to hand back becomes a round
-        // that came back without a result rather than a fault in the middle of a step.
+        // that came back without a result rather than a fault in the middle of a step. The
+        // activities' two are the workflow's own: a route round and a build round, each one
+        // activity, each bounded by the engine's own retry policy and concurrency.
         Assert.Equal(
-            ["Orchestrator.AskForTheRound"],
+            [
+                "Orchestrator.AskForTheRound",
+                "TicketActivities.BuildRoundAsync",
+                "TicketActivities.RouteRoundAsync",
+            ],
             CallsMadeBy(typeof(FactoryApp).Assembly)
                 .Where(call => call.Called.DeclaringType == typeof(INOpenCode)
                     && call.Called.Name == "RunRoundAsync")
@@ -232,6 +250,10 @@ public class PolicyTests
         var read = CallsMadeBy(assembly)
             .Where(call => call.Called.Name == "get_RoundExitCode" || call.Called.Name == "get_TheRoundRan")
             .Where(call => Owner(call.Caller) != typeof(AgentFactory.Results.RoundEnvironment))
+            // The same exclusion, for the collector's own header record: its generated
+            // print and deconstruct read every field it holds, which is the type talking
+            // to itself rather than a second opinion about whether a round finished.
+            .Where(call => Method(call.Caller) is not ("Deconstruct" or "PrintMembers"))
             .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
             .Distinct()
             .Order(StringComparer.Ordinal)
@@ -245,7 +267,7 @@ public class PolicyTests
 
                 // The one decision. Anything else that wanted to know whether a round
                 // finished would have to come through this.
-                "WorkerRoundRunner.RunRoundAsync",
+                "RoundRunner.RunRoundAsync",
             ],
             read);
 
@@ -281,10 +303,14 @@ public class PolicyTests
         // test retryable, and this fails the moment the round runner or the loop so much as
         // looks at a command's exit code.
         var policyDecidesOn = CallsMadeBy(assembly)
-            .Where(call => call.Called.Name is "get_Passed" or "get_FailedCommands" or "get_ExitCode")
+            .Where(call => call.Called.Name is "get_Passed" or "get_FailedCommands"
+                // `ExitCode` is read off a *command record* and off nothing else: the
+                // process invocation's own exit code is the round's, and the runner is
+                // exactly who is meant to read that one.
+                || (call.Called.Name == "get_ExitCode" && call.Called.DeclaringType?.Name != "ProcessInvocation"))
             .Where(call => call.Caller is { } caller
                 && Owner(caller) is { } owner
-                && owner.Name is "Orchestrator" or "WorkerRoundRunner")
+                && owner.Name is "Orchestrator" or "RoundRunner")
             .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
             .Distinct()
             .Order(StringComparer.Ordinal)
@@ -357,7 +383,7 @@ public class PolicyTests
     [Fact]
     public void A_failure_is_classified_by_the_component_that_observed_it_and_nowhere_else()
     {
-        // The architectural claim, made checkable: the container runtime and the round
+        // The architectural claim, made checkable: the process runner and the round
         // runner are where a failure is classified, because they are what saw it. The loop
         // decides what to do about a classification, and the GitHub client is not written
         // yet, so nothing else in the process declares one.
@@ -371,11 +397,11 @@ public class PolicyTests
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        // The transient subclass, the permanent one, and the container's own — which is a
-        // separate type rather than a `TransientFailure` because a docker command that ran
-        // and failed is a distinct fact with its own name, and its message carries the verb
-        // that failed.
-        Assert.Equal(["PermanentFailure", "TransientFailure", "WorkerContainerException"], declaring);
+        // The transient subclass and the permanent one — two classes rather than one,
+        // because what they guard is the direction of the answer: a failure is declared
+        // where it was observed, by being the kind of failure it means, and an unclassified
+        // one defaults to permanent rather than to a retry.
+        Assert.Equal(["PermanentFailure", "TransientFailure"], declaring);
 
         // And the classes themselves do not guess: neither takes a boolean, and neither
         // derives its class from anything but its own type.
@@ -391,7 +417,7 @@ public class PolicyTests
         }
     }
     [Fact]
-    public void Only_the_round_runner_puts_a_credential_into_a_container_and_only_the_merger_resolves_one()
+    public void Only_the_round_runner_puts_a_credential_into_a_round_and_only_the_merger_resolves_one()
     {
         // ADR-0006 as a structural property rather than a matter of care, and **this test
         // changed deliberately and visibly for the merger**, because the fact it asserted
@@ -405,15 +431,15 @@ public class PolicyTests
         // branch, and opens the pull request under the factory's own token" — so a factory
         // that ships a change and never resolves its own GitHub token would be a factory
         // that cannot ship anything. Two readers is what the decision asks for, not a
-        // slip in it: the round, which puts a value into a container, and the merger, which
-        // puts a value into a header.
+        // slip in it: the round, which puts a value into an agent's environment, and the
+        // merger, which puts a value into a header.
         //
         // What has not changed is the direction, and that is what the two halves assert.
-        // The *container* boundary is still one method, and no third component can widen
-        // it: a component that could read any credential could hand the GitHub one to a
-        // worker, and ADR-0006's whole claim is that it cannot. The merger's read is on the
-        // other side of the boundary entirely — it is the host, it is after the container is
-        // gone, and there is no container for it to hand anything to.
+        // The *round* boundary is still one method, and no third component can widen
+        // it: a component that could read any credential could hand the GitHub one to the
+        // agent, and ADR-0006's whole claim is that it cannot. The merger's read is on the
+        // other side of the boundary entirely — it is the host, it is after the round is
+        // over, and there is no agent process for it to hand anything to.
         var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
             .Where(call => call.Called.DeclaringType?.Name == "ICredentialReader"
                 && call.Called.Name == "Read"
@@ -431,22 +457,24 @@ public class PolicyTests
         // Two, and both are the ones the design names: the round that is starting, and the
         // host that ships what it produced. The composite (#32) is the boundary itself, not
         // a third one — filtered above, named here.
-        Assert.Equal(["GitHubClient.TokenFor", "WorkerRoundRunner.EnvironmentFor"], readers);
+        Assert.Equal(["GitHubClient.TokenFor", "RoundRunner.EnvironmentFor"], readers);
 
-        // The container half, and it is the half that has not moved. A worker's environment
-        // is built in exactly one place in the process, and that place is inside the round
-        // runner: so a credential value can only reach a worker container by going through
-        // the component whose one credential read is the LLM key's, and ADR-0006's claim
+        // The round half, and it is the half that has not moved. A round's environment is
+        // built in exactly one place in the process, and that place is inside the round
+        // runner: so a credential value can only reach an agent by going through the
+        // component whose one credential read is the LLM key's, and ADR-0006's claim
         // holds by shape rather than by care. The merger is not on that path and cannot get
-        // onto it, because it is not the thing that builds containers.
+        // onto it, because it is not the thing that starts processes.
         //
         // Checked as *the one construction site* rather than as a name in a list of readers,
         // because the readers list says who asked and this says who can put. A third reader
-        // somewhere harmless is caught by the list above; a second way to build a container's
-        // environment is caught here, and it is the one that would undo ADR-0006.
+        // somewhere harmless is caught by the list above; a second way to build a process's
+        // environment is caught here, and it is the one that would undo ADR-0006. The
+        // request is built twice in the runner — once for the agent, once for the small git
+        // questions it asks of the tree — and both are the runner, which is the point.
         Assert.Equal(
-            ["WorkerRoundRunner.RunRoundAsync"],
-            ConstructorsOf<AgentFactory.Containers.WorkerContainerRequest>());
+            ["RoundRunner.GitAsync", "RoundRunner.RunRoundAsync", "RoundRunner.WorkspaceFor"],
+            ConstructorsOf<ProcessRequest>());
     }
 
     [Fact]
@@ -574,8 +602,15 @@ public class PolicyTests
         // individually rather than folded into "the loop" so that this stays a short list of
         // named things allowed to reach the network instead of a general permission: the
         // publisher reaches the same single seam, under the same credential, on the same host,
-        // after the container that proposed the tickets is gone (ADR-0006), and it is
+        // after the round that proposed the tickets is gone (ADR-0006), and it is
         // stateless with no transport of its own.
+        //
+        // **And a fourth family for the durable workflow, deliberately and visibly.**
+        // `TicketActivities` reads the conversation a round travels with and merges what a
+        // reviewer approved — the same two reads and one write the loop makes, made on the
+        // workflow's behalf. The activities hold no transport of their own: they are handed
+        // the same seam, and what they may not do is what this test has always said —
+        // nothing on a diff's code path reaches GitHub.
         //
         // The availability claim this test exists for is untouched. A reviewer reads a diff
         // long after a routing round filed whatever its verdict asked for, and the diff is
@@ -594,8 +629,9 @@ public class PolicyTests
             Assert.True(
                 caller.StartsWith("Poller.", StringComparison.Ordinal)
                     || caller.StartsWith("Orchestrator.", StringComparison.Ordinal)
-                    || caller.StartsWith("IssuePublisher.", StringComparison.Ordinal),
-                $"only intake, the loop and the issue publisher may ask GitHub anything, and {caller} does: a round's diff is "
+                    || caller.StartsWith("IssuePublisher.", StringComparison.Ordinal)
+                    || caller.StartsWith("TicketActivities.", StringComparison.Ordinal),
+                $"only intake, the loop, the issue publisher and the workflow activities may ask GitHub anything, and {caller} does: a round's diff is "
                     + "generated on the host from the tree the round left, and a board that fetched one from the API would be showing a "
                     + "second opinion from the service that produced the change (ADR-0006)"));
 
@@ -797,14 +833,16 @@ public class PolicyTests
                 "GitHubClient.MergeAsync",
                 "IssuePublisher.PublishAsync",
                 "Orchestrator.Apply",
+                "Orchestrator.HandBackAnAnsweredGrill",
                 "Orchestrator.LandIfTheRoundIsOverAsync",
                 "Orchestrator.LandTheRoute",
                 "Orchestrator.MergeWhatNobodyReviewed",
+                "Orchestrator.RecoverOrphanedRounds",
                 "Orchestrator.RetryAParkedMerge",
-                "Orchestrator.StartARound",
+                "Orchestrator.StartARoundAsync",
                 "Orchestrator.TryTheRetry",
                 "Poller.IntakeFrom",
-                "WorkerRoundRunner.RunRoundAsync",
+                "RoundRunner.RunRoundAsync",
             ],
             opened);
 
@@ -908,7 +946,7 @@ public class PolicyTests
         // **This list changed, deliberately and visibly, for observability.** It used to end
         // at the logger, five dependencies wide, and the sixth is now `FactoryMetrics`. The
         // claim this test defends did not change, and it is worth being precise about why,
-        // because a list of parameter names is not a claim on its own: a container runtime
+        // because a list of parameter names is not a claim on its own: a process runner
         // could arrive as a package reference, an assembly reference or a shell-out, none of
         // which appears in this list either, and the test says so in its own comment.
         //
@@ -934,7 +972,7 @@ public class PolicyTests
         // because it is a write the loop was already authorised to make (it merges).
         //
         // What is deliberately *not* here is anything the loop would need in order to decide
-        // for itself: no container runtime, no credential reader, no HTTP client, no second
+        // for itself: no credential reader, no HTTP client, no second
         // seam. Those would be a second opinion about a repository, and this list is the
         // check that they cannot arrive.
         Assert.Equal(
@@ -954,11 +992,13 @@ public class PolicyTests
                 .GetParameters()
                 .Select(parameter => parameter.ParameterType.Name));
 
-        // The poller gained the same one dependency, for the same reason and no other: the
-        // count of issues turned into work items is a fact only intake has, and it is a fact
-        // about the world arriving rather than about the machine starting on it.
+        // The poller gained two dependencies along the way, each for one reason and no
+        // other: the metrics, because the count of issues turned into work items is a fact
+        // only intake has; and the ticket starter, because a work item intake makes is the
+        // ticket whose durable workflow begins — the starter is the no-op that is not there
+        // in store-only mode, and it holds no clock, no transport and no policy of its own.
         Assert.Equal(
-            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
+            ["IWorkItemStore", "IGitHub", "ITicketStarter", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
             typeof(Poller)
                 .GetConstructors()
                 .Single()

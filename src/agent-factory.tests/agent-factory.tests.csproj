@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Temporalio" Version="1.20.0" />
     <!--
       Testcontainers drives the worker image tests. It is here and not in the factory:
       the factory takes no container-runtime package at all, because ADR-0010 names

@@ -1,0 +1,10 @@
+# Written by the board's projects page. A project file states every value itself:
+# credentials are referenced by name and are never read into this file.
+name: factory-demo
+repo:
+  url: https://github.com/DurgaPrasadReddyV/factory-demo
+llm:
+  model: opencode-go/deepseek-v4.1-flash
+keys:
+  github: FACTORY_DEMO_GITHUB_TOKEN
+  llm: OPENCODE_API_KEY

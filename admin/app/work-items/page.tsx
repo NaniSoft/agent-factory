@@ -306,10 +306,10 @@ function Detail({
 }
 
 /**
- * One round: its outcome and failure, the change it left, what its container recorded, and
- * its log. The change is the diff the factory generated on the host from the tree the round
- * left, and it is separate from the payload because the payload is the container's account
- * of itself and can be missing or bounded.
+ * One round: its outcome and failure, the change it left, what the round recorded, and
+ * its log. The change is the diff the factory generated on the host from the tree the
+ * round left, and it is separate from the payload because the payload is the round's
+ * own account of itself and can be missing or bounded.
  */
 function RoundCard({ round }: { round: RoundOnTheBoardView }) {
   return (
@@ -336,7 +336,7 @@ function RoundCard({ round }: { round: RoundOnTheBoardView }) {
 
         {round.payload ? (
           <details className="work-item__payload" open={round.diff === null}>
-            <summary>what the round's container recorded about itself</summary>
+            <summary>what the round recorded about itself</summary>
             <pre className="work-item__pre" data-result={round.roundNumber}>
               {round.payload}
             </pre>
@@ -439,7 +439,7 @@ function RoundDiff({ diff }: { diff: DiffOnTheBoardView | null }) {
         </p>
       ) : null}
 
-      {/* Why the container's own copy is not the one on the page. */}
+      {/* Why the round's own recorded copy is not the one on the page. */}
       {diff.boundedElsewhere ? (
         <p className="work-item__diff-bounded" data-diff-bounded>
           {diff.boundedElsewhere}

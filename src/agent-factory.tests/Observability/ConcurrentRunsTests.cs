@@ -1,8 +1,8 @@
 namespace AgentFactory.Tests.Observability;
 
-using AgentFactory.Containers;
 using AgentFactory.GitHub;
 using AgentFactory.Observability;
+using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
@@ -24,7 +24,7 @@ using Microsoft.Extensions.Logging;
 /// </para>
 /// <para>
 /// The interleaving is real rather than simulated. Two projects, two work items, both rounds
-/// held open by the fake agent at once, and the budget is two — so the two rounds genuinely
+/// held open by the fake agent at once, and the ceiling is two — so the two rounds genuinely
 /// overlap, records from both are written while each is in flight, and each is released in
 /// the other's lifetime. A test that ran them one after another would pass against a factory
 /// whose records could not be told apart.
@@ -146,35 +146,54 @@ public class ConcurrentRunsTests
     {
         // The scope's claim is stronger than "the loop's own records are stamped": a component
         // handed no work item at all still writes records that name one, because it is running
-        // inside a scope. Here those components are the real ones — the result deriver, the
-        // container runtime and the Docker CLI — behind the real round runner, with only the
-        // Docker CLI faked.
+        // inside a scope. Here those components are the real ones — the result deriver and the
+        // round collector — behind the real round runner, with only the child process faked.
         //
         // Without the scope the deriver's constructor would have to grow a work item id, and
         // `PolicyTests` pins that constructor to a single logger; and a record the deriver
         // wrote an hour into a round could not be attributed to anything at all. Both are the
         // alternative this design refuses, and this is what it costs instead: nothing.
-        using var tree = LiftedTree.WithACommitOn();
-        tree.Committed("add the endpoint", ("src/Endpoint.cs", "public sealed class Endpoint { }\n"));
-        tree.WithReadOnlyObjects();
-
+        using var source = LiftedTree.WithACommitOn();
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
 
-        var docker = new FakeDockerCli();
-        docker.ContainerTrees[ContainerRuntime.WorkPathInContainer] = tree.Path;
-        docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = ResultFile(tree.StartHead);
+        var processes = new FakeProcessCli().WithRealGit();
+        processes.Agent((request, _) =>
+        {
+            var work = request.WorkingDirectory!;
+            var outDirectory = request.Environment!["AGENT_FACTORY_OUT"];
+
+            // The change itself, committed, so the collector's git observations see it.
+            File.WriteAllText(Path.Combine(work, "src/Endpoint.cs"), "public sealed class Endpoint { }\n");
+            LiftedTree.Git(work, ["add", "--all"]);
+            LiftedTree.Git(work, ["commit", "--message", "add the endpoint"]);
+
+            // One command the shim recorded, and one line the collector was killed inside —
+            // the same damage the result file was built to survive. The collector copies the
+            // log verbatim, the deriver reads the records and counts what it could not read,
+            // and the count is announced — which is a record the deriver writes without
+            // having been told which work item it was reading for.
+            var log = Path.Combine(outDirectory, "commands.ndjson");
+            File.AppendAllText(log, string.Join("\n",
+            [
+                """{"kind":"command","seq":1,"label":"the unit tests","argv":["dotnet","test"],"cwd":"/work","env":[],"startedAt":"2026-01-01T00:00:00Z","durationMs":1800,"exitCode":0,"captured":true,"stdoutBytes":21,"stderrBytes":0,"stdoutTail":"42 passed, 0 failed\n","stderrTail":""}""",
+                """{"kind":"command","seq":2,"label":"the build that was cut off""",
+            ]) + "\n");
+
+            File.WriteAllText(Path.Combine(outDirectory, "note.md"), "Added the endpoint, because nothing was answering.");
+            return Task.FromResult(new FakeProcessCli.ProcessAnswer(0, "the agent finished"));
+        });
 
         var log = new RecordedLog();
         var counters = new FactoryMetrics();
         using var measurements = new RecordedMeasurements(counters);
 
-        await using var host = await FactoryHost.RecordingWithTheRealRoundAsync(root, docker, log, counters);
+        await using var host = await FactoryHost.RecordingWithTheRealRoundAsync(root, processes, log, counters);
         var work = host.Store
-            .Intake(Nexus, NexusRepo, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+            .Intake(Nexus, source.Path, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
         await host.PromoteAsync(work.Id);
 
-        // Not Settle: the real round runner copies a tree off disk and runs git against it,
-        // so the round is genuinely in flight across calls and the machine has to be stepped
+        // Not Settle: the real round runner clones a tree and runs git against it, so the
+        // round is genuinely in flight across calls and the machine has to be stepped
         // until it holds nothing.
         await host.RunTheMachineAsync();
 
@@ -230,8 +249,17 @@ public class ConcurrentRunsTests
         // identity, and this is the assertion that it passes that identity on by being in a
         // scope rather than by telling each of its collaborators about it.
         var log = new RecordedLog();
-        var docker = new FakeDockerCli();
-        docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = TruncatedResultFile();
+        using var source = LiftedTree.WithACommitOn();
+        var processes = new FakeProcessCli().WithRealGit();
+        processes.Agent((request, _) =>
+        {
+            // One line the collector will copy and the deriver will fail to read — the
+            // damage the record below is written about.
+            File.AppendAllText(
+                request.Environment!["AGENT_FACTORY_COMMAND_LOG"],
+                """{"kind":"command","seq":1,"label":"the build that was cut off""" + "\n");
+            return Task.FromResult(new FakeProcessCli.ProcessAnswer(0, "the agent finished"));
+        });
 
         var workItem = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var options = new FactoryOptions(
@@ -241,13 +269,12 @@ public class ConcurrentRunsTests
 
         try
         {
-            var runner = new WorkerRoundRunner(
-                new ContainerRuntime(docker, log.For<ContainerRuntime>()),
-                new AgentFactory.Projects.ProjectLoadReport(
-                    [new AgentFactory.Projects.Project(
+            var runner = new RoundRunner(
+                processes,
+                new ProjectLoadReport(
+                    [new Project(
                         Nexus,
                         NexusRepo,
-                        "ghcr.io/nanisoft/agent-factory-worker:1",
                         "anthropic",
                         "NEXUS_GITHUB_TOKEN",
                         "NEXUS_ANTHROPIC_API_KEY",
@@ -256,10 +283,10 @@ public class ConcurrentRunsTests
                 options,
                 new RoundResultDeriver(log.For<RoundResultDeriver>()),
                 new FakeCredentialReader(),
-                log.For<WorkerRoundRunner>());
+                log.For<RoundRunner>());
 
             await runner.RunRoundAsync(
-                new Round(workItem, Nexus, NexusRepo, 42, "the issue", "the brief", "main", string.Empty, 1, 1),
+                new Round(workItem, Nexus, source.Path, 42, "the issue", "the brief", "main", string.Empty, 1, 1),
                 CancellationToken.None);
 
             // The deriver wrote a record, and it names a work item it was never given.
@@ -281,10 +308,10 @@ public class ConcurrentRunsTests
         {
             try
             {
-                var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(options.DatabasePath)));
+                var root = Path.GetDirectoryName(Path.GetFullPath(options.DatabasePath));
                 if (root is { } && Directory.Exists(root))
                 {
-                    Directory.Delete(root, recursive: true);
+                    GitTrees.Delete(root);
                 }
             }
             catch (IOException)
@@ -293,40 +320,4 @@ public class ConcurrentRunsTests
             }
         }
     }
-
-    /// <summary>
-    /// A result file in the shape <c>worker-collect</c> writes, carrying the commit the
-    /// round started from so the host's diff reader has a base to work from.
-    /// </summary>
-    private static string ResultFile(string startHead) => string.Join(
-        "\n",
-        [
-            $$"""{"kind":"result","schema":"agent-factory/worker-result@1","user":"agent","uid":1000,"gitRepo":true,"branch":"main","startHead":"{{startHead}}","head":"{{startHead}}","credentialEnvNames":[],"git":"git version 2.43.0","opencode":"opencode v2.0.18","os":"Ubuntu 24.04"}""",
-            """{"kind":"git","field":"status","text":"1 A. N... 100644 100644 100644 0000000 1111111 src/Endpoint.cs"}""",
-            """{"kind":"git","field":"diffFromRoundStart","text":"diff --git a/src/Endpoint.cs b/src/Endpoint.cs\nnew file mode 100644\n--- /dev/null\n+++ b/src/Endpoint.cs\n@@ -0,0 +1 @@\n+public sealed class Endpoint { }"}""",
-            """{"kind":"git","field":"commitsSinceRoundStart","text":""}""",
-            """{"kind":"git","field":"remotes","text":"origin\thttps://github.com/NaniSoft/nexus.git (fetch)"}""",
-            """{"kind":"command","seq":1,"label":"the unit tests","argv":["dotnet","test"],"cwd":"/work","exitCode":0,"durationMs":1800,"stdoutTail":"42 passed, 0 failed\n","stderrTail":"","stdoutBytes":21,"stderrBytes":0}""",
-            """{"kind":"note","text":"Added the endpoint, because nothing was answering."}""",
-
-            // A truncated line — the collector was killed mid-write. It is here on purpose:
-            // the design names "a results payload that parses but is missing the field the
-            // reviewer needs" as the failure only integration catches, the deriver counts
-            // what it could not read rather than skipping it silently, and the count is
-            // announced — which is a record the deriver writes without having been told
-            // which work item it was reading for.
-            """{"kind":"command","seq":1,"label":"the build that was cut off""",
-        ]);
-
-    /// <summary>
-    /// The same file with no tree behind it, so the host's diff reader has nothing to read
-    /// and the round's own records are the whole of what there is to look at.
-    /// </summary>
-    private static string TruncatedResultFile() => string.Join(
-        "\n",
-        [
-            """{"kind":"result","schema":"agent-factory/worker-result@1","user":"agent","uid":1000,"gitRepo":true,"branch":"main","startHead":"abc1234","head":"abc1234","credentialEnvNames":[],"git":"git version 2.43.0","opencode":"opencode v2.0.18","os":"Ubuntu 24.04"}""",
-            """{"kind":"command","seq":1,"label":"the unit tests","argv":["dotnet","test"],"cwd":"/work","exitCode":0,"durationMs":1800,"stdoutTail":"42 passed, 0 failed\n","stderrTail":"","stdoutBytes":21,"stderrBytes":0}""",
-            """{"kind":"command","seq":2,"label":"the build that was cut off""",
-        ]);
 }

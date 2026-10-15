@@ -12,11 +12,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// account of itself changes nothing about it (ADR-0011).
 /// </summary>
 /// <remarks>
-/// The fixtures here are written to the shape <c>worker/bin/worker-collect</c> writes and
-/// the shape <c>worker/smoke-test.sh</c> checks for. That they are hand-written rather than
-/// lifted out of a real container is the one thing these tests do not prove, and it is
-/// proved by <see cref="AgentFactory.Tests.Containers.WorkerDerivationTests"/>, which
-/// derives from a real round's real result file.
+/// The fixtures here are written to the shape the round collector writes — the same
+/// JSON-lines schema the worker image's collector wrote before rounds ran on the host.
+/// That they are hand-written rather than produced by a real round is the one thing these
+/// tests do not prove, and it is proved by the real-round tests in
+/// <see cref="AgentFactory.Tests.Observability.ConcurrentRunsTests"/> and
+/// <see cref="AgentFactory.Tests.Review.DiffOnTheBoardTests"/>, which derive from a real
+/// round's real result file, written by the real collector over real git observations.
 /// </remarks>
 public class RoundResultDeriverTests : IDisposable
 {

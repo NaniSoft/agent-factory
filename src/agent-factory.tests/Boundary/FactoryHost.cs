@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Boundary;
 using System.Reflection;
 using AgentFactory;
 using AgentFactory.Clock;
-using AgentFactory.Containers;
+
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
@@ -140,14 +140,19 @@ public sealed class FactoryHost : IAsyncDisposable
     /// Steps the machine until it is holding no rounds, and says so rather than returning
     /// early. <see cref="Settle"/> stops the moment a round is still running, which is
     /// right when the round is a fake and completes inside the call and wrong when the
-    /// round is the real thing: the real round runner copies a tree off disk and runs git
-    /// against it, so it is genuinely in flight across calls.
+    /// round is the real thing: the real round runner clones a tree and runs git against
+    /// it, so it is genuinely in flight across calls.
     /// </summary>
     /// <remarks>
-    /// Yielding between steps rather than sleeping, for the same reason everything else in
-    /// this suite does not sleep: the factory has no clock of its own and neither has this.
-    /// The bound is on steps rather than on time and it fails loudly rather than hanging,
-    /// so a round that never comes back is a failure a test can read.
+    /// <para>
+    /// Pausing between steps rather than spinning, and this is the one place in the suite
+    /// that waits on the real world rather than on the factory's own clock — because what
+    /// is in flight is a real process. A yield alone handed the continuation straight back,
+    /// so five hundred steps cost microseconds while the round's clone was still spawning
+    /// git, and the budget ran out before the round could possibly have landed. A real
+    /// round takes real milliseconds; the pause here is shorter than one git invocation
+    /// and the bound is still a count that fails loudly rather than a wait that hangs.
+    /// </para>
     /// </remarks>
     public async Task RunTheMachineAsync(int maxSteps = 500)
     {
@@ -159,7 +164,7 @@ public sealed class FactoryHost : IAsyncDisposable
                 return;
             }
 
-            await Task.Yield();
+            await Task.Delay(10);
         }
 
         throw new Xunit.Sdk.XunitException(
@@ -178,7 +183,7 @@ public sealed class FactoryHost : IAsyncDisposable
     public IServiceProvider Services => _app.Services;
 
     /// <summary>
-    /// How many worker containers the factory is inside right now, read the same way the
+    /// How many rounds the factory is inside right now, read the same way the
     /// board reads it.
     /// </summary>
     public int RoundsInFlight => _app.Services.GetRequiredService<Orchestrator>().RoundsInFlight;
@@ -322,31 +327,31 @@ public sealed class FactoryHost : IAsyncDisposable
 
     /// <summary>
     /// Starts the factory with the real round runner behind the agent seam, and the
-    /// Docker CLI faked. That is a different shape from every other host here, and it
+    /// process seam faked. That is a different shape from every other host here, and it
     /// exists for one question: whether the diff on the board really is <c>git diff</c>
     /// against the tree a round left, rather than whatever a fake decided that tree
-    /// contained. Only the Docker CLI is substituted — the round runner, the container
-    /// runtime, the deriver, the host's diff reader and the board are all the real thing.
+    /// contained. Only the process seam is substituted — the round runner, the collector,
+    /// the deriver, the host's diff reader and the board are all the real thing.
     /// </summary>
     public static Task<FactoryHost> StartWithTheRealRoundAsync(
         FactoryRoot root,
-        IDockerCli docker,
+        IProcessCli processes,
         TestClock? clock = null,
         IGitHub? github = null) =>
         StartAsync(
             root,
             new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
-            new TestSubstitutions(clock, Agent: null, github, docker));
+            new TestSubstitutions(clock, Agent: null, github, processes));
 
     /// <summary>
-    /// The same factory — the real round runner, the real container runtime, the real
+    /// The same factory — the real round runner, the real collector, the real
     /// deriver, the real host diff reader — with somewhere for its records to go as well.
-    /// Only the Docker CLI is substituted, so what the test reads is what the components
+    /// Only the process seam is substituted, so what the test reads is what the components
     /// beneath the loop actually wrote rather than what a fake decided they would.
     /// </summary>
     public static Task<FactoryHost> RecordingWithTheRealRoundAsync(
         FactoryRoot root,
-        IDockerCli docker,
+        IProcessCli processes,
         RecordedLog log,
         FactoryMetrics metrics,
         TestClock? clock = null,
@@ -354,7 +359,7 @@ public sealed class FactoryHost : IAsyncDisposable
         StartAsync(
             root,
             new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
-            new TestSubstitutions(clock, Agent: null, github, docker, metrics, log));
+            new TestSubstitutions(clock, Agent: null, github, processes, metrics, log));
 
     private static async Task<FactoryHost> StartAsync(
         FactoryRoot root,
@@ -411,9 +416,9 @@ public sealed class FactoryHost : IAsyncDisposable
         // still exposes the fake, because only a fake records what was asked of it.
         builder.Services.AddSingleton<IGitHub>(seams.GitHub ?? fakeGitHub);
 
-        if (seams.Docker is { } docker)
+        if (seams.Processes is { } processes)
         {
-            builder.Services.AddSingleton(docker);
+            builder.Services.AddSingleton<IProcessCli>(processes);
         }
 
         if (seams.Agent is { } agent)
@@ -448,7 +453,7 @@ public sealed class FactoryHost : IAsyncDisposable
         TestClock? Clock,
         FakeNOpenCode? Agent,
         IGitHub? GitHub,
-        IDockerCli? Docker = null,
+        IProcessCli? Processes = null,
         FactoryMetrics? Metrics = null,
         RecordedLog? Log = null);
 

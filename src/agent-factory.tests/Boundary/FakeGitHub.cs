@@ -13,6 +13,9 @@ using AgentFactory.GitHub;
 public sealed class FakeGitHub : IGitHub
 {
     private readonly Dictionary<string, Script> _repositories = new(StringComparer.Ordinal);
+
+    /// <summary>Each issue's conversation, keyed by "repoUrl#issueNumber".</summary>
+    private readonly Dictionary<string, List<IssueComment>> _conversations = new(StringComparer.Ordinal);
     private readonly List<string> _polled = [];
     private readonly Dictionary<string, int> _branchesResolved = new(StringComparer.Ordinal);
     private readonly List<MergeAttempt> _merges = [];
@@ -103,6 +106,17 @@ public sealed class FakeGitHub : IGitHub
         Failing(repoUrl, FailureClass.Transient, message);
 
     /// <summary>
+    /// The conversation on one issue, replacing whatever was there — the way a test moves
+    /// an issue's answers into place between two passes. An empty call is a conversation
+    /// with nothing in it yet, which is every Grill before its human arrives.
+    /// </summary>
+    public FakeGitHub WithComments(string repoUrl, int issueNumber, params IssueComment[] comments)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(repoUrl);
+
+        _conversations[$"{repoUrl}#{issueNumber}"] = [.. comments];
+        return this;
+    }    /// <summary>
     /// The repository cannot be read and reading it again will not help: a repository that
     /// has gone away, a credential with nothing to read it with, a name that is not a
     /// repository. The poller reads it once and then does not ask again in this process:
@@ -190,6 +204,27 @@ public sealed class FakeGitHub : IGitHub
         // the factory took: the order is what proves the rotation went round.
         _polled.Add(repoUrl);
         return Task.FromResult<IReadOnlyList<OpenIssue>>(Read(repoUrl).Issues);
+    }
+
+    public Task<IReadOnlyList<IssueComment>> ReadCommentsAsync(
+        string repoUrl,
+        int issueNumber,
+        CancellationToken cancellationToken)
+    {
+        // The repository script governs the read the way it governs every other one: a
+        // repository that cannot be read has no conversation to read either, and the
+        // refusal is the classified kind the containment expects.
+        var script = Read(repoUrl);
+        if (script.Failing)
+        {
+            return Task.FromException<IReadOnlyList<IssueComment>>(
+                Refusing(new Refusal(script.FailureClass ?? FailureClass.Transient, script.Failure ?? "unreadable")));
+        }
+
+        return Task.FromResult<IReadOnlyList<IssueComment>>(
+            _conversations.TryGetValue($"{repoUrl}#{issueNumber}", out var comments)
+                ? comments
+                : []);
     }
 
     public Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken) =>

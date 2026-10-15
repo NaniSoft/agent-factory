@@ -210,34 +210,6 @@ public class ProjectBoardTests
     }
 
     [Fact]
-    public async Task A_filtered_board_says_how_much_of_the_container_budget_is_in_use()
-    {
-        // A reviewer watching a work item sit in Frontier is asking whether the factory is
-        // working or wedged, and the budget is the answer. Without it a bounded machine and
-        // a stuck one look exactly the same, and the fact that the bound exists at all is
-        // only in a source file.
-        using var root = TwoProjects();
-        var agent = new FakeNOpenCode().Stuck().Stuck();
-        await using var host = await FactoryHost.StartAsync(root, agent: agent);
-        await Take(host, Nexus, 42, "nexus", "One long build on nexus");
-        await Take(host, Alpha, 7, "alpha", "One long build on alpha");
-
-        // Nothing started yet, and the board says zero rather than leaving it to be guessed.
-        var before = await Board.ReadAsync(host.Board);
-        Assert.Equal("0", before.Rendered("data-container-budget", "budget", "data-in-flight"));
-        Assert.Equal("2", before.Rendered("data-container-budget", "budget", "data-budget"));
-
-        await host.Settle();
-
-        var during = await Board.ReadAsync(host.Board);
-        Assert.Equal("2", during.Rendered("data-container-budget", "budget", "data-in-flight"));
-        Assert.Contains(
-            "2 of 2 worker containers in use",
-            during.Read("Frontier") + during.Html,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task A_project_the_factory_is_not_serving_is_still_filterable()
     {
         // A project file that has been removed leaves work items behind — rounds run,

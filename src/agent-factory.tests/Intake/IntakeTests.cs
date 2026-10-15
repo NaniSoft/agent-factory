@@ -302,6 +302,34 @@ public class IntakeTests
     }
 
     [Fact]
+    public async Task The_factory_does_not_take_its_own_output()
+    {
+        // An issue wearing the factory's own label is a Grill's questions, filed under the
+        // issue that asked for them, and taking it is a loop that does not terminate: the
+        // questions issue becomes a work item, the round asks its own questions, and the
+        // tracker fills with the chain. Found live — sixteen issues in one afternoon, each
+        // a routing round spent on the factory talking to itself — before this guard
+        // existed. A repository's own triage label is still read by nobody: this is
+        // authorship, not triage, and the sibling beside it is still taken.
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var github = new FakeGitHub().WithRepository(
+            RepoUrl,
+            defaultBranch: "main",
+            OpenIssue.Plain(3, "The issue that asked", "A body."),
+            new OpenIssue(4, "Questions: #3", "What the round asked.", [IGitHub.FactoryIssueLabel], []),
+            OpenIssue.Plain(1, "Add a HELLO.md file", "A body."));
+        await using var host = await FactoryHost.StartAsync(root, github: github);
+
+        await host.PollAsync();
+
+        var workItems = host.Store.List();
+        Assert.Equal([1, 3], workItems.Select(workItem => workItem.IssueNumber).Order());
+
+        var board = await Board.ReadAsync(host.Board);
+        Assert.DoesNotContain("Questions: #3", board.Swimlane("Backlog"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_project_file_that_was_refused_is_out_of_the_rotation_and_the_rest_still_run()
     {
         using var root = FactoryRoot.Create()
@@ -364,7 +392,7 @@ public class IntakeTests
         // publishes over an in-process API rather than reaching anything. `PolicyTests`
         // asserts that list by hand and names this as the change it made.
         Assert.Equal(
-            ["IWorkItemStore", "IGitHub", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
+            ["IWorkItemStore", "IGitHub", "ITicketStarter", "IClock", "ProjectLoadReport", "ILogger`1", "FactoryMetrics"],
             typeof(Poller)
                 .GetConstructors()
                 .Single()
@@ -384,6 +412,7 @@ public class IntakeTests
             [
                 "GetDefaultBranchAsync",
                 "ListOpenIssuesAsync",
+                "ReadCommentsAsync",
                 "OpenPullRequestAsync",
                 "MergeAsync",
                 "CreateIssueAsync",

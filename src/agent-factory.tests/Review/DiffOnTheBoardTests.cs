@@ -1,6 +1,5 @@
 namespace AgentFactory.Tests.Review;
 
-using AgentFactory.Containers;
 using AgentFactory.Failures;
 using AgentFactory.Projects;
 using AgentFactory.Results;
@@ -23,10 +22,12 @@ using Xunit.Sdk;
 /// thing under review, not evidence about it.
 /// </para>
 /// <para>
-/// Most of these run a fake agent, so the round's diff is what a test wrote. One does not:
-/// <see cref="The_diff_on_the_board_is_git_diff_of_the_tree_a_real_round_left"/> runs the
-/// real round runner over a real git repository with only Docker faked, because a diff
-/// asserted against a fixture the test itself wrote is a fixture agreeing with itself.
+/// Most of these run a fake agent, so the round's diff is what a test wrote. Two do not:
+/// <see cref="The_diff_on_the_board_is_git_diff_of_the_tree_a_real_round_left"/> and
+/// <see cref="Round_twos_diff_is_round_twos_change_and_not_round_ones"/> run the real
+/// round runner over real git repositories with only the child process faked, because a
+/// diff asserted against a fixture the test itself wrote is a fixture agreeing with
+/// itself.
 /// </para>
 /// </remarks>
 public class DiffOnTheBoardTests
@@ -43,44 +44,40 @@ public class DiffOnTheBoardTests
         // comes from, and the answer has to be a real `git diff` against a real tree or
         // it is not an answer at all.
         //
-        // The only substitution is the Docker CLI, which hands over a genuine repository.
-        // The round runner, the container runtime, the deriver, the host's diff reader and
-        // the board are all the real thing, and the round ends in Review having been
-        // asked for by the real loop.
-        using var tree = LiftedTree.WithACommitOn();
-        tree.Committed("add the endpoint", ("src/Endpoint.cs", "public sealed class Endpoint { }\n"));
+        // The only substitution is the child process: the runner's git commands run for
+        // real, so the tree is cloned by the runner itself, and the agent is a behaviour
+        // that edits and commits in that tree. The runner, the collector, the deriver, the
+        // host's diff reader and the board are all the real thing, and the round ends in
+        // Review having been asked for by the real loop.
+        using var source = LiftedTree.WithACommitOn();
 
-        // The project's base branch moves on while the round was running, which is ordinary
+        // The project's base branch moves on while the round is running, which is ordinary
         // and is the reason the diff is taken against the commit the round *started* at
         // rather than against the branch's current tip. Diffed against the tip, the card
         // would also show a commit the round never saw and never wrote.
-        tree.BaseBranchMovedOn(
+        source.BaseBranchMovedOn(
             "a commit the round never saw",
             "src/Unrelated.cs",
             "public sealed class Unrelated { }\n");
 
-        // And the object files are read-only, which is what a tree lifted out of a Linux
-        // container looks like on a Windows host. The diff is a read of them, and nothing
-        // here may need to write to or delete them to get one.
-        tree.WithReadOnlyObjects();
-
         using var root = FactoryRoot.Create()
             .WithProjectFile("nexus.yaml", ProjectFile.Valid);
 
-        var docker = new FakeDockerCli();
-        docker.ContainerTrees[ContainerRuntime.WorkPathInContainer] = tree.Path;
+        var processes = new FakeProcessCli()
+            .WithRealGit()
+            .AgentEdits(
+                "src/Endpoint.cs",
+                "public sealed class Endpoint { }\n",
+                note: "Added the endpoint, because nothing was answering.",
+                commit: true);
 
-        // A result file shaped like the one the image's collector writes, carrying the
-        // commit the round started from — the base the host's diff reader must prefer.
-        docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = ResultFile(tree.StartHead);
-
-        await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, docker);
-        var promoted = host.Store.Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+        await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, processes);
+        var promoted = host.Store.Intake("nexus", source.Path, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
         await host.PromoteAsync(promoted.Id);
 
-        // Not Settle: the real round runner copies a tree off disk and runs git against
-        // it, so the round is genuinely in flight across calls and the machine has to be
-        // stepped until it holds nothing.
+        // Not Settle: the real round runner clones a tree and runs git against it, so the
+        // round is genuinely in flight across calls and the machine has to be stepped
+        // until it holds nothing.
         await host.RunTheMachineAsync();
 
         Assert.Equal(Swimlane.Review, Assert.Single(host.Store.List()).Swimlane);
@@ -105,8 +102,8 @@ public class DiffOnTheBoardTests
         Assert.DoesNotContain("Unrelated", diff.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("README.md", diff.Text, StringComparison.Ordinal);
 
-        // And it really was generated here rather than handed over: the tree the fake
-        // lifted out is named on the card, and it is the tree the round left.
+        // And it really was generated here rather than handed over: the tree the round
+        // cloned is named on the card, and it is still on the host.
         Assert.Contains("tree", diff.Tree, StringComparison.OrdinalIgnoreCase);
         Assert.True(Directory.Exists(diff.Tree), $"the board named {diff.Tree} as the round's tree, and there is no such directory");
     }
@@ -181,60 +178,39 @@ public class DiffOnTheBoardTests
         return LiftedTree.Git(tree.Path, [.. arguments]);
     }
 
-    /// <summary>
-    /// One round's diff as the board rendered it, from a real tree, with the real round
-    /// runner and only Docker faked. The single path <see cref="LiftedTree"/> exists for,
     [Fact]
     public async Task Round_twos_diff_is_round_twos_change_and_not_round_ones()
     {
         // **The decisive test for #22, and the one that was impossible to write before it.**
         //
-        // Two real rounds of one work item, each in its own real git repository with a
-        // different change committed, run through the real round runner and the real
-        // container runtime and rendered by the real board. The fake Docker CLI hands out a
-        // different tree per round — which it can only do because it now behaves like the
-        // real `docker cp`, which copies a directory *into* a destination that already
-        // exists rather than replacing it.
-        //
-        // What the first real run found is that round 2's tree landed at `tree/work/`
-        // inside round 1's, so round 2's card showed round 1's diff. The trees here are
-        // deliberately different, so a nested copy is not a copy that happens to look
-        // identical: the assertion below is about which *change* is on round 2's card, and
-        // against the old code it fails on the file, not on a path.
-        using var first = LiftedTree.WithACommitOn();
-        first.Committed("round one answers the question", ("src/First.cs", "public sealed class First { }\n"));
-        first.WithReadOnlyObjects();
-
-        using var second = LiftedTree.WithACommitOn();
-        second.Committed("round two answers it differently", ("src/Second.cs", "public sealed class Second { }\n"));
-        second.WithReadOnlyObjects();
+        // Two real rounds of one work item, each in its own real git tree with a different
+        // change committed, run through the real round runner and rendered by the real
+        // board. The agent changes a different file per round, so the assertion below is
+        // about which *change* is on round 2's card — and against the old
+        // one-directory-per-work-item layout it fails on the file, not on a path.
+        using var source = LiftedTree.WithACommitOn();
 
         using var root = FactoryRoot.Create()
             .WithProjectFile("nexus.yaml", ProjectFile.Valid);
 
-        var docker = new FakeDockerCli();
-
-        // One tree per round, handed over in the order the rounds ask for them. This is a
-        // queue rather than a dictionary because two rounds of one work item lift the same
-        // container path and have to come away with different trees — which is exactly the
-        // situation the old one-directory-per-work-item layout made impossible to see.
-        var perRound = new Queue<string>([first.Path, second.Path]);
-        var perRoundStarts = new Queue<string>([first.StartHead, second.StartHead]);
-
-        docker.Handler = call =>
+        var processes = new FakeProcessCli().WithRealGit();
+        var round = 0;
+        processes.Agent((request, _) =>
         {
-            if (call.Arguments.FirstOrDefault() == "create")
-            {
-                docker.ContainerTrees[ContainerRuntime.WorkPathInContainer] = perRound.Dequeue();
-                docker.ContainerFiles[ContainerRuntime.ResultPathInContainer] = ResultFile(perRoundStarts.Dequeue());
-            }
+            round++;
+            var file = round == 1 ? "src/First.cs" : "src/Second.cs";
+            var work = request.WorkingDirectory!;
+            File.WriteAllText(
+                Path.Combine(work, file),
+                $"public sealed class {Path.GetFileNameWithoutExtension(file)} {{ }}\n");
+            LiftedTree.Git(work, ["add", "--all"]);
+            LiftedTree.Git(work, ["commit", "--message", $"round {round} answers it differently"]);
+            return Task.FromResult(new FakeProcessCli.ProcessAnswer(0, "the agent finished"));
+        });
 
-            return Task.FromResult(new DockerInvocation(0, string.Empty));
-        };
-
-        await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, docker);
+        await using var host = await FactoryHost.StartWithTheRealRoundAsync(root, processes);
         var workItem = host.Store
-            .Intake("nexus", RepoUrl, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
+            .Intake("nexus", source.Path, 42, "Nothing answers", "An endpoint is missing.", "main").WorkItem;
         await host.PromoteAsync(workItem.Id);
 
         await host.RunTheMachineAsync();
@@ -248,9 +224,9 @@ public class DiffOnTheBoardTests
         var roundOne = board.DiffOn(1);
         var roundTwo = board.DiffOn(2);
 
-        // Each round's card carries its own change, which is the whole claim. Before this
-        // ticket round 2's card carried `src/First.cs` — round 1's file — because round
-        // 2's tree had been copied inside round 1's.
+        // Each round's card carries its own change, which is the whole claim. Before the
+        // per-attempt layout, round 2's card carried `src/First.cs` — round 1's file —
+        // because round 2's tree had landed inside round 1's.
         Assert.Equal(["src/First.cs"], roundOne.Files.Select(file => file.Path));
         Assert.Equal(["src/Second.cs"], roundTwo.Files.Select(file => file.Path));
 
@@ -262,18 +238,16 @@ public class DiffOnTheBoardTests
         Assert.DoesNotContain("Second.cs", roundOne.Text, StringComparison.Ordinal);
 
         // And the two trees are two directories, not one directory with something in it.
-        // A nested copy also leaves `git status` reporting `?? work/`, which is the
-        // merger's "left changes uncommitted" refusal — so a nesting makes every later
-        // round permanently unshippable for a reason unrelated to its work.
+        // A nesting also leaves `git status` reporting a directory the round never touched,
+        // which is the merger's "left changes uncommitted" refusal — so a nesting makes
+        // every later round permanently unshippable for a reason unrelated to its work.
         Assert.NotEqual(roundOne.Tree, roundTwo.Tree);
         Assert.All(
             new[] { roundOne.Tree, roundTwo.Tree },
             tree => Assert.True(Directory.Exists(Path.Combine(tree, ".git")), $"{tree} is not a tree of its own"));
-        Assert.Empty(Directory
-            .EnumerateDirectories(Path.GetDirectoryName(roundOne.Tree)!, "work", SearchOption.AllDirectories));
 
         // The two rounds' trees are both still on the host, which is what makes the merger
-        // able to ship either of them: the host pushes, and the container that made each one
+        // able to ship either of them: the host pushes, and the round that made each one
         // is long gone (ADR-0006).
         Assert.Equal(2, host.Store.Rounds(workItem.Id).Count);
     }
@@ -477,7 +451,7 @@ public class DiffOnTheBoardTests
             "worker-round: cloning\nfatal: the collector was killed",
             HostDiff.Unavailable(
                 "/nowhere/rounds/abc/tree",
-                "the round's tree did not come out of its container, so there is nothing on the host to diff")));
+                "the round left no tree on the host, so there is nothing to diff")));
 
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store
@@ -491,7 +465,7 @@ public class DiffOnTheBoardTests
         Assert.Equal("unavailable", diff.State);
         Assert.Empty(diff.Files);
         Assert.Contains("There is no diff for this round", diff.Text, StringComparison.Ordinal);
-        Assert.Contains("did not come out of its container", diff.Text, StringComparison.Ordinal);
+        Assert.Contains("left no tree on the host", diff.Text, StringComparison.Ordinal);
 
         // The log is still there beside it, which is the other half of story 29: a round
         // with nothing but a log is not invisible.
@@ -867,7 +841,7 @@ public class DiffOnTheBoardTests
                 ResultPayload.Of(Derived()),
                 "First attempt, whose tree never arrived.",
                 "round 1 log",
-                HostDiff.Unavailable("/nowhere/tree", "the round's tree did not come out of its container")))
+                HostDiff.Unavailable("/nowhere/tree", "the round left no tree on the host, so there is nothing to diff")))
             .Yielding(RoundResult.Produced(
                 ResultPayload.Of(Derived()),
                 "Second attempt.",
@@ -1082,26 +1056,8 @@ public class DiffOnTheBoardTests
     }
 
     /// <summary>
-    /// A result file in the shape <c>worker-collect</c> writes, carrying the commit the
-    /// round started from so the host's diff reader has a base to work from.
-    /// </summary>
-    private static string ResultFile(string startHead) => string.Join(
-        "\n",
-        [
-            // The header record, carrying the commit the round started from. That is what
-            // the host's diff reader prefers as its base, over the branch it was given.
-            $$"""{"kind":"result","schema":"agent-factory/worker-result@1","user":"agent","uid":1000,"gitRepo":true,"branch":"main","startHead":"{{startHead}}","head":"{{startHead}}","credentialEnvNames":[],"git":"git version 2.43.0","opencode":"opencode v2.0.18","os":"Ubuntu 24.04"}""",
-            """{"kind":"git","field":"status","text":"1 A. N... 100644 100644 100644 0000000 1111111 src/Endpoint.cs"}""",
-            """{"kind":"git","field":"diffFromRoundStart","text":"diff --git a/src/Endpoint.cs b/src/Endpoint.cs\nnew file mode 100644\n--- /dev/null\n+++ b/src/Endpoint.cs\n@@ -0,0 +1 @@\n+public sealed class Endpoint { }"}""",
-            """{"kind":"git","field":"commitsSinceRoundStart","text":""}""",
-            """{"kind":"git","field":"remotes","text":"origin\thttps://github.com/NaniSoft/nexus.git (fetch)"}""",
-            """{"kind":"command","seq":1,"label":"the unit tests","argv":["dotnet","test"],"cwd":"/work","exitCode":0,"durationMs":1800,"stdoutTail":"42 passed, 0 failed\n","stderrTail":"","stdoutBytes":21,"stderrBytes":0}""",
-            """{"kind":"note","text":"Added the endpoint, because nothing was answering."}""",
-        ]);
-
-    /// <summary>
     /// A derived result shaped like a real one, so a test can say what the board renders
-    /// without a Docker daemon anywhere.
+    /// without an agent anywhere.
     /// </summary>
     private static DerivedResult Derived(
         IReadOnlyList<CommandOutcome>? commands = null,
@@ -1165,6 +1121,12 @@ public sealed class RefusingGitHub : AgentFactory.GitHub.IGitHub
 
     public Task<IReadOnlyList<AgentFactory.GitHub.OpenIssue>> ListOpenIssuesAsync(
         string repoUrl,
+        CancellationToken cancellationToken) =>
+        throw NoGitHub();
+
+    public Task<IReadOnlyList<AgentFactory.GitHub.IssueComment>> ReadCommentsAsync(
+        string repoUrl,
+        int issueNumber,
         CancellationToken cancellationToken) =>
         throw NoGitHub();
 

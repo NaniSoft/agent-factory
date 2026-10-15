@@ -1,5 +1,4 @@
 {
-  "budget": { "inUse": 2, "of": 2 },
   "autoMerge": true,
   "lanes": [
     {
@@ -17,7 +16,6 @@
           "roundCeiling": 3,
           "ending": "",
           "decisions": [],
-          "workspace": null,
           "autoMergeAt": null,
           "kind": "Build",
           "kindLabel": "Build",
@@ -36,7 +34,6 @@
           "roundCeiling": 3,
           "ending": "",
           "decisions": [],
-          "workspace": null,
           "autoMergeAt": null,
           "kind": "Unrouted",
           "kindLabel": "Unrouted",
@@ -46,8 +43,16 @@
         }
       ]
     },
-    { "lane": "Frontier", "label": "Frontier", "cards": [] },
-    { "lane": "InProgress", "label": "In Progress", "cards": [] },
+    {
+      "lane": "Frontier",
+      "label": "Frontier",
+      "cards": []
+    },
+    {
+      "lane": "InProgress",
+      "label": "In Progress",
+      "cards": []
+    },
     {
       "lane": "Review",
       "label": "Review",
@@ -62,8 +67,11 @@
           "roundCount": 1,
           "roundCeiling": 3,
           "ending": "",
-          "decisions": ["approve", "request-changes", "reject"],
-          "workspace": null,
+          "decisions": [
+            "approve",
+            "request-changes",
+            "reject"
+          ],
           "autoMergeAt": "2026-10-03T10:30:00+00:00",
           "kind": "Build",
           "kindLabel": "Build",
@@ -81,13 +89,11 @@
           "roundCount": 2,
           "roundCeiling": 3,
           "ending": "",
-          "decisions": ["approve", "request-changes", "reject"],
-          "workspace": {
-            "active": true,
-            "url": "http://127.0.0.1:7101/",
-            "remainingSeconds": 14390,
-            "error": null
-          },
+          "decisions": [
+            "approve",
+            "request-changes",
+            "reject"
+          ],
           "autoMergeAt": "2026-10-03T10:30:00+00:00",
           "kind": "Build",
           "kindLabel": "Build",
@@ -112,7 +118,6 @@
           "roundCeiling": 3,
           "ending": "Merged. A reviewer approved it and the change landed.",
           "decisions": [],
-          "workspace": null,
           "autoMergeAt": null,
           "kind": "Build",
           "kindLabel": "Build",
@@ -137,7 +142,6 @@
           "roundCeiling": 3,
           "ending": "",
           "decisions": [],
-          "workspace": null,
           "autoMergeAt": null,
           "kind": "Grill",
           "kindLabel": "needs grilling",
@@ -161,8 +165,10 @@
           "roundCount": 3,
           "roundCeiling": 3,
           "ending": "Escalated. All 3 rounds are spent, and the reviewer asked for changes, so it is parked for a human rather than built again.",
-          "decisions": ["approve", "reject"],
-          "workspace": null,
+          "decisions": [
+            "approve",
+            "reject"
+          ],
           "autoMergeAt": null,
           "kind": "Unrouted",
           "kindLabel": "Unrouted",
@@ -172,13 +178,16 @@
         }
       ]
     },
-    { "lane": "Rejected", "label": "Rejected", "cards": [] }
+    {
+      "lane": "Rejected",
+      "label": "Rejected",
+      "cards": []
+    }
   ],
   "projects": [
     {
       "name": "nexus",
       "repoUrl": "https://github.com/NaniSoft/nexus",
-      "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
       "llmModel": "anthropic/claude-sonnet-4-5",
       "githubKeyName": "NEXUS_GITHUB_TOKEN",
       "llmKeyName": "NEXUS_ANTHROPIC_API_KEY",
@@ -187,7 +196,6 @@
     {
       "name": "prism",
       "repoUrl": "https://github.com/NaniSoft/prism",
-      "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
       "llmModel": "anthropic/claude-sonnet-4-5",
       "githubKeyName": "PRISM_GITHUB_TOKEN",
       "llmKeyName": "PRISM_ANTHROPIC_API_KEY",
@@ -196,14 +204,17 @@
     {
       "name": "zeta",
       "repoUrl": "https://github.com/NaniSoft/zeta",
-      "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
       "llmModel": "anthropic/claude-sonnet-4-5",
       "githubKeyName": "ZETA_GITHUB_TOKEN",
       "llmKeyName": "ZETA_ANTHROPIC_API_KEY",
       "sourceFile": "zeta.yaml"
     }
   ],
-  "filterProjects": ["nexus", "prism", "zeta"],
+  "filterProjects": [
+    "nexus",
+    "prism",
+    "zeta"
+  ],
   "rejections": [
     {
       "fileName": "broken.yaml",

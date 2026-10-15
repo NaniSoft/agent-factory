@@ -13,7 +13,6 @@ import { EmptyState01 } from '@nanisoft/prism-ui/blocks/empty-state-01';
 import { Badge } from '@nanisoft/prism-ui/components/badge';
 import { Button } from '@nanisoft/prism-ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@nanisoft/prism-ui/components/card';
-import { CtaLink } from '@nanisoft/prism-ui/components/cta-link';
 import { Skeleton } from '@nanisoft/prism-ui/components/skeleton';
 import { Status, type StatusTone } from '@nanisoft/prism-ui/components/status';
 import {
@@ -29,13 +28,11 @@ import { DecisionForm } from '@/components/decision-form';
 import {
   acceptWorkItem,
   fetchBoard,
-  openWorkspace,
   type AcceptanceResult,
   type BoardView,
   type CardView,
   type IntakeView,
   type LaneView,
-  type WorkspaceView,
 } from '@/lib/board';
 import type { DecisionResult } from '@/lib/decisions';
 
@@ -51,7 +48,7 @@ const POLL_MS = 5000;
  * factory, so the dot never stands alone:
  *
  * - `ready` is muted and means nothing is being asked of the reader yet: Backlog is
- *   waiting for the accept gate, Frontier is queued behind a worker container.
+ *   waiting for the accept gate, Frontier is queued behind a running round.
  * - `active` is the cool role that is not an alarm: a round is running, the work
  *   is in Review waiting on the reader, or it is in Waiting on an answer a person
  *   owes. Waiting is not an alarm, because the factory has understood the issue well
@@ -105,7 +102,7 @@ type Reading =
  *
  * A client component, and necessarily so: the app is a static export with no
  * server, and the only thing that knows the machine's state is the factory's own
- * loopback API. It re-decides nothing — the lanes, the cards, the budget and the
+ * loopback API. It re-decides nothing — the lanes, the cards and the
  * auto-merge mode are the factory's own judgement, serialised, drawn through Prism.
  */
 export default function BoardPage() {
@@ -114,8 +111,8 @@ export default function BoardPage() {
       <header className="page__header">
         <h1 className="page__title">The factory board</h1>
         <p className="page__lede">
-          What the factory is doing right now: the lanes and the work item in each of them, how many
-          worker containers it is inside, and whether silence can merge a change.
+          What the factory is doing right now: the lanes and the work item in each of them,
+          and whether silence can merge a change.
         </p>
       </header>
 
@@ -329,16 +326,10 @@ function BoardReady({
   );
 }
 
-/** The strip above the lanes: the container budget and the auto-merge mode. */
+/** The strip above the lanes: the auto-merge mode. */
 function BoardStrip({ board }: { board: BoardView }) {
-  const full = board.budget.inUse >= board.budget.of;
-
   return (
     <div className="board__strip">
-      <Status
-        tone={full ? 'warning' : 'success'}
-        label={`${board.budget.inUse} of ${board.budget.of} worker containers in use`}
-      />
       <Badge variant={board.autoMerge ? 'success' : 'outline'}>
         {board.autoMerge ? 'auto-merge is on' : 'auto-merge is off'}
       </Badge>
@@ -537,9 +528,6 @@ function toCard(
             })}
           />
         ) : null}
-        {card.lane === 'Review' ? (
-          <WorkspaceAction workItemId={card.id} workspace={card.workspace} />
-        ) : null}
         {card.decisions.length > 0 ? (
           <DecisionForm
             workItemId={card.id}
@@ -601,95 +589,6 @@ function AcceptAction({
 }
 
 /**
- * The review workspace, on one card in Review.
- *
- * A workspace is the reviewer's own copy of the round's tree, running code-server on
- * loopback, and this is the one control that opens it. It is a kind of write the board
- * did not have — it spawns a container — but it moves nothing, and the factory's answer
- * is the same either way: a link and the time left, or the factory's own words for why
- * it could not be opened. Nothing here ends in silence (#31, #47).
- *
- * The server's answer (`fromTheFactory`) is the truth and travels on the board's card,
- * so a card that already carries an open workspace renders its link on load. A press
- * posts to the endpoint and shows the result at once, tagged with the board value it
- * answered so the board's next poll — a fresh object every five seconds — supersedes it
- * without an effect: a press is a head start on the next read, not a second source of
- * truth.
- */
-function WorkspaceAction({
-  workItemId,
-  workspace: fromTheFactory,
-}: {
-  workItemId: string;
-  workspace: WorkspaceView | null;
-}) {
-  const [pressed, setPressed] = useState<{ answered: WorkspaceView | null; view: WorkspaceView } | null>(
-    null,
-  );
-  const [pending, setPending] = useState(false);
-
-  // The press's answer stands only while the board still carries the value it answered;
-  // a poll hands a new object, the tag no longer matches, and the factory's answer is
-  // shown again. No effect, no second render, no stale copy outliving the read it came
-  // from.
-  const workspace = pressed && pressed.answered === fromTheFactory ? pressed.view : fromTheFactory;
-
-  const open = useCallback(() => {
-    setPending(true);
-    const answered = fromTheFactory;
-    openWorkspace(workItemId)
-      .then((view) => setPressed({ answered, view }))
-      .catch((error: unknown) => {
-        setPressed({
-          answered,
-          view: {
-            active: false,
-            url: null,
-            remainingSeconds: null,
-            error: error instanceof Error ? error.message : 'the factory could not be reached',
-          },
-        });
-      })
-      .finally(() => setPending(false));
-  }, [workItemId, fromTheFactory]);
-
-  if (workspace?.active && workspace.url) {
-    return (
-      <span className="board__workspace">
-        <CtaLink href={workspace.url} newTab variant="outline" size="sm">
-          {workspace.url}
-        </CtaLink>
-        {workspace.remainingSeconds !== null ? (
-          <span className="board__workspace-remaining">{remainingLabel(workspace.remainingSeconds)}</span>
-        ) : null}
-      </span>
-    );
-  }
-
-  return (
-    <span className="board__workspace">
-      <Button type="button" variant="outline" size="sm" onClick={open} disabled={pending}>
-        {pending ? 'Opening the workspace' : 'Open workspace'}
-      </Button>
-      {/*
-        A workspace that cannot be opened is usually because the round left no tree to
-        open, and the thing a reviewer wants next is the work item's own page — its rounds,
-        the change each left, and its decisions. The factory's own words for the refusal
-        stay beside the link rather than being replaced by it.
-      */}
-      {workspace?.error ? (
-        <Status tone="destructive" label={workspace.error} />
-      ) : null}
-      {workspace?.error ? (
-        <CtaLink href={`/work-items?item=${workItemId}`} variant="outline" size="sm">
-          See the work item
-        </CtaLink>
-      ) : null}
-    </span>
-  );
-}
-
-/**
  * When a card's silence would merge it, in a reviewer's words. The factory sends the moment
  * as ISO-8601 in UTC; this says it the way the board always has — `yyyy-MM-dd HH:mm UTC` —
  * because "the moment this ships" is a wall-clock time and not a countdown to compute.
@@ -701,20 +600,6 @@ function autoMergeLabel(iso: string): string {
     `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())} ` +
     `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC`
   );
-}
-
-/**
- * The time left on a workspace, in a reviewer's words. The factory sends whole seconds;
- * this says them in the largest two units that matter, because "3h 59m remaining" is the
- * answer to "how long have I got" and "14390 seconds" is not.
- */
-function remainingLabel(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m remaining`;
-  if (minutes > 0) return `${minutes}m remaining`;
-  return `${safe}s remaining`;
 }
 
 /** The board before the factory has answered: the shape of it, in Prism skeletons. */

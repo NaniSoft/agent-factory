@@ -10,7 +10,7 @@ in, one approved pull request out, with a human judging every build in between.
 **Factory**:
 The system itself — the thing that polls, builds, presents, and merges. It serves
 many projects and is not one of them.
-_Avoid_: agent (means the AI inside a container), worker
+_Avoid_: agent (means the AI a round drives), worker
 
 **Project**:
 One repository the factory builds for, described by a single project file in
@@ -19,7 +19,7 @@ _Avoid_: repo, tenant, factory, target
 
 **Project file**:
 The `factories/<project>.yaml` file describing one project: its repository, its
-credentials, its LLM provider, and its worker image.
+credentials, and its LLM provider.
 _Avoid_: config, config file, manifest
 
 ### The chain
@@ -36,9 +36,9 @@ orchestrator acts on.
 _Avoid_: ticket, task, job, card, build
 
 **Round**:
-One whole attempt at building a work item. The agent runs in a single fresh worker
-container, builds, tests, corrects itself, and returns a result the reviewer can
-judge. A work item gets at most three.
+One whole attempt at building a work item. The agent runs in a single fresh working
+tree, builds, tests, corrects itself, and returns a result the reviewer can judge.
+A work item gets at most three.
 _Avoid_: build attempt, iteration, pass, try, turn
 
 **Feedback**:
@@ -78,27 +78,15 @@ _Avoid_: escalation (a human decline, not a failure), dead, abandoned
 ### The build
 
 **Agent**:
-The AI doing the building inside a worker container.
+The AI doing the building, driven by the round runner as this machine's own child
+process.
 _Avoid_: worker, assistant, model, bot
-
-**Worker container**:
-The disposable container one round runs in, carrying code-server and the agent. It
-exists for exactly one round; nothing survives it.
-_Avoid_: sandbox, agent container, build container, environment, workspace
-
-**Review workspace**:
-A second kind of container, not a round: one a reviewer opens from the board while a
-work item is in Review. It shares the project's image — code-server and the project's
-toolchain — on a copy of the latest round's tree, holds no credential, and is reachable
-from the reviewer's machine only. It ends on the decision, on the next round, or at a
-fixed lifetime; re-opening one is a click.
-_Avoid_: workspace (alone — say which kind), IDE, editor, dev server, round
 
 **Reviewer**:
 The human who makes decisions on the board.
 _Avoid_: user, approver, operator, maintainer
 
 **Orchestrator**:
-The component that accepts work items, starts worker containers, and drives rounds.
-It never runs commands inside a container itself — that is the agent's job.
+The component that accepts work items, asks for rounds, and drives the machine's
+state. It never drives the agent itself — that is the round runner's job.
 _Avoid_: scheduler, controller, runner

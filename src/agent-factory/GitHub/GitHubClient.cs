@@ -3,7 +3,7 @@ namespace AgentFactory.GitHub;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using AgentFactory.Containers;
+
 using AgentFactory.Credentials;
 using AgentFactory.Failures;
 using AgentFactory.Observability;
@@ -266,6 +266,72 @@ public sealed class GitHubClient : IGitHub
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<IssueComment>> ReadCommentsAsync(
+        string repoUrl,
+        int issueNumber,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+
+        var repository = RepositoryRef.Parse(repoUrl);
+        var token = TokenFor(ProjectServing(repository));
+        var comments = new List<IssueComment>();
+        var truncated = false;
+
+        for (var page = 1; page <= MaxIssuePages; page++)
+        {
+            var answer = await AskAsync(
+                HttpMethod.Get,
+                $"{repository.ApiPath}/issues/{issueNumber}/comments?per_page={IssuePageSize}&page={page}",
+                token,
+                json: null,
+                cancellationToken).ConfigureAwait(false);
+
+            Expect(answer, $"the conversation on {repository.FullName}#{issueNumber}");
+
+            var page_ = Read(answer).EnumerateArray().ToList();
+            foreach (var element in page_)
+            {
+                comments.Add(new IssueComment(
+                    element.TryGetProperty("user", out var user)
+                        ? user.GetProperty("login").GetString() ?? string.Empty
+                        : string.Empty,
+                    element.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
+                    element.TryGetProperty("created_at", out var createdAt)
+                        && DateTimeOffset.TryParse(createdAt.GetString(), out var when)
+                            ? when
+                            : DateTimeOffset.MinValue));
+            }
+
+            if (page_.Count < IssuePageSize)
+            {
+                break;
+            }
+
+            if (page == MaxIssuePages)
+            {
+                truncated = true;
+            }
+        }
+
+        if (truncated)
+        {
+            // The same honesty the issue list carries: a conversation longer than the bound
+            // is a conversation the factory saw the start of, and a round brief built on it
+            // would read like the whole story when it was only the opening.
+            _logger.LogWarning(
+                "The conversation on {Repository}#{Issue} ran past page {Pages}, so this read took the "
+                    + "first {Read} comments and not all of them.",
+                repository.FullName,
+                issueNumber,
+                MaxIssuePages,
+                MaxIssuePages * IssuePageSize);
+        }
+
+        return comments;
+    }
+
+    /// <inheritdoc />
     public async Task<PullRequest> OpenPullRequestAsync(
         PullRequestRequest request,
         CancellationToken cancellationToken)
@@ -301,11 +367,13 @@ public sealed class GitHubClient : IGitHub
         // as a number, for two reasons and the first is the load-bearing one: a create that
         // succeeded and then failed to be linked would leave an orphan issue in a human's
         // tracker with a title that says it is part of something. Resolving first means the
-        // only way this can happen is a refusal before anything is created at all.
-        int? parentId = null;
+        // only way this can happen is a refusal before anything is created at all — a parent
+        // this token cannot see fails here rather than after an orphan exists. The resolved
+        // id itself is discarded: the link endpoint addresses the parent by number and the
+        // child by the id the create answers with.
         if (request.ParentNumber is { } parentNumber)
         {
-            parentId = await IssueIdAsync(repository, parentNumber, token, cancellationToken)
+            _ = await IssueIdAsync(repository, parentNumber, token, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -323,7 +391,7 @@ public sealed class GitHubClient : IGitHub
                 // kind is a column the factory writes (ADR-0007, ADR-0015), so a label here
                 // is presentation and not an input, and nothing this process does changes if
                 // somebody edits or removes it.
-                ["labels"] = new[] { RoutingLabel },
+                ["labels"] = new[] { IGitHub.FactoryIssueLabel },
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -337,10 +405,13 @@ public sealed class GitHubClient : IGitHub
         // issue has to exist before it can be made a child of anything, so "create and link
         // in one request" is not available; what is available is doing the link immediately
         // after and refusing the whole thing if it fails, so a caller never sees a created
-        // issue it was not told about.
-        if (request.ParentNumber is { } parent && parentId is { } id)
+        // issue it was not told about. The endpoint takes the parent's number in the path
+        // and the child's database id in the body, which is what the create just answered.
+        if (request.ParentNumber is { } parent)
         {
-            await LinkAsSubIssueAsync(repository, id, number, token, cancellationToken).ConfigureAwait(false);
+            var createdId = created.GetProperty("id").GetInt64();
+            await LinkAsSubIssueAsync(repository, parent, createdId, token, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         _logger.LogInformation(
@@ -363,12 +434,13 @@ public sealed class GitHubClient : IGitHub
         var repository = RepositoryRef.Parse(repoUrl);
         var token = TokenFor(ProjectServing(repository));
 
-        var parent = await IssueIdAsync(repository, parentNumber, token, cancellationToken)
-            .ConfigureAwait(false);
+        // The path addresses the parent by number; the body carries the child's database
+        // id, which only has to be resolved, never guessed from a number.
         var child = await IssueIdAsync(repository, childNumber, token, cancellationToken)
             .ConfigureAwait(false);
 
-        await LinkAsSubIssueAsync(repository, parent, child, token, cancellationToken).ConfigureAwait(false);
+        await LinkAsSubIssueAsync(repository, parentNumber, child, token, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -384,15 +456,21 @@ public sealed class GitHubClient : IGitHub
         // GitHub's own dependency relationship rather than a line in a body. The reason is
         // that a blocking edge written in prose is invisible in the one view where somebody
         // asks "what can I work on", and this factory's whole claim about its maps is that a
-        // human can read the frontier without opening the factory.
-        var blocked = await IssueIdAsync(repository, blockedNumber, token, cancellationToken)
+        // human can read the frontier without opening the factory. The path addresses the
+        // blocked issue by number; the body carries the blocker's database id, which is
+        // resolved here rather than assumed to be the number. The blocked issue is resolved
+        // for the same reason the parent above is: a number this token cannot see is a
+        // refusal before any write, not a 404 after one.
+        _ = await IssueIdAsync(repository, blockedNumber, token, cancellationToken)
+            .ConfigureAwait(false);
+        var blocker = await IssueIdAsync(repository, blockerNumber, token, cancellationToken)
             .ConfigureAwait(false);
 
         var answer = await AskAsync(
             HttpMethod.Post,
-            $"{repository.ApiPath}/issues/{blocked}/dependencies/blocked_by",
+            $"{repository.ApiPath}/issues/{blockedNumber}/dependencies/blocked_by",
             token,
-            json: new Dictionary<string, object?> { ["issue_id"] = blockerNumber },
+            json: new Dictionary<string, object?> { ["issue_id"] = blocker },
             cancellationToken).ConfigureAwait(false);
 
         Expect(answer, $"a blocking edge on {repository.FullName}#{blockedNumber}");
@@ -449,7 +527,7 @@ public sealed class GitHubClient : IGitHub
     /// composed id that happens to be wrong fails in a way that looks like a permissions
     /// problem.
     /// </summary>
-    private async Task<int> IssueIdAsync(
+    private async Task<long> IssueIdAsync(
         RepositoryRef repository,
         int issueNumber,
         string token,
@@ -466,35 +544,41 @@ public sealed class GitHubClient : IGitHub
 
         Expect(answer, $"{repository.FullName}#{issueNumber}");
 
+        // The database id, not the number and not the node id: the relationship endpoints
+        // below take numbers in their paths and database ids in their bodies, and a node
+        // id is a string no REST relationship endpoint reads. This was found on a live
+        // repository — the first Grill published its questions issue and then linked it
+        // with a 404, because what this method handed the linker was neither of the two
+        // identifiers the endpoint asks for.
         var node = Read(answer);
-        return node.TryGetProperty("node_id", out var id) && id.GetString() is { Length: > 0 } value
-            ? value.Length
+        return node.TryGetProperty("id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.Number
+            ? id.GetInt64()
             : throw new PermanentFailure(
-                $"GitHub answered for {repository.FullName}#{issueNumber} without the node id its own relationship "
+                $"GitHub answered for {repository.FullName}#{issueNumber} without the numeric id its own relationship "
                     + "endpoints need, so this factory cannot link it to anything");
     }
 
     private async Task LinkAsSubIssueAsync(
         RepositoryRef repository,
-        int parentId,
-        int childId,
+        int parentNumber,
+        long childId,
         string token,
         CancellationToken cancellationToken)
     {
-        var parent = new Dictionary<string, object?> { ["id"] = parentId };
-
+        // GitHub's own shape, read from its documentation rather than from a fake that
+        // agrees with this client by construction: the parent's issue number addresses the
+        // endpoint, and the child's database id names what is being added under it.
         var answer = await AskAsync(
             HttpMethod.Post,
-            $"{repository.ApiPath}/issues/{childId}/sub_issues",
+            $"{repository.ApiPath}/issues/{parentNumber}/sub_issues",
             token,
-            json: new Dictionary<string, object?> { ["sub_issue_id"] = parentId, ["parent"] = parent },
+            json: new Dictionary<string, object?> { ["sub_issue_id"] = childId },
             cancellationToken).ConfigureAwait(false);
 
-        Expect(answer, $"a sub-issue link on {repository.FullName}");
+        Expect(answer, $"a sub-issue link on {repository.FullName}#{parentNumber}");
     }
 
-    /// <summary>The label every issue the factory creates carries, for humans reading the tracker.</summary>
-    private const string RoutingLabel = "agent-factory";
+    /// <summary>The label every issue the factory creates carries — <see cref="IGitHub.FactoryIssueLabel"/>.</summary>
 
     /// <inheritdoc />
     public async Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken)
@@ -548,6 +632,14 @@ public sealed class GitHubClient : IGitHub
                 issueNumber,
                 repository.FullName,
                 existing.Number);
+
+            await CloseTheStoriesAsync(
+                repository,
+                repoUrl,
+                workItem,
+                existing.Number,
+                token,
+                cancellationToken).ConfigureAwait(false);
 
             return;
         }
@@ -604,6 +696,116 @@ public sealed class GitHubClient : IGitHub
             issueNumber,
             MergeMethod,
             branch);
+
+        await CloseTheStoriesAsync(
+            repository,
+            repoUrl,
+            workItem,
+            pull.Number,
+            token,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Closes the issues a merge ends the story of: the issue the change answers, and —
+    /// when the change was grilled first — the questions issue whose conversation shaped
+    /// it. Nothing short of the merge closes either one.
+    /// </summary>
+    /// <remarks>
+    /// The pull request's body says <c>Refs</c> rather than <c>Closes</c>, so nothing
+    /// GitHub did on its own has closed the answered issue, and the rule this method
+    /// carries is the reviewer's own: <c>merged</c> is what closes an issue, and anything
+    /// short of that — a pull request declined without merging, a merge that never
+    /// landed — leaves the issues exactly as open as they were. Both success paths above
+    /// arrive here: the merge this call made, and the retry that found the pull request
+    /// already merged. Each issue's state is read before its close, because the retry is a
+    /// retry's ordinary answer and a retry creates nothing — a second close would post a
+    /// second comment under an issue a human already saw closed.
+    /// <para>
+    /// The questions issue is closed beside the answered one, and the reason is the same
+    /// rule read from the other side: its conversation is where the human answered, the
+    /// answer is now on the base branch, and a questions issue left open over shipped work
+    /// is the factory's own output outliving its purpose — found the hard way, when the
+    /// first live Grill shipped and its questions issue sat open with nothing left to
+    /// say. A close that cannot happen does not un-land a merge that did: the refusal is
+    /// logged and the merge stands, because <c>Done</c> means merged and an issue left
+    /// open beside a merged change is a state a human can finish with one click.
+    /// </para>
+    /// </remarks>
+    private async Task CloseTheStoriesAsync(
+        RepositoryRef repository,
+        string repoUrl,
+        WorkItems.WorkItem workItem,
+        int pullNumber,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        await CloseWithCommentIfOpenAsync(
+            repository,
+            repoUrl,
+            workItem.IssueNumber,
+            $"Merged as #{pullNumber} — the change answering this issue is on the base branch.",
+            token,
+            cancellationToken).ConfigureAwait(false);
+
+        if (workItem.RoutingIssue is { } questions && questions != workItem.IssueNumber)
+        {
+            await CloseWithCommentIfOpenAsync(
+                repository,
+                repoUrl,
+                questions,
+                $"Merged as #{pullNumber} — the answers in this conversation shaped the change that landed. "
+                    + "Closing it with the work it unblocked.",
+                token,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CloseWithCommentIfOpenAsync(
+        RepositoryRef repository,
+        string repoUrl,
+        int issueNumber,
+        string because,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var answer = await AskAsync(
+                HttpMethod.Get,
+                $"{repository.ApiPath}/issues/{issueNumber}",
+                token,
+                json: null,
+                cancellationToken).ConfigureAwait(false);
+
+            Expect(answer, $"an issue on {repository.FullName}");
+
+            if (Read(answer).TryGetProperty("state", out var state)
+                && string.Equals(state.GetString(), "closed", StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "{Repository}#{Issue} is already closed, so the merge closes nothing.",
+                    repository.FullName,
+                    issueNumber);
+                return;
+            }
+
+            await CloseIssueAsync(repoUrl, issueNumber, because, cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Closed {Repository}#{Issue}: the change it belongs to is merged and on the base branch.",
+                repository.FullName,
+                issueNumber);
+        }
+        catch (Exception refused) when (refused is PermanentFailure or TransientFailure)
+        {
+            _logger.LogWarning(
+                "{Repository}#{Issue} could not be closed after the merge: {Refusal}. The merge stands; "
+                    + "the issue is left for a human to close.",
+                repository.FullName,
+                issueNumber,
+                refused.Message);
+        }
     }
 
     /// <summary>

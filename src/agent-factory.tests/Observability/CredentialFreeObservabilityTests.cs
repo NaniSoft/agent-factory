@@ -133,7 +133,6 @@ public class CredentialFreeObservabilityTests
                 [new AgentFactory.Projects.Project(
                     "nexus",
                     merging.WorkItem.RepoUrl,
-                    "ghcr.io/nanisoft/agent-factory-worker:1",
                     "anthropic",
                     Merging.KeyName,
                     "NEXUS_ANTHROPIC_API_KEY",

@@ -47,10 +47,9 @@ describe('the projects page', () => {
 
     render(<ProjectsPage />);
 
-    // The served project, its six values and its load state, off the fixture.
+    // The served project, its five values and its load state, off the fixture.
     expect(await screen.findByText('nexus')).toBeTruthy();
     expect(screen.getByText('https://github.com/NaniSoft/nexus')).toBeTruthy();
-    expect(screen.getByText('ghcr.io/nanisoft/agent-factory-worker:1')).toBeTruthy();
     expect(screen.getByText('anthropic/claude-sonnet-4-5')).toBeTruthy();
     expect(screen.getByText('NEXUS_GITHUB_TOKEN')).toBeTruthy();
     expect(screen.getByText('NEXUS_ANTHROPIC_API_KEY')).toBeTruthy();
@@ -68,7 +67,6 @@ describe('the projects page', () => {
     // matcher anchors on the name rather than matching the trailing glyph.
     expect(screen.getByLabelText(/^Name/)).toBeTruthy();
     expect(screen.getByLabelText(/^Repository URL/)).toBeTruthy();
-    expect(screen.getByLabelText(/^Worker image/)).toBeTruthy();
     expect(screen.getByLabelText(/^Model/)).toBeTruthy();
     expect(screen.getByLabelText(/^GitHub credential name/)).toBeTruthy();
     expect(screen.getByLabelText(/^LLM credential name/)).toBeTruthy();
@@ -80,7 +78,7 @@ describe('the projects page', () => {
     });
   });
 
-  it('writes the six values the reader filled and says the file is served after a restart', async () => {
+  it('writes the five values the reader filled and says the file is served after a restart', async () => {
     const fetchMock = answerWith();
 
     render(<ProjectsPage />);
@@ -90,9 +88,6 @@ describe('the projects page', () => {
     fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'atlas' } });
     fireEvent.change(screen.getByLabelText(/^Repository URL/), {
       target: { value: 'https://github.com/NaniSoft/atlas' },
-    });
-    fireEvent.change(screen.getByLabelText(/^Worker image/), {
-      target: { value: 'ghcr.io/nanisoft/agent-factory-worker:1' },
     });
     fireEvent.change(screen.getByLabelText(/^Model/), {
       target: { value: 'anthropic/claude-sonnet-4-5' },
@@ -116,7 +111,6 @@ describe('the projects page', () => {
     expect(JSON.parse(String(postInit?.body))).toEqual({
       name: 'atlas',
       repoUrl: 'https://github.com/NaniSoft/atlas',
-      workerImage: 'ghcr.io/nanisoft/agent-factory-worker:1',
       llmModel: 'anthropic/claude-sonnet-4-5',
       githubKeyName: 'ATLAS_GITHUB_TOKEN',
       llmKeyName: 'ATLAS_ANTHROPIC_API_KEY',

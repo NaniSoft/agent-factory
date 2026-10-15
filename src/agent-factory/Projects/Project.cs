@@ -7,7 +7,6 @@ namespace AgentFactory.Projects;
 public sealed record Project(
     string Name,
     string RepoUrl,
-    string WorkerImage,
     string LlmModel,
     string GitHubKeyName,
     string LlmKeyName,

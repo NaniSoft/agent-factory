@@ -5,14 +5,25 @@
  * value, camel-cased by name on both sides and pinned there rather than left to a
  * serialiser's naming policy. There is deliberately no value on the read — the surface
  * is write-only, and the factory never sends one back — and no codegen between the two.
+ *
+ * `llmProviders` is the factory's own table of the providers a model reference may
+ * name and the canonical environment variable each one's tooling reads, offered so the
+ * set-a-credential form can fill a name from the measured fact rather than from a copy
+ * this app would have to keep agreeing with.
  */
 export type CredentialView = {
   name: string;
   set: boolean;
 };
 
+export type LlmProvider = {
+  id: string;
+  canonicalEnvironmentVariable: string;
+};
+
 export type CredentialsView = {
   credentials: CredentialView[];
+  llmProviders: LlmProvider[];
 };
 
 /**

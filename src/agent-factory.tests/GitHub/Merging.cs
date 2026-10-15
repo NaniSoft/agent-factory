@@ -1,6 +1,5 @@
 namespace AgentFactory.Tests.GitHub;
 
-using AgentFactory.Containers;
 using AgentFactory.Credentials;
 using AgentFactory.GitHub;
 using AgentFactory.Projects;
@@ -89,7 +88,7 @@ public sealed class Merging : IDisposable
         var project = new Project(
             Name: "nexus",
             RepoUrl: _remote.Path,
-            WorkerImage: "ghcr.io/nanisoft/agent-factory-worker:1",
+
             LlmModel: "anthropic/claude-sonnet-4-5",
             GitHubKeyName: KeyName,
             LlmKeyName: "NEXUS_ANTHROPIC_API_KEY",
@@ -170,7 +169,7 @@ public sealed class Merging : IDisposable
         WorkItem.Id.ToString("N"),
         "round-1",
         "attempt-1",
-        AgentFactory.Containers.ContainerRuntime.RoundTreeFolder);
+        "tree");
 
     /// <summary>Ships the work item's change, once.</summary>
     public Task Merge(CancellationToken cancellationToken = default) =>

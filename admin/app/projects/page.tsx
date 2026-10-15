@@ -53,7 +53,6 @@ type ProjectRow = Omit<ProjectView, 'state'> & {
 const COLUMNS: readonly ColumnSpec[] = [
   { key: 'name', header: 'Project', kind: 'Typography' },
   { key: 'repoUrl', header: 'Repository', kind: 'Typography' },
-  { key: 'workerImage', header: 'Worker image', kind: 'Typography' },
   { key: 'llmModel', header: 'Model', kind: 'Typography' },
   { key: 'githubKeyName', header: 'GitHub credential', kind: 'Typography' },
   { key: 'llmKeyName', header: 'LLM credential', kind: 'Typography' },
@@ -86,7 +85,7 @@ const LABELS: DataTable01Labels = {
 };
 
 /**
- * A Project's six values, as the record form fills them. The field keys carry the
+ * A Project's five values, as the record form fills them. The field keys carry the
  * project's own dotted shape (`repo.url`, `keys.github`), which is what the file states
  * and what the write endpoint expects.
  *
@@ -102,7 +101,7 @@ function groupsFor(editing: ProjectView | null): readonly FieldSpecGroup[] {
       id: 'project',
       label: 'The project file',
       description:
-        'The six values a project file states. The two credentials are the names of environment variables, never their values; the value is set on the Credentials surface.',
+        'The five values a project file states. The two credentials are the names of environment variables, never their values; the value is set on the Credentials surface.',
       fields: [
         {
           key: 'name',
@@ -121,15 +120,7 @@ function groupsFor(editing: ProjectView | null): readonly FieldSpecGroup[] {
           placeholder: 'https://github.com/owner/repo',
           defaultValue: editing?.repoUrl,
         },
-        {
-          key: 'worker.image',
-          label: 'Worker image',
-          kind: 'Input',
-          required: true,
-          placeholder: 'ghcr.io/nanisoft/agent-factory-worker:1',
-          defaultValue: editing?.workerImage,
-        },
-        {
+                {
           key: 'llm.model',
           label: 'Model',
           kind: 'Input',
@@ -221,7 +212,6 @@ export default function ProjectsPage() {
       const project: ProjectWrite = {
         name: text('name'),
         repoUrl: text('repo.url'),
-        workerImage: text('worker.image'),
         llmModel: text('llm.model'),
         githubKeyName: text('keys.github'),
         llmKeyName: text('keys.llm'),
@@ -231,8 +221,6 @@ export default function ProjectsPage() {
       if (!project.name) found.push({ field: 'name', message: 'A project needs a name.' });
       if (!project.repoUrl)
         found.push({ field: 'repo.url', message: 'A project needs a repository URL.' });
-      if (!project.workerImage)
-        found.push({ field: 'worker.image', message: 'A project needs a worker image.' });
       if (!project.llmModel) found.push({ field: 'llm.model', message: 'A project needs a model.' });
       if (!project.githubKeyName)
         found.push({ field: 'keys.github', message: 'Name the GitHub credential.' });
@@ -297,7 +285,6 @@ export default function ProjectsPage() {
             [
               project.name,
               project.repoUrl,
-              project.workerImage,
               project.llmModel,
               project.githubKeyName,
               project.llmKeyName,

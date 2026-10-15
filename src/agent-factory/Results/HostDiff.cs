@@ -211,7 +211,7 @@ public static class HostDiffReader
         {
             return HostDiff.Unavailable(
                 tree ?? string.Empty,
-                "the round's tree did not come out of its container, so there is nothing on the host to diff");
+                "the round left no tree on the host, so there is nothing to diff");
         }
 
         // The bases to try, in order of how well we know them. The start commit is the

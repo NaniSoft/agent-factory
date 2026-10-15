@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 
 import { PrismProvider, PrismThemeScript } from '@nanisoft/prism-ui/provider';
 
+import { SiteNav } from '@/components/site-nav';
+
 // The one stylesheet. Every token, every utility and every base rule arrive in
 // this single import; the app adds its own handful of classes after it and nothing
 // else. Imported before `globals.css`, because the design system's base is layered
@@ -13,7 +15,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'The factory board',
   description:
-    'The agent factory\u2019s Board: how many worker containers it is inside, and whether silence can merge.',
+    'The agent factory\u2019s Board: the work in its lanes, and whether silence can merge.',
 };
 
 /**
@@ -37,6 +39,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <PrismProvider defaultPack="lavender" defaultMode="dark">
+          <SiteNav />
           {children}
         </PrismProvider>
       </body>

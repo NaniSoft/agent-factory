@@ -73,6 +73,7 @@ public static class RoundBrief
             .AppendLine("not what the work would be.");
 
         Section(brief, "What the issue asked for", round.IssueBody);
+        Conversation(brief, round.Conversation);
 
         brief.AppendLine()
             .AppendLine("## What to decide")
@@ -153,6 +154,7 @@ public static class RoundBrief
             .Append("Working tree: /work, fetched at the base branch above. Do not change branches.\n");
 
         Section(brief, "What the issue asked for", round.IssueBody);
+        Conversation(brief, round.Conversation);
         Section(brief, "What the reviewer asked for last time", round.Feedback);
 
         brief.AppendLine()
@@ -186,5 +188,27 @@ public static class RoundBrief
         }
 
         brief.AppendLine().Append("## ").AppendLine(heading).AppendLine().AppendLine(body.Trim()).AppendLine();
+    }
+
+    /// <summary>
+    /// The issue's comments, under their authors, in the order they were said. Nothing is
+    /// summarised and nothing is dropped: an answer a human left is the thing this round
+    /// may be riding on, and a brief that paraphrased the conversation would be the factory
+    /// standing between the reader and what the reader actually wrote. Silent when there
+    /// is no conversation, because a section of nothing reads like a round that forgot to
+    /// look.
+    /// </summary>
+    private static void Conversation(StringBuilder brief, IReadOnlyList<GitHub.IssueComment> conversation)
+    {
+        if (conversation.Count == 0)
+        {
+            return;
+        }
+
+        brief.AppendLine().AppendLine("## The conversation on the issue").AppendLine();
+        foreach (var comment in conversation)
+        {
+            brief.Append("**").Append(comment.Author).Append("** wrote:").AppendLine().AppendLine(comment.Body.Trim()).AppendLine();
+        }
     }
 }

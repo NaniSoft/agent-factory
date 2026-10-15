@@ -6,22 +6,18 @@ using AgentFactory.Pages;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
-using AgentFactory.Workspaces;
 
 /// <summary>
 /// What <c>GET /api/board</c> returns: the factory's own judgement, serialised, and
 /// nothing the factory would not say on its board. It is the board the app renders —
-/// the container budget and whether silence can merge, the lanes and the work-item
-/// cards in them, the projects the factory serves and the files it refused — shaped so
-/// the renderer re-decides nothing.
+/// whether silence can merge, the lanes and the work-item cards in them, the projects the
+/// factory serves and the files it refused — shaped so the renderer re-decides nothing.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The endpoint that produces this resolves the factory's already-registered singletons
-/// and reads them. It holds no policy, calls no seam, and re-decides nothing: the budget
-/// is <see cref="Orchestrator.RoundsInFlight"/> against
-/// <see cref="FactoryConstants.ContainerBudget"/>, exactly as the board's own header
-/// reads it, the mode is <see cref="FactoryOptions.AutoMerge"/>, and every card field is
+/// and reads them. It holds no policy, calls no seam, and re-decides nothing: the mode is
+/// <see cref="FactoryOptions.AutoMerge"/>, and every card field is
 /// the factory's own judgement — <see cref="Swimlanes.Label"/> for the lane's words,
 /// <see cref="Decisions.OfferedIn"/> for the decisions a reviewer may make, and
 /// <see cref="HowItEnded.Describe"/> for why a work item ended where it did.
@@ -42,7 +38,6 @@ using AgentFactory.Workspaces;
 /// </para>
 /// </remarks>
 public sealed record BoardView(
-    [property: JsonPropertyName("budget")] BudgetView Budget,
     [property: JsonPropertyName("autoMerge")] bool AutoMerge,
     [property: JsonPropertyName("lanes")] IReadOnlyList<LaneView> Lanes,
     [property: JsonPropertyName("projects")] IReadOnlyList<ProjectView> Projects,
@@ -63,17 +58,13 @@ public sealed record BoardView(
     public static BoardView Of(
         IWorkItemStore store,
         ProjectLoadReport projects,
-        Orchestrator loop,
         FactoryOptions options,
-        Poller poller,
-        ReviewWorkspaces workspaces)
+        Poller poller)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(projects);
-        ArgumentNullException.ThrowIfNull(loop);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(poller);
-        ArgumentNullException.ThrowIfNull(workspaces);
 
         var workItems = store.List();
 
@@ -89,7 +80,7 @@ public sealed record BoardView(
                 Swimlanes.Label(lane),
                 [.. workItems
                     .Where(workItem => workItem.Swimlane == lane)
-                    .Select(workItem => CardView.Of(workItem, store, workspaces, options.AutoMerge))]))
+                    .Select(workItem => CardView.Of(workItem, store, options.AutoMerge))]))
             .ToList();
 
         // The projects the reviewer can narrow the board to: the ones being served, plus any
@@ -105,7 +96,6 @@ public sealed record BoardView(
             .ToList();
 
         return new BoardView(
-            new BudgetView(loop.RoundsInFlight, FactoryConstants.ContainerBudget),
             options.AutoMerge,
             lanes,
             [.. projects.Projects.Select(project => ProjectView.Of(project))],
@@ -270,12 +260,6 @@ public sealed record LaneView(
 /// reviewer cannot act on. The decision <em>form</em> is a later ticket's; the offered set
 /// is the factory's judgement and belongs on the card either way.
 /// </param>
-/// <param name="Workspace">
-/// The review workspace open for this work item, from
-/// <see cref="ReviewWorkspaces.ViewFor"/>, or null when none has been asked for or all
-/// have been taken away. It travels on the card so a board read after a workspace was
-/// opened shows the link and the time left without the renderer holding state of its own.
-/// </param>
 /// <param name="AutoMergeAt">
 /// When this card's silence would merge it, as ISO-8601, or null when it is not waiting on
 /// a reviewer or auto-merge is off. It is
@@ -320,7 +304,6 @@ public sealed record CardView(
     [property: JsonPropertyName("roundCeiling")] int RoundCeiling,
     [property: JsonPropertyName("ending")] string Ending,
     [property: JsonPropertyName("decisions")] IReadOnlyList<string> Decisions,
-    [property: JsonPropertyName("workspace")] WorkspaceView? Workspace,
     [property: JsonPropertyName("autoMergeAt")] string? AutoMergeAt,
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("kindLabel")] string KindLabel,
@@ -332,12 +315,10 @@ public sealed record CardView(
     public static CardView Of(
         WorkItem workItem,
         IWorkItemStore store,
-        ReviewWorkspaces workspaces,
         bool autoMerge)
     {
         ArgumentNullException.ThrowIfNull(workItem);
         ArgumentNullException.ThrowIfNull(store);
-        ArgumentNullException.ThrowIfNull(workspaces);
 
         var autoMergeAt = autoMerge && workItem.Swimlane == Swimlane.Review && workItem.ReviewStartedUtc is { } since
             ? since + FactoryConstants.FeedbackThreshold
@@ -354,7 +335,6 @@ public sealed record CardView(
             FactoryConstants.RoundCeiling,
             HowItEnded.Describe(workItem, store.Rounds(workItem.Id), store.Decisions(workItem.Id)),
             [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
-            workspaces.ViewFor(workItem.Id) is { } view ? WorkspaceView.Of(view) : null,
             autoMergeAt?.ToString("O"),
             workItem.Kind.ToString(),
             WorkItemKinds.Label(workItem.Kind),
@@ -363,13 +343,3 @@ public sealed record CardView(
             HowToReadTheRoute.OffersAcceptance(workItem));
     }
 }
-
-/// <summary>
-/// The container budget: how many worker containers the factory is inside, out of how
-/// many it may run. A bounded machine that says nothing about its bound is
-/// indistinguishable from a wedged one, which is why the board has always said it and
-/// why it is the first thing the JSON surface carries.
-/// </summary>
-public sealed record BudgetView(
-    [property: JsonPropertyName("inUse")] int InUse,
-    [property: JsonPropertyName("of")] int Of);

@@ -1,19 +1,19 @@
 namespace AgentFactory.Driving;
 
+using AgentFactory.Durability;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
-using AgentFactory.Workspaces;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The heartbeat: the one thing in the process that asks the machine to move on its own.
-/// Every prior ticket recorded the same gap — a real agent, a real container, a real
-/// deriver and a correct retry policy all exist, and nothing steps the loop or the poller
-/// on a schedule, so in production a work item in Backlog only moved when a reviewer's
-/// click asked for a step. This is that driver, and it is why the container budget had to
-/// land with it: a timer with no budget behind it is a factory spending a container on
-/// every issue of every project at once, which is exactly what #8 refused to add.
+/// Every prior ticket recorded the same gap — a real agent, a real deriver and a correct
+/// retry policy all exist, and nothing steps the loop or the poller on a schedule, so in
+/// production a work item in Backlog only moved when a reviewer's click asked for a step.
+/// This is that driver, and it is why the round concurrency had to land with it: a timer
+/// with no ceiling behind it is a factory spending a round on every issue of every project
+/// at once, which is exactly what #8 refused to add.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,37 +24,30 @@ using Microsoft.Extensions.Logging;
 /// that has ever waited for anything.
 /// </para>
 /// <para>
-/// It respects the budget by not being the thing that enforces it. The driver has no
-/// opinion about how many containers are running — it does not know, cannot know, and is
-/// not asked. It asks the loop for a step, and the loop is the only component that counts
-/// rounds, so a tick with a full budget applies a decision, a threshold merge or a landed
-/// round if there is one and otherwise does nothing at all. The budget is a property of
-/// the machine, not of its clock, which is what makes the driver safe to add rather than
-/// something that has to be trusted.
-/// </para>
-/// <para>
-/// The loop's own step is serialised by the step itself (one writer, one process,
-/// ADR-0009), so two ticks cannot both read an empty in-flight set and start a third round
-/// between them. That is the reason the budget cannot be exceeded by a driver at all, and
-/// it is asserted rather than assumed.
+/// When a Temporal endpoint is configured, the loop is no longer stepped: the per-ticket
+/// workflow owns the control flow and drives itself from Temporal's history, and two
+/// drivers over the same ticket would be two factories asking for the same round. The
+/// driver keeps stepping intake (which starts the workflows); the loop it leaves alone,
+/// and the loop's own step machinery stays in the codebase for the store-only mode that
+/// runs without a Temporal endpoint.
 /// </para>
 /// </remarks>
 public sealed class FactoryDriver : BackgroundService
 {
+    private readonly ITicketStarter _tickets;
     private readonly Poller _intake;
     private readonly Orchestrator _loop;
-    private readonly ReviewWorkspaces _workspaces;
     private readonly ILogger<FactoryDriver> _logger;
 
     public FactoryDriver(
+        ITicketStarter tickets,
         Poller intake,
         Orchestrator loop,
-        ReviewWorkspaces workspaces,
         ILogger<FactoryDriver> logger)
     {
+        _tickets = tickets ?? throw new ArgumentNullException(nameof(tickets));
         _intake = intake ?? throw new ArgumentNullException(nameof(intake));
         _loop = loop ?? throw new ArgumentNullException(nameof(loop));
-        _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -97,9 +90,18 @@ public sealed class FactoryDriver : BackgroundService
     {
         try
         {
+            // Intake always steps: with a Temporal endpoint configured it is also what
+            // starts the workflows, by re-offering every waiting ticket each pass.
             await _intake.StepAsync();
-            await _loop.SettleAsync();
-            await _workspaces.SweepAsync(CancellationToken.None);
+
+            // The loop is store-only mode's driver. When the tickets are workflow-owned,
+            // two drivers over the same ticket would be two factories asking for the same
+            // round, so the loop is left alone and the workflow drives from its own
+            // history.
+            if (!_tickets.Configured)
+            {
+                await _loop.SettleAsync();
+            }
         }
         catch (OperationCanceledException)
         {

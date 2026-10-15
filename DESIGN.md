@@ -1,19 +1,18 @@
 # Agent Factory Design
 
 The design of the agent factory: a generic system that receives GitHub issues as
-use cases, builds the change that answers them using code-server and OpenCode,
-and merges the result back to the repository. One issue in, one reviewed pull
-request out.
+use cases, builds the change that answers them by driving OpenCode, and merges
+the result back to the repository. One issue in, one reviewed pull request out.
 
 **Status: implemented and running.** This design is the specification the factory
 is built against, and the decisions it defers on are recorded as ADRs in
 `docs/adr/`. Everything in the sections below exists in code and has been run end
 to end against a real repository: an issue was polled, built by an agent in a
-fresh worker container, reviewed on the board, and shipped as a merged pull
-request. What is *not* claimed here is production readiness — the board is
-loopback-only, the deployment is one operator's machine, and auto-merge defaults
-to off. The polished, public presentation of this same design is published as the
-Nexus documentation and is frozen until reconciliation (ADR-0002); see
+fresh working tree, reviewed on the board, and shipped as a merged pull request.
+What is *not* claimed here is production readiness — the board is loopback-only,
+the deployment is one operator's machine, and auto-merge defaults to off. The
+polished, public presentation of this same design is published as the Nexus
+documentation and is frozen until reconciliation (ADR-0002); see
 [Where the public docs live](#where-the-public-docs-live).
 
 Where this document and the code can be read for the current truth, the code is
@@ -28,7 +27,7 @@ Five components with narrow contracts between them.
 | --- | --- |
 | Config loader | Reads and validates per-project YAML; exposes values to every other component. |
 | Issue poller | Reads open issues from each configured repository and converts them to work items. |
-| Orchestrator + workers | Accepts work items, starts worker containers, drives the build, tracks rounds. |
+| Round runner + orchestrator | Accepts work items, starts rounds on this machine, drives the build, tracks rounds. |
 | Kanban board | Serves the board at port 5000. It holds no board state of its own. |
 | Merger | Opens and merges the pull request from the host when a work item is approved. |
 
@@ -40,13 +39,12 @@ and in one process that is the absence of a second copy rather than a
 consistency property to maintain.
 
 The orchestrator is a hand-rolled deterministic state machine. It runs no
-Microsoft Agent Framework and hosts no agents of its own — the agent inside the
-worker container does all the agentic work (ADR-0005). The orchestrator does not
-reach into the container to run commands itself: it hands a work item to
-NOpenCode, which drives OpenCode inside the worker container and returns
-structured results. NOpenCode is our own interface, not a package of that name
-(ADR-0004). Keeping that boundary is what allows the orchestrator's policy to be
-tested against a fake NOpenCode.
+Microsoft Agent Framework and hosts no agents of its own — the agent a round
+drives does all the agentic work (ADR-0005). The orchestrator does not start a
+process itself: it hands a work item to NOpenCode, which drives OpenCode in a
+fresh working tree and returns structured results. NOpenCode is our own
+interface, not a package of that name (ADR-0004). Keeping that boundary is what
+allows the orchestrator's policy to be tested against a fake NOpenCode.
 
 ## Configuration
 
@@ -54,29 +52,28 @@ The system is configured with a YAML file per project, held in the `factories/`
 directory — one file per project, nothing else. Adding a project to the factory
 is adding a file to that directory: no component changes, no rebuild.
 
-The schema is **fixed and exactly six values**: `name`, `repo.url`, `worker.image`,
-`llm.model`, `keys.github` and `keys.llm`. A field beyond those is refused rather
-than ignored, so no factory policy can move into project configuration. The model
-is a full `provider/model` reference, because the provider prefix is how the
-factory knows which canonical environment variable to re-emit the key under.
+The schema is **fixed and exactly five values**: `name`, `repo.url`, `llm.model`,
+`keys.github` and `keys.llm`. A field beyond those is refused rather than
+ignored, so no factory policy can move into project configuration. The model is a
+full `provider/model` reference, because the provider prefix is how the factory
+knows which canonical environment variable to re-emit the key under.
 
 - **Git repository URL** — where issues are polled from and pull requests opened.
 - **API keys** — the credentials the project's builds need, referenced by name.
 - **LLM model** — the full `provider/model` reference this project's agents run on.
-- **Worker Docker image** — the image each round's worker container starts from.
 
 All of them are per project. The factory's own behaviour — round ceiling,
-timeouts, merge policy, retry strategy — is not configurable per project; it is
-the factory's, identical everywhere. The single exception is auto-merge, which is
-a factory-level setting with a default of **off**, so silence never ships a change
-until an operator deliberately turns it on.
+timeouts, merge policy, retry strategy, round concurrency — is not configurable
+per project; it is the factory's, identical everywhere. The single exception is
+auto-merge, which is a factory-level setting with a default of **off**, so
+silence never ships a change until an operator deliberately turns it on.
 
 The config loader validates a project file before anything downstream sees it.
 A file that fails validation keeps its project out of the rotation rather than
-failing the whole factory later, mid-run, in a worker container, and the refusal
-is rendered on the board. Shared, partial, included and generated files are
-refused too: a project is always exactly one complete file someone wrote.
-Configuration loads once at start — a changed file means a restart.
+failing the whole factory later, mid-run, and the refusal is rendered on the
+board. Shared, partial, included and generated files are refused too: a project
+is always exactly one complete file someone wrote. Configuration loads once at
+start — a changed file means a restart.
 
 ## From GitHub issue to work item
 
@@ -94,8 +91,8 @@ on the card, and the loop applies it. Nothing is built until they do.
 ## Routing: what kind of work is this
 
 A work item does not go from Backlog straight into a build. Before it can be
-accepted it costs one **routing round**: a worker container that reads the issue's
-title and body and returns one of three verdicts (ADR-0015).
+accepted it costs one **routing round**: an agent that reads the issue's title
+and body and returns one of three verdicts (ADR-0015).
 
 | Verdict | Means | Then |
 | --- | --- | --- |
@@ -103,22 +100,22 @@ title and body and returns one of three verdicts (ADR-0015).
 | `Grill` | buildable, but branches of the design are undecided | a human is asked, in the issue tracker |
 | `Wayfinder` | the way to the destination is not visible | charted as a map of decision tickets |
 
-The routing round does **not** fetch the repository. It is told no repository URL
-and the image's entrypoint fetches the tree only when it is told where to fetch it
-from, so the saving is the whole of why a routing round is cheaper than a build
-round — and nothing in the worker image is edited to achieve it.
+The routing round does **not** fetch the repository. The round runner fetches the
+tree only when the round's purpose says to, so the saving is the whole of why a
+routing round is cheaper than a build round — the costs are bounded by what the
+factory chooses to hand over (ADR-0016).
 
 What the round writes is a proposal, and the host decides what becomes real. The
 round writes `routing.json` outside the working tree; the host reads it after the
-container is gone, and files the questions or the map as real issues, linked to the
+round is over, and files the questions or the map as real issues, linked to the
 maintainer's issue with GitHub's own sub-issue and blocking relationships. **The
-questions are filed before the verdict is recorded**, because a work item waiting on
-a question that was never asked anywhere is a card that says the factory needs
+questions are filed before the verdict is recorded**, because a work item waiting
+on a question that was never asked anywhere is a card that says the factory needs
 something and gives nobody anywhere to give it.
 
-A routing round is not charged to the round ceiling: it is a container, and it is
-inside the same budget as everything else, but reading an issue is not an attempt
-to build anything. Build rounds are started ahead of routing rounds, so a reviewer's
+A routing round is not charged to the round ceiling: it is inside the same
+concurrency bound as everything else, but reading an issue is not an attempt to
+build anything. Build rounds are started ahead of routing rounds, so a reviewer's
 acceptance is never made to wait behind the factory's own guess about an issue.
 
 A verdict the factory cannot read — malformed, truncated, a shape this build does
@@ -126,23 +123,24 @@ not know — is **parked with the reason on the card**, never guessed and never
 defaulted to `Build`. Readiness is a column the factory writes, derived from the
 issue; the factory still reads no labels (ADR-0007).
 
-`Waiting` is a swimlane of its own for work items parked on a person rather than on
-a container: a map and a question set are not diffs, so the three review decisions
-are not offered on one.
+`Waiting` is a swimlane of its own for work items parked on a person rather than
+on the machine: a map and a question set are not diffs, so the three review
+decisions are not offered on one.
 
-## The worker container
+## The round
 
-Every round gets a fresh, isolated worker container. One exists for exactly one
-round, and nothing survives it — no cache, no working tree, no state from a
-previous run or from another project's run. The container's lifetime and the
-round boundary are the same thing (ADR-0001).
+Every round gets a fresh working tree, cloned at the work item's base into the
+round's own landing directory. One exists for exactly one round, and nothing
+survives it — no cache, no tree, no state from a previous run or from another
+project's run. The process's lifetime and the round boundary are the same thing
+(ADR-0001, ADR-0016).
 
-Inside the container, code-server and OpenCode build and test the change from
-the issue. The project's own tests run inside the same container, on the same
-tree the build produced. Files changed, commands run, and test outcomes are
-derived by the factory observing the container rather than from the agent's own
-account of them (ADR-0011), and are persisted with the work item, so the reviewer
-sees what happened rather than a summary of it.
+In that tree, OpenCode builds and tests the change from the issue, driven
+non-interactively as this machine's own child process. The project's own tests
+run in the same tree the build produced. Files changed, commands run, and test
+outcomes are derived by the factory observing the round rather than from the
+agent's own account of them (ADR-0011), and are persisted with the work item, so
+the reviewer sees what happened rather than a summary of it.
 
 ## The Kanban board and the feedback loop
 
@@ -155,8 +153,8 @@ A work item in Review offers three decisions:
 
 - **Approve** — triggers the auto-merge: the factory opens the pull request and
   merges it.
-- **Request changes** — the work item returns to the worker for another round
-  with the feedback attached, up to a maximum of **3 rounds** per work item.
+- **Request changes** — the work item returns for another round with the
+  feedback attached, up to a maximum of **3 rounds** per work item.
 - **Reject** — the work item moves to Rejected, and that is final.
 
 **Rejected** and **Escalated** are two distinct states with two distinct causes:
@@ -177,7 +175,7 @@ approval on the record, rather than reporting a merge that did not happen.
 
 The 3-round ceiling prevents the failure mode an unbounded feedback loop has:
 the agent and the reviewer disagreeing forever while the factory keeps paying
-for containers. When the third round comes back with feedback still outstanding,
+for rounds. When the third round comes back with feedback still outstanding,
 the work item escalates. It is never merged on exhaustion (ADR-0008).
 
 Escalation is a parking state, not a terminal one: a human can still merge or
@@ -196,22 +194,22 @@ without upkeep.
 
 Rounds for different projects do not block each other: a long build in one
 project does not stop another's issue from starting. Each round still gets a
-fresh worker container regardless of project, so concurrency is bounded by the
-container budget rather than a shared working tree or a shared lock. The budget is
-**2 worker containers**, a code constant rather than configuration; within it,
-the next container goes to whichever project is holding fewer, so a project with
-a thousand open issues cannot take the whole machine from one with one. The board
-can group or filter work items by project, and renders the budget in use — a
-bounded machine that says nothing about its bound is indistinguishable from a
-wedged one.
+fresh working tree regardless of project, so concurrency is bounded by the round
+concurrency rather than a shared tree or a shared lock. The bound is **2
+rounds**, a code constant rather than configuration; within it, the next round
+goes to whichever project is holding fewer, so a project with a thousand open
+issues cannot take the whole machine from one with one. The board can group or
+filter work items by project.
 
 Nothing waits on a timer to be *asked*: the loop is stepped, intake is stepped,
-and a heartbeat is the one thing that steps both on a schedule.
+and a heartbeat is the one thing that steps both on a schedule — unless a
+Temporal endpoint is configured, in which case one durable workflow per ticket
+drives the rounds from the workflow's own history.
 
 ## Observability and error handling
 
-- **Structured logging** across all components — the poller, the worker, the
-  board, and the merger — so "what happened to this work item" is answerable
+- **Structured logging** across all components — the poller, the round runner,
+  the board, and the merger — so "what happened to this work item" is answerable
   without reading prose, and concurrent runs do not blur together. Every record
   written within a work item's scope carries the work item, its project, its
   issue and its round.
@@ -220,11 +218,11 @@ and a heartbeat is the one thing that steps both on a schedule.
   this process publishes no port, so *where* the numbers go is the deployment's
   business.
 - **Retry strategy** for transient failures only, such as GitHub API calls and
-  container starts. A build that fails its tests is not a transient failure, and
-  retrying it is an expensive way to hide the result. A round that did **not run
-  to completion** — a rate limit, a refused provider — is transient and is asked
-  for again as the same round; a round's own exit code and a command's exit code
-  are two different numbers and are never conflated.
+  agents that were refused before they began. A build that fails its tests is not
+  a transient failure, and retrying it is an expensive way to hide the result. A
+  round that did **not run to completion** — a rate limit, a refused provider —
+  is transient and is asked for again as the same round; a round's own exit code
+  and a command's exit code are two different numbers and are never conflated.
 - **Escalation** for work items that fail permanently or exhaust their rounds.
   Escalated work items are visible on the board, alongside failed builds and
   round counts. A merge that could not land parks its work item rather than
@@ -242,21 +240,21 @@ than a count of folders.
 
 **Policy** is tested through one application seam: the real factory is started
 in-process, with `IClock`, the agent seam (`INOpenCode`) and the GitHub seam
-(`IGitHub`) substituted and everything else real. Through it, with no container
-and no network, the configuration loader, work item creation and idempotence,
-the whole state machine including the exhaustion path, the round ceiling, the
-48-hour merge, escalation and parking, rejection, retry classification,
-round-robin across projects, the container budget, the heartbeat, persistence to
-SQLite and the board's own HTTP surface are all exercised for real.
+(`IGitHub`) substituted and everything else real. Through it, with no network and
+no agent, the configuration loader, work item creation and idempotence, the whole
+state machine including the exhaustion path, the round ceiling, the 48-hour
+merge, escalation and parking, rejection, retry classification, round-robin
+across projects, the round concurrency, the heartbeat, persistence to SQLite and
+the board's own HTTP surface are all exercised for real.
 
 **Adapters** are tested against the thing they adapt, because that is the only
 thing a faked seam cannot prove:
 
-- The **worker adapter** runs a real container against the real image — an image
-  that starts, a toolchain that is actually present, a round that really runs,
-  a result file that really comes back — with a deterministic script standing in
-  for the agent, because a model is not what is under test. Separated and skipped
-  with the reason on a machine with no daemon.
+- The **round runner** is tested against real git: the tree a round leaves is a
+  genuine repository built by the runner's own clone, changed by a faked agent,
+  observed by the real collector, the real deriver and the host's own diff
+  reader. What is not tested here is a live model — a model is a provider's
+  behaviour, not this factory's.
 - The **GitHub adapter** runs against the real API's *shape*, faked at the
   transport so the client, its classification and its git invocations all run
   for real and only the network is gone.
@@ -265,12 +263,11 @@ thing a faked seam cannot prove:
 
 **What the seams cannot see** is contained deliberately, and the known cost is
 stated rather than assumed: a single high seam with everything faked can pass
-while an adapter is quietly broken. Three requirements of the *services* rather
+while an adapter is quietly broken. Two requirements of the *services* rather
 than of the code are therefore reproduced rather than recorded — GitHub refuses a
-request with no `User-Agent` outright, so the faked transport refuses it too;
-`docker cp` copies a directory *into* an existing destination rather than
-replacing it, so the faked CLI does the same; and a CRLF line-ending setting on
-the host is asserted against rather than assumed absent.
+request with no `User-Agent` outright, so the faked transport refuses it too; and
+a CRLF line-ending setting on the host is asserted against rather than assumed
+absent.
 
 Note that **unit and end-to-end are the same tests here**: the policy seam is
 end-to-end by construction, which is why the earlier four-layer description
@@ -279,25 +276,21 @@ being a second thing to keep in step.
 
 ## Deployment
 
-The factory deploys with **Docker Compose**. One application container serves the
-board at port 5000 and hosts every component above; the only other service is
-the Docker runtime it starts worker containers against (ADR-0003). One
-deployment serves every configured project; there is no per-project deployment.
-Worker containers are not long-running members of the deployment — they start
-on demand and are removed when the round ends. Review workspaces are a second
-kind of container, spawned on demand from a work item's card and destroyed on a
-decision; they are the only thing this deployment publishes a port for, and it
-binds to loopback.
+The factory runs on the machine (`dotnet run --project src/agent-factory`) —
+rounds are that machine's own child processes, so the factory itself has no
+container and needs no daemon (ADR-0016). One deployment serves every configured
+project; there is no per-project deployment. The only thing compose runs is the
+Temporal dev server behind the durable workflow, bound to loopback like the
+board; with no Temporal endpoint configured, the factory runs in store-only mode
+without it.
 
-`docker-compose.yml` names the machine-only limit and the rootful-daemon
-deviation in the file itself rather than leaving either implied — the board is
-mapped to `127.0.0.1` with no login because there is no second machine to ask
-who you are, and the mounted Docker socket is the bounded ADR-0012 deviation that
-Docker Desktop forces, compensated by the controls the worker image enforces.
+The store of record keeps each round's tree beside it: the host pushes from that
+tree, so it is kept after the round that made it is gone. Credential values live
+one file per credential, read at use time so rotation needs no restart.
 
-Three volumes are kept: the project files, the credential values (one file per
-credential, read at use time so rotation needs no restart), and the store of
-record with each round's lifted tree beside it.
+`docker-compose.yml` names the machine-only limit in the file itself rather than
+leaving it implied — every mapping is `127.0.0.1` with no login because there is
+no second machine to ask who you are.
 
 ## Security and secrets
 
@@ -308,23 +301,22 @@ Credentials are scoped to the narrowest set that still works, and are per
 project, so a leaked or over-broad credential has a blast radius of one project.
 
 The factory assumes its workloads are untrusted — they are written by agents —
-so **rootless Docker** is a named security consideration: one fresh container
-per round, scoped credentials, no root daemon. The requirement holds where the
-factory runs for real; local development on Docker Desktop is a bounded
-deviation with named compensating controls (ADR-0012).
+so **the machine is the trust boundary** is the named consideration: the board is
+loopback-only, rounds hold scoped credentials, and nothing outside a round that
+the machine's own user could not already reach is placed in a round's way
+(ADR-0016, which supersedes ADR-0012's container framing).
 
 Two consequences are properties of the design rather than habits. **A round holds
 no credential that can write to a remote**: the GitHub key is read on the host,
-after the container is gone, so a confused or injected agent has nothing that can
+after the round is over, so a confused or injected agent has nothing that can
 push anywhere — and the LLM key does go in, because the agent cannot reach a
-provider without it, scoped to one project and dying with one round. And **a round
-is given no host path and publishes no port**: the tree is fetched over the
-network and the result leaves as one file the host lifts with `docker cp`
-(ADR-0010).
+provider without it, scoped to one project and dying with one process. And
+**nothing crosses a round's boundary but files and the exit code**: the tree is
+cloned by the round itself and the result leaves as one file the factory wrote
+beside it (ADR-0016, superseding ADR-0010).
 
 Because a project file in `factories/` is *served* rather than sampled, this
-repository commits none — the examples live in `worker/examples/`, outside the
-directory the loader reads. See `factories/README.md`.
+repository commits none. See `factories/README.md`.
 
 ## Where the public docs live
 

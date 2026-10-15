@@ -235,6 +235,118 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         }
     }
 
+    /// <inheritdoc />
+    public void RecordHandBack(Guid workItemId)
+    {
+        var item = Get(workItemId)
+            ?? throw new KeyNotFoundException($"no work item {workItemId} to hand back");
+
+        // Only a work item waiting on its questions issue can be handed back, and the
+        // guard is the fact rather than the formality: a Backlog item is already in the
+        // pipeline, a Done item is shipped, and a rejected one is final. The questions
+        // issue is what makes the answers findable — without one there is nothing whose
+        // conversation could have been answered.
+        if (item.Swimlane != Swimlane.Waiting || item.RoutingIssue is not { } question)
+        {
+            throw new InvalidOperationException(
+                $"work item {workItemId} is not waiting on a questions issue, so there is nothing to hand back: "
+                    + "a hand-back is what an answered Grill earns, and nothing else");
+        }
+
+        // Back to where a routing round finds it: Backlog, unrouted, with a reason that
+        // says why. The questions issue is deliberately kept rather than cleared, because
+        // it is where the answers live — the next routing round reads the whole
+        // conversation, question and answers, and it can only do that if the record still
+        // points at it. An Unrouted work item in Backlog carrying its questions issue is
+        // therefore a handed-back item: the third reading of Unrouted, next to "nobody has
+        // looked yet" and "a round looked and could not answer", and the route reason is
+        // what tells them apart on the card.
+        Move(workItemId, Swimlane.Backlog);
+
+        using var connection = Open();
+        using var handBack = connection.CreateCommand();
+        handBack.CommandText = """
+            UPDATE work_items
+            SET kind = 'Unrouted', route_reason = $routeReason, updated_utc = $updatedUtc
+            WHERE id = $id;
+            """;
+        handBack.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        handBack.Parameters.AddWithValue(
+            "$routeReason",
+            $"The answers arrived in the conversation on #{question}; the conversation is being read whole.");
+        handBack.Parameters.AddWithValue("$updatedUtc", _clock.UtcNow.ToString("O"));
+
+        if (handBack.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"no work item {workItemId} to hand back");
+        }
+    }
+
+    /// <inheritdoc />
+    public void RecordPendingRound(PendingRound pending)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO pending_rounds (work_item_id, round_number, attempt, purpose, asked_utc, retry_after_utc)
+            VALUES ($id, $round, $attempt, $purpose, $asked, NULL);
+            """;
+        command.Parameters.AddWithValue("$id", pending.WorkItemId.ToString("D"));
+        command.Parameters.AddWithValue("$round", pending.RoundNumber);
+        command.Parameters.AddWithValue("$attempt", pending.Attempt);
+        command.Parameters.AddWithValue("$purpose", pending.Purpose);
+        command.Parameters.AddWithValue("$asked", pending.AskedUtc.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    /// <inheritdoc />
+    public void ClearPendingRound(Guid workItemId)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM pending_rounds WHERE work_item_id = $id;";
+        command.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        command.ExecuteNonQuery();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PendingRound> ListPendingRounds()
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT work_item_id, round_number, attempt, purpose, asked_utc, retry_after_utc "
+            + "FROM pending_rounds ORDER BY asked_utc;";
+
+        using var reader = command.ExecuteReader();
+        var pending = new List<PendingRound>();
+        while (reader.Read())
+        {
+            pending.Add(new PendingRound(
+                Guid.Parse(reader.GetString(0)),
+                reader.GetInt32(1),
+                reader.GetInt32(2),
+                reader.GetString(3),
+                DateTimeOffset.Parse(reader.GetString(4)),
+                reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5))));
+        }
+
+        return pending;
+    }
+
+    /// <inheritdoc />
+    public void SetPendingRoundRetryAfter(Guid workItemId, DateTimeOffset retryAfterUtc)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE pending_rounds SET retry_after_utc = $retryAfter WHERE work_item_id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", workItemId.ToString("D"));
+        command.Parameters.AddWithValue("$retryAfter", retryAfterUtc.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
     public RoundResultRecord RecordRound(
         Guid workItemId,
         RoundOutcome outcome,
@@ -702,8 +814,32 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
             CREATE INDEX IF NOT EXISTS ix_decisions_work_item
                 ON decisions (work_item_id, sequence);
+
+            -- The round the factory has asked for and not yet seen the end of: one row per
+            -- in-flight round, written before the ask and removed when the round ends any
+            -- way at all. This row is the whole of what a restart needs — the work item a
+            -- round was building, and which round and attempt it was — because
+            -- reconciliation re-asks the round rather than pretending the process never
+            -- died. `retry_after_utc` is the transient backoff's durable half: a wait that
+            -- survives the process is a wait that still applies after it, and a retry
+            -- asked for too soon after a restart is the same retry.
+            CREATE TABLE IF NOT EXISTS pending_rounds (
+                work_item_id    TEXT    NOT NULL PRIMARY KEY,
+                round_number    INTEGER NOT NULL,
+                attempt         INTEGER NOT NULL,
+                purpose         TEXT    NOT NULL,
+                asked_utc       TEXT    NOT NULL,
+                retry_after_utc TEXT NULL
+            );
             """;
         command.ExecuteNonQuery();
+
+        // The pending-round row once named the container the round ran in, because that
+        // container outlived the process and had to be found and taken away. A round is a
+        // child process now, and there is nothing left to take away — so the column is a
+        // residue of a concept the factory no longer has, and a file written by an earlier
+        // build is relieved of it here rather than left carrying it.
+        DropColumnIfPresent(connection, "pending_rounds", "container");
 
         // A database file written by an earlier build is a developer's own local file
         // (ADR-0009), and the columns added since are ones a round and a merge cannot be
@@ -759,6 +895,28 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         using var alter = connection.CreateCommand();
         alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {declaration};";
         alter.ExecuteNonQuery();
+    }
+
+    private static void DropColumnIfPresent(SqliteConnection connection, string table, string column)
+    {
+        using (var columns = connection.CreateCommand())
+        {
+            columns.CommandText = $"PRAGMA table_info({table});";
+
+            using var reader = columns.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(1), column, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                using var alter = connection.CreateCommand();
+                alter.CommandText = $"ALTER TABLE {table} DROP COLUMN {column};";
+                alter.ExecuteNonQuery();
+                return;
+            }
+        }
     }
 
     private static void Bind(SqliteCommand command, WorkItem workItem)

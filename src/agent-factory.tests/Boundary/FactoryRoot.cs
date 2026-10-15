@@ -40,18 +40,5 @@ public sealed class FactoryRoot : IDisposable
     public FactoryRoot WithRefusedFile(string fileName) =>
         WithProjectFile(fileName, "name: broken\nrepo:\n  url: not-a-url\n");
 
-    public void Dispose()
-    {
-        try
-        {
-            if (System.IO.Directory.Exists(Path))
-            {
-                System.IO.Directory.Delete(Path, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-            // A leftover temp directory is not worth failing a test over.
-        }
-    }
+    public void Dispose() => GitTrees.Delete(Path);
 }

@@ -16,9 +16,12 @@ namespace AgentFactory.Projects;
 /// <c>anthropic</c> and <c>openai</c> are measured against the pinned CLI (research on
 /// branch <c>research/opencode-model-config</c>); <c>google</c> is the name in the
 /// provider registry that CLI reads and is worth one measured confirmation before it
-/// matters to anyone; <c>opencode</c> is the gateway the CLI itself serves — the live
-/// deployment's reviewer holds a key there, and the free model it publishes is how the
-/// first rounds were demonstrated.
+/// matters to anyone; <c>opencode</c> is Zen, the gateway the CLI itself serves, and
+/// <c>opencode-go</c> is the Go subscription — a separate provider in the registry the
+/// CLI reads (models.dev), carrying its own catalog and its own key under the same
+/// variable name. A Go key and a Zen key therefore share one credential name and one
+/// secrets file: which one a round actually speaks to is decided by the model
+/// reference's prefix alone, so a project runs on one or the other and never both.
 /// </para>
 /// </remarks>
 public static class LlmProviders
@@ -30,7 +33,22 @@ public static class LlmProviders
             ["openai"] = "OPENAI_API_KEY",
             ["google"] = "GOOGLE_GENERATIVE_AI_API_KEY",
             ["opencode"] = "OPENCODE_API_KEY",
+            ["opencode-go"] = "OPENCODE_API_KEY",
         };
+
+    /// <summary>
+    /// The provider prefixes in the order a surface offers them, which is the order the
+    /// table declares them: the two measured against the pinned CLI first, the gateway
+    /// the CLI itself serves and its subscription sibling last.
+    /// </summary>
+    public static readonly IReadOnlyList<string> OrderedIds =
+    [
+        "anthropic",
+        "openai",
+        "google",
+        "opencode",
+        "opencode-go",
+    ];
 
     /// <summary>
     /// The canonical environment variable for a model reference, or null when the

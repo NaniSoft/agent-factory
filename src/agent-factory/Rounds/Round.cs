@@ -43,6 +43,15 @@ using AgentFactory.Failures;
 /// choosing a script and by deciding whether to put a repository URL in the container's
 /// environment at all — and neither of those is the store's business.
 /// </param>
+/// <param name="Conversation">
+/// The issue's comments, in order — the conversation the issue's body started. An issue is
+/// a conversation and not a document: a Grill's questions are answered in the comments of
+/// the issue the factory filed, and a round handed the body alone would be asked to work
+/// from the question while the answers sat next to it unread. Empty when the issue has no
+/// comments, and empty when the conversation could not be read — which the loop says out
+/// loud in its own log, because a round that answered a question without the answers would
+/// be a round that looked like it had.
+/// </param>
 /// <remarks>
 /// A round carries its own number rather than being asked for one, for the same reason it
 /// carries the work item's id: the round runner has to name a directory the round's files
@@ -63,7 +72,16 @@ public sealed record Round(
     string Feedback,
     int RoundNumber,
     int Attempt,
-    RoundPurpose Purpose = RoundPurpose.Build);
+    RoundPurpose Purpose = RoundPurpose.Build,
+    IReadOnlyList<GitHub.IssueComment>? Conversation = null)
+{
+    /// <summary>
+    /// The issue's comments, in order, or an empty list when the issue has none or the
+    /// conversation could not be read — which the loop logs rather than leaving to a round
+    /// that cannot tell the difference.
+    /// </summary>
+    public IReadOnlyList<GitHub.IssueComment> Conversation { get; init; } = Conversation ?? [];
+}
 
 /// <summary>How a round ended. What the factory does about it is policy, not observation.</summary>
 /// <remarks>

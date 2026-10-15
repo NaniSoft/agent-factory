@@ -20,7 +20,7 @@ public class GitHubReadTests
         new(
             new HttpClient(api) { BaseAddress = new Uri("https://api.github.com/") },
             new ProjectLoadReport(
-                [new Project("nexus", repoUrl, "image", "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
+                [new Project("nexus", repoUrl, "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
                 []),
             new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
             new SqliteWorkItemStore(
@@ -127,7 +127,7 @@ public class GitHubReadTests
         var client = new GitHubClient(
             new HttpClient(api) { BaseAddress = new Uri("https://api.github.com/") },
             new ProjectLoadReport(
-                [new Project("nexus", "https://github.com/NaniSoft/nexus", "image", "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
+                [new Project("nexus", "https://github.com/NaniSoft/nexus", "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
                 []),
             new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
             new SqliteWorkItemStore(

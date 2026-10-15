@@ -10,8 +10,6 @@ public static class ProjectFile
         name: nexus
         repo:
           url: https://github.com/NaniSoft/nexus
-        worker:
-          image: ghcr.io/nanisoft/agent-factory-worker:1
         llm:
           model: anthropic/claude-sonnet-4-5
         keys:
@@ -20,7 +18,7 @@ public static class ProjectFile
         """;
 
     /// <summary>
-    /// The same six fields for a project of the test's own naming. Credential names are
+    /// The same five fields for a project of the test's own naming. Credential names are
     /// derived from the project's name so two projects in one directory never share a
     /// key, which is the shape a real rotation has.
     /// </summary>
@@ -28,8 +26,6 @@ public static class ProjectFile
         name: {{name}}
         repo:
           url: {{repoUrl}}
-        worker:
-          image: ghcr.io/nanisoft/agent-factory-worker:1
         llm:
           model: anthropic/claude-sonnet-4-5
         keys:

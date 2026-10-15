@@ -26,6 +26,7 @@ public sealed class Poller
 {
     private readonly IWorkItemStore _store;
     private readonly IGitHub _github;
+    private readonly Durability.ITicketStarter _tickets;
     private readonly IClock _clock;
     private readonly ILogger<Poller> _logger;
     private readonly FactoryMetrics _metrics;
@@ -64,6 +65,7 @@ public sealed class Poller
     public Poller(
         IWorkItemStore store,
         IGitHub github,
+        Durability.ITicketStarter tickets,
         IClock clock,
         ProjectLoadReport projects,
         ILogger<Poller> logger,
@@ -71,6 +73,7 @@ public sealed class Poller
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _github = github ?? throw new ArgumentNullException(nameof(github));
+        _tickets = tickets ?? throw new ArgumentNullException(nameof(tickets));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
@@ -371,6 +374,26 @@ public sealed class Poller
 
         foreach (var issue in issues)
         {
+            // The one label the poller reads, and it is the factory's own: an issue this
+            // process published — a Grill's questions, filed under the issue that asked
+            // for them — is the factory's output, not the repository's work. ADR-0007
+            // keeps a repository's triage labels out of intake because which of a
+            // repository's issues are worth building is a human's judgement; whether an
+            // issue is this factory's own output is not a judgement at all, and taking it
+            // is a loop that does not terminate: the questions issue becomes a work item,
+            // the round asks its own questions, and the tracker fills with the chain.
+            // Found live, on a real repository, in the hour the link first worked —
+            // sixteen issues in one afternoon, each a routing round spent on the factory
+            // talking to itself.
+            if (issue.Labels.Contains(IGitHub.FactoryIssueLabel, StringComparer.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Skipped {Project}#{Issue}: the factory's own output, and not work.",
+                    project.Name,
+                    issue.Number);
+                continue;
+            }
+
             var recorded = _store.Intake(
                 project.Name,
                 project.RepoUrl,
@@ -401,6 +424,23 @@ public sealed class Poller
                     project.Name,
                     issue.Number,
                     baseBranch);
+            }
+        }
+
+        // The durable workflow, offered to every ticket of this project still waiting in
+        // Backlog. With a Temporal endpoint configured, a ticket's story from here is a
+        // per-ticket workflow that survives this process: starting one is idempotent — one
+        // ticket is one workflow id, and a workflow already running is the ordinary
+        // answer for a ticket the previous pass offered — so re-offering every pass is
+        // what makes a workflow findable again after a restart without any state of its
+        // own. Without an endpoint this is the starter that is not there, and every call
+        // is a no-op.
+        if (_tickets.Configured)
+        {
+            foreach (var waiting in _store.List()
+                .Where(item => item.Project == project.Name && item.Swimlane == Swimlane.Backlog))
+            {
+                await _tickets.StartTicketAsync(waiting.Id);
             }
         }
     }

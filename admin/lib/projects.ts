@@ -14,7 +14,6 @@
 export type ProjectView = {
   name: string;
   repoUrl: string;
-  workerImage: string;
   llmModel: string;
   githubKeyName: string;
   llmKeyName: string;
@@ -33,11 +32,10 @@ export type ProjectsView = {
   rejections: ProjectRejectionView[];
 };
 
-/** The six values a project file states, exactly as the form fills them. */
+/** The five values a project file states, exactly as the form fills them. */
 export type ProjectWrite = {
   name: string;
   repoUrl: string;
-  workerImage: string;
   llmModel: string;
   githubKeyName: string;
   llmKeyName: string;

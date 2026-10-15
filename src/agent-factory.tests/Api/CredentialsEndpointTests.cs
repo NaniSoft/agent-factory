@@ -45,6 +45,40 @@ public class CredentialsEndpointTests
     }
 
     [Fact]
+    public async Task The_credentials_endpoint_names_each_provider_and_the_variable_it_reads()
+    {
+        // The providers a model reference may name are the factory's own table, offered
+        // to the app so a renderer fills a name from the measured fact rather than from
+        // a copy of it. What is asserted is the pairing — which variable each provider's
+        // tooling reads — because that pairing is what the factory re-emits at round
+        // time, and a dropdown built on a drifted copy would write a key under a name
+        // nothing reads.
+        using var root = FactoryRoot.Create()
+            .WithProjectFile("probe.yaml", ProjectFile.For(Project, RepoUrl));
+        await using var host = await FactoryHost.StartAsync(root);
+
+        var body = await (await host.Board.GetAsync("/api/credentials")).Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        var providers = document.RootElement.GetProperty("llmProviders").EnumerateArray().ToList();
+
+        Assert.Equal(5, providers.Count);
+        Assert.Equal(
+            new[] { "anthropic", "openai", "google", "opencode", "opencode-go" },
+            providers.Select(provider => provider.GetProperty("id").GetString()));
+
+        var anthropic = providers.Single(provider => provider.GetProperty("id").GetString() == "anthropic");
+        Assert.Equal("ANTHROPIC_API_KEY", anthropic.GetProperty("canonicalEnvironmentVariable").GetString());
+        var opencode = providers.Single(provider => provider.GetProperty("id").GetString() == "opencode");
+        Assert.Equal("OPENCODE_API_KEY", opencode.GetProperty("canonicalEnvironmentVariable").GetString());
+
+        // Go is the subscription sibling of Zen: a separate provider and a separate key
+        // under the same variable name, so which one a round speaks to is the model
+        // reference's prefix alone.
+        var go = providers.Single(provider => provider.GetProperty("id").GetString() == "opencode-go");
+        Assert.Equal("OPENCODE_API_KEY", go.GetProperty("canonicalEnvironmentVariable").GetString());
+    }
+
+    [Fact]
     public async Task A_credential_written_through_the_endpoint_is_a_trimmed_file_and_never_a_rendered_value()
     {
         const string secret = "sk-a-value-that-must-never-be-rendered";

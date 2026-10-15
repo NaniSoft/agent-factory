@@ -1,63 +1,48 @@
 # The agent factory, as one deployment.
 #
-#   docker compose up
+#   docker compose up temporal
 #
-# and the board is at http://127.0.0.1:5000.
+# starts the durable workflow's server. The factory itself runs on this machine
+# (`dotnet run --project src/agent-factory`) — ADR-0016: rounds are this machine's
+# own child processes, so the factory has no container of its own and no daemon
+# behind it. The board is at http://127.0.0.1:5000.
 #
 # ---------------------------------------------------------------------------
 # THE MACHINE-ONLY LIMIT, NAMED WHERE IT IS DECIDED (#30)
 #
-# The board mapping is pinned to 127.0.0.1 on purpose: only this machine can
-# open the board, and only this machine can decide what merges. There is no
-# login, because there is no second machine to ask who you are. Reaching the
-# board from anywhere else is a deliberate flip of two things — this mapping to
-# 0.0.0.0, and a token check on the board's writes — never an accident.
+# Every mapping below is pinned to 127.0.0.1 on purpose: only this machine can
+# open the board, the Temporal UI, and only this machine can decide what merges.
+# There is no login, because there is no second machine to ask who you are.
+# Reaching either from anywhere else is a deliberate flip of the mapping and a
+# token check on the board's writes — never an accident.
 #
 # ---------------------------------------------------------------------------
-# THE ROOTFUL DEVIATION, NAMED WHERE IT IS ACCEPTED (ADR-0012)
+# DURABLE EXECUTION
 #
-# ADR-0012 requires rootless Docker where the factory runs for real. This
-# deployment runs on Docker Desktop, which reports no rootless marker, and the
-# deviation is the named, bounded one: worker containers get no `-v`, publish no
-# port, run as uid 1000, and hold one scoped credential for one round — the
-# compensating controls the worker image enforces and its smoke test proves.
-# The socket is mounted because worker and workspace containers are siblings on
-# the host daemon, not children of this one.
-#
-# ---------------------------------------------------------------------------
-# PREREQUISITE
-#
-# The worker image must exist on this machine's daemon before a round can run:
-#
-#   docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/
-#
-# The factory says loudly when a round's image is absent; compose does not
-# pre-pull it, because the image is built from this repository rather than
-# fetched from a registry.
+# The per-ticket workflow lives in Temporal when `Factory:Temporal:Endpoint` is
+# configured: a round in flight survives a restart of the factory, and the
+# board's clicks reach the workflow as updates. The server is the dev
+# single-binary (SQLite on a volume) and its UI is loopback like the board.
+# Removing the endpoint returns the factory to store-only mode, which runs
+# without a Temporal server at all.
 
 services:
-  factory:
-    build: .
-    container_name: agent-factory
+  # Durable workflow state. One dev server, SQLite on a volume, loopback only —
+  # the same posture the factory itself has. The image's own entrypoint is the
+  # auto-setup deployment script (Cassandra-shaped), so the entrypoint is
+  # overridden to the server binary's start-dev, which is the documented
+  # single-binary dev server. If this container is down the board still serves;
+  # the factory's worker reconnects when it returns.
+  temporal:
+    image: temporalio/server:1.28.0
+    container_name: agent-factory-temporal
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "exec /usr/local/bin/temporal server start-dev --ip 0.0.0.0 --port 7233 --ui-port 8233 --db-filename /tmp/temporal.db"]
     ports:
-      # Loopback only, host-side; the app binds 0.0.0.0 inside so the mapping works.
-      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"
     volumes:
-      # Project files: what the board's projects page writes and the loader reads.
-      - ./factories:/app/factories
-      # Credential values: one file per credential, the name is the file (#32).
-      # Beside the project files, which is where the factory derives it to be.
-      - ./secrets:/app/secrets
-      # The store of record, and the rounds' lifted trees beside it.
-      - factory-data:/app/data
-      # The host daemon, for sibling worker and workspace containers. Rootful on
-      # Docker Desktop — the bounded deviation named at the top of this file.
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      # Auto-merge is a factory-level setting with a default, and the default is
-      # off (#36): a work item waits in Review until a human decides. The board
-      # renders which mode is live.
-      Factory__AutoMerge: "false"
+      - temporal-data:/data
 
 volumes:
-  factory-data:
+  temporal-data:

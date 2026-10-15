@@ -175,6 +175,13 @@ public sealed class GitHubApi : HttpMessageHandler
     public const string NoUserAgentMessage =
         """{"message": "Request forbidden by administrative rules. Please make sure your request has a User-Agent header."}""";
 
+    /// <summary>
+    /// GitHub's own 404 for a sub-issue link it cannot answer, as the first live Grill
+    /// received it — the message that named the refusal the shape tests now exist for.
+    /// </summary>
+    public const string SubIssueLinkNotFoundMessage =
+        """{"message":"Not Found","documentation_url":"https://docs.github.com/rest/issues/sub-issues#add-sub-issue","status":"404"}""";
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -204,6 +211,49 @@ public sealed class GitHubApi : HttpMessageHandler
             {
                 Content = new StringContent(NoUserAgentMessage, Encoding.UTF8, "application/json"),
             };
+        }
+
+        // Reproduced rather than recorded, as the User-Agent above is: GitHub answers a
+        // sub-issue link that does not address its parent by number and name its child by
+        // a database id with a bare 404, and this factory has lived that refusal — the
+        // first live Grill published its questions issue and then had the link refused,
+        // because the client it shipped with did neither. What a guard can check without
+        // being GitHub is the skeleton: the path ends in a number followed by
+        // `sub_issues`, and the body carries a numeric `sub_issue_id`. Which id actually
+        // exists is the shape test's job, because knowing that is knowing state, and a
+        // fake that kept issue state would be a second GitHub.
+        if (recorded.Method == "POST"
+            && recorded.PathAndQuery.Contains("/sub_issues", StringComparison.Ordinal))
+        {
+            var path = recorded.PathAndQuery.Split('?')[0];
+            var segments = path.Split('/');
+            var parentNumber = segments.Length >= 2
+                && int.TryParse(segments[^2], out var parsed)
+                && parsed > 0;
+
+            uint subIssueId = 0;
+            try
+            {
+                using var document = JsonDocument.Parse(
+                    string.IsNullOrWhiteSpace(recorded.Body) ? "{}" : recorded.Body);
+                subIssueId = document.RootElement.TryGetProperty("sub_issue_id", out var given)
+                    && given.ValueKind == JsonValueKind.Number
+                    && given.TryGetUInt32(out var value)
+                    && value > 0
+                        ? value
+                        : 0;
+            }
+            catch (JsonException)
+            {
+            }
+
+            if (!parentNumber || subIssueId == 0)
+            {
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(SubIssueLinkNotFoundMessage, Encoding.UTF8, "application/json"),
+                };
+            }
         }
 
         var answer = _routes

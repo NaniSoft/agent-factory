@@ -2,7 +2,6 @@ namespace AgentFactory;
 
 using System.Diagnostics.Metrics;
 using AgentFactory.Clock;
-using AgentFactory.Containers;
 using AgentFactory.Credentials;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
@@ -65,21 +64,14 @@ public static class FactoryApp
         builder.Services.TryAddSingleton(services => new FactoryMetrics(
             services.GetRequiredService<IMeterFactory>()));
 
-        // The container runtime, beneath the agent seam. The Docker CLI is a process and
-        // not a package: ADR-0010 names `docker cp` and `docker logs` as the two ways
-        // anything crosses a round's boundary, so the CLI's own verbs are the mechanism,
-        // and this seam is the one place the factory knows Docker exists.
-        builder.Services.TryAddSingleton<IDockerCli, DockerCli>();
-        builder.Services.AddSingleton<ContainerRuntime>();
-
         // The result deriver, and the one place a credential name becomes a value.
         //
         // The deriver is the whole of ADR-0011 on this side of the boundary: it reads what
-        // the container observed and turns it into a result, and it has no way to ask the
+        // the round observed and turns it into a result, and it has no way to ask the
         // agent anything. The credential reader is the only component that can put a value
-        // rather than a name into a worker container, which is why the line between the
-        // LLM key (which goes in) and the GitHub key (which does not) is one method call
-        // away from being checkable rather than merely intended (ADR-0006).
+        // rather than a name into a round, which is why the line between the LLM key
+        // (which goes in) and the GitHub key (which does not) is one method call away from
+        // being checkable rather than merely intended (ADR-0006).
         builder.Services.AddSingleton<RoundResultDeriver>();
 
         // The reader of a routing round's verdict, and the publisher of what it proposed.
@@ -100,10 +92,11 @@ public static class FactoryApp
             services.GetRequiredService<CompositeCredentialReader>());
 
         // The agent seam now has an implementation, so it is registered as one rather than
-        // refused: a round runs in a real container from the project's configured image,
-        // the OpenCode CLI is driven non-interactively inside it, and the orchestrator
-        // still has no concept of a container. TryAdd, so the fake in the test host wins.
-        builder.Services.TryAddSingleton<INOpenCode, WorkerRoundRunner>();
+        // refused: a round runs in a fresh working tree on this machine, the OpenCode CLI
+        // is driven non-interactively in it as a child process, and the orchestrator still
+        // has no concept of a process. TryAdd, so the fake in the test host wins.
+        builder.Services.TryAddSingleton<IProcessCli, ProcessCli>();
+        builder.Services.TryAddSingleton<INOpenCode, RoundRunner>();
 
         // The GitHub seam now has an implementation, and it is the first `HttpClient` in the
         // process — deliberately, and only here. Intake reads through this client and the
@@ -153,19 +146,18 @@ public static class FactoryApp
         builder.Services.AddSingleton<Poller>();
 
         // The heartbeat, and the last gap between this factory and a moving one. Every
-        // prior ticket recorded the same thing: a real agent, a real container, a real
-        // deriver and a bounded retry policy all exist, and nothing steps the machine on a
-        // schedule, so a work item in Backlog only moved when a reviewer's click asked for
-        // a step. The driver is that step, and it is safe to add now rather than earlier
-        // for exactly one reason: the container budget landed with it. A timer without a
-        // budget is a factory spending a worker container on every issue of every project
-        // at once, which is what #8 refused.
+        // prior ticket recorded the same thing: a real agent, a real deriver and a bounded
+        // retry policy all exist, and nothing steps the machine on a schedule, so a work
+        // item in Backlog only moved when a reviewer's click asked for a step. The driver
+        // is that step, and it is safe to add now rather than earlier for exactly one
+        // reason: the round concurrency landed with it. A timer with no ceiling behind it
+        // is a factory spending a round on every issue of every project at once, which is
+        // what #8 refused.
         //
         // It is a hosted service, so the host starts and stops it, and it asks the loop for
-        // a step rather than deciding anything itself — the budget is enforced where the
-        // rounds are counted, in the loop, so a tick with a full budget does nothing.
+        // a step rather than deciding anything itself — the concurrency is enforced where
+        // the rounds are counted, in the loop, so a tick at the ceiling does nothing.
         builder.Services.AddSingleton<FactoryDriver>();
-        builder.Services.AddSingleton<Workspaces.ReviewWorkspaces>();
         if (drivingTheMachine)
         {
             builder.Services.AddHostedService(services => services.GetRequiredService<FactoryDriver>());
@@ -178,15 +170,33 @@ public static class FactoryApp
         // pushes the branch, opens the pull request if there is not already one, and merges
         // it, from the host, under a credential no worker container ever held (ADR-0006).
 
+        // The durable workflow, when a Temporal endpoint is configured. One workflow per
+        // ticket: its history is the record of where the ticket was, a round in flight
+        // survives a restart of this process, and the board's clicks reach the workflow as
+        // updates. The hosted service hosts the worker and reconnects on its own, so a
+        // Temporal outage is a degraded board rather than a dead factory. Without an
+        // endpoint the factory runs in store-only mode exactly as it always did, and the
+        // starter that is not there answers every call as a no-op — which is also what a
+        // test host gets, unless it substitutes its own.
+        if (!string.IsNullOrWhiteSpace(options.TemporalEndpoint))
+        {
+            builder.Services.AddSingleton<Durability.ITicketStarter, Durability.TemporalTickets>();
+            builder.Services.AddHostedService(services =>
+                (Durability.TemporalTickets)services.GetRequiredService<Durability.ITicketStarter>());
+        }
+        else
+        {
+            builder.Services.TryAddSingleton<Durability.ITicketStarter, Durability.NullTicketStarter>();
+        }
+
         var app = builder.Build();
 
-        // A workspace container outlives the process that started it: it is on the
-        // daemon, and the registry that knew its port died with the process. Anything
-        // still wearing this factory's workspace prefix is this factory's own and is
-        // taken away here, at start, before a reviewer can be shown a link to a
-        // workspace nobody holds the truth about any more.
-        _ = app.Services.GetRequiredService<Workspaces.ReviewWorkspaces>()
-            .SweepOrphansAsync(app.Lifetime.ApplicationStopping);
+        // The same is true of a round the process died inside, and this is the half that
+        // makes a restart survivable: the pending-round row says which round was in
+        // flight, the row is cleared, and the work item goes back where a fresh round is
+        // asked for it. Synchronous and before serving, so a reconcile that is half-done
+        // is a state the heartbeat can never observe.
+        app.Services.GetRequiredService<Orchestrator>().RecoverOrphanedRounds();
 
         // Resolved here rather than on the first board render, so configuration is read
         // at start the way it is meant to be.
@@ -266,11 +276,9 @@ public static class FactoryApp
         api.MapGet("/board", (
             IWorkItemStore store,
             ProjectLoadReport projects,
-            Orchestrator loop,
             FactoryOptions options,
-            Poller poller,
-            Workspaces.ReviewWorkspaces workspaces) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, loop, options, poller, workspaces)));
+            Poller poller) =>
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, options, poller)));
 
         // A reviewer's decision, the board's one write path now that the Razor form is gone
         // (#45, #51). It invents no capability: `Decisions.TryParse`, then
@@ -285,7 +293,8 @@ public static class FactoryApp
             string id,
             Api.DecisionRequest request,
             IWorkItemStore store,
-            Orchestrator loop) =>
+            Orchestrator loop,
+            Durability.ITicketStarter tickets) =>
         {
             string Lane()
             {
@@ -304,6 +313,24 @@ public static class FactoryApp
                     "That is not one of the three decisions. A work item in Review is "
                         + "approved, sent back for changes, or rejected, and there is nothing else to decide.",
                     Lane()));
+            }
+
+            // A ticket whose story is a durable workflow is answered by the workflow, as an
+            // update: the decision is recorded by the workflow's own activity, the lane it
+            // means is applied there, and the answer comes back once it has — so the board's
+            // click still says applied or refused in its own words. A ticket the workflow
+            // never owned — one from before the endpoint was configured — falls through to
+            // the store and the loop, exactly as it always went.
+            if (tickets.Configured)
+            {
+                var (handled, applied, refusal) = await tickets.DecideAsync(
+                    workItemId,
+                    request.Decision,
+                    request.Feedback);
+                if (handled)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new Api.DecisionResult(applied, refusal, Lane()));
+                }
             }
 
             try
@@ -340,7 +367,8 @@ public static class FactoryApp
         // rather than leaving them wondering whether the click was lost.
         api.MapPost("/work-items/{id}/accept", async (
             string id,
-            Orchestrator loop) =>
+            Orchestrator loop,
+            Durability.ITicketStarter tickets) =>
         {
             if (!Guid.TryParse(id, out var workItemId))
             {
@@ -349,27 +377,30 @@ public static class FactoryApp
                     Refusal: "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
             }
 
-            var applied = await loop.PromoteAsync(workItemId);
+            // A ticket whose story is a durable workflow is accepted by the workflow, as an
+            // update: the acceptance is durable, and the build it admits begins from the
+            // workflow's own history. A ticket the workflow never owned falls through to
+            // the loop, exactly as it always went.
+            if (tickets.Configured)
+            {
+                var (handled, applied, refusal) = await tickets.AcceptAsync(workItemId);
+                if (handled)
+                {
+                    return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
+                        Applied: applied,
+                        Refusal: refusal ?? (applied
+                            ? null
+                            : "That work item is not waiting in Backlog, so there is nothing to accept into the build.")));
+                }
+            }
+
+            var promoted = await loop.PromoteAsync(workItemId);
             return Microsoft.AspNetCore.Http.Results.Json(new Api.AcceptanceResult(
-                Applied: applied,
-                Refusal: applied
+                Applied: promoted,
+                Refusal: promoted
                     ? null
                     : "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
         });
-
-        // The review workspace's open (#47): the same call the board's "Open workspace"
-        // action makes, answered as the view model the card renders rather than as a
-        // redirect. It spawns a container — the one thing on this surface that talks to
-        // the daemon — but it moves no work item and records no decision, and a spawn
-        // that cannot happen comes back as an error on the view rather than as a silence
-        // or a 500. `OpenAsync` is the factory's own judgement of every failure case, so
-        // the endpoint holds none of its own.
-        api.MapPost("/work-items/{id}/workspace", async (
-            Guid id,
-            Workspaces.ReviewWorkspaces workspaces,
-            CancellationToken cancellationToken) =>
-            Microsoft.AspNetCore.Http.Results.Json(
-                Api.WorkspaceView.Of(await workspaces.OpenAsync(id, cancellationToken))));
 
         // The work-item detail (#46): the whole record behind a board card — the work item,
         // every round it has run with the host's diff, the decisions made and the decisions
@@ -399,7 +430,6 @@ public static class FactoryApp
                 options.FactoriesDirectory,
                 (request.Name ?? string.Empty).Trim(),
                 (request.RepoUrl ?? string.Empty).Trim(),
-                (request.WorkerImage ?? string.Empty).Trim(),
                 (request.LlmModel ?? string.Empty).Trim(),
                 (request.GitHubKeyName ?? string.Empty).Trim(),
                 (request.LlmKeyName ?? string.Empty).Trim());
@@ -428,8 +458,11 @@ public static class FactoryApp
 
         // The credential names the factory can use — the union of the keys the served
         // projects declare and the files already in the secrets directory — each with
-        // whether it has a value. Presence only: the surface is write-only, and the value
-        // is reached through `Has`, never `Read`, which keeps exactly its two callers.
+        // whether it has a value; beside them, the LLM providers a model reference may
+        // name and the canonical variable each reads, straight off the factory's own
+        // table so the app renders the fact rather than carrying a copy. Presence only:
+        // the surface is write-only, and the value is reached through `Has`, never
+        // `Read`, which keeps exactly its two callers.
         api.MapGet("/credentials", (
             ProjectLoadReport projects,
             FactoryOptions options,
@@ -437,6 +470,11 @@ public static class FactoryApp
             Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialsView(
                 CredentialFiles.Names(projects, options.SecretsDirectory)
                     .Select(name => new Api.CredentialView(name, credentials.Has(name)))
+                    .ToList(),
+                Projects.LlmProviders.OrderedIds
+                    .Select(id => new Api.LlmProviderView(
+                        id,
+                        Projects.LlmProviders.CanonicalEnvironmentVariables[id]))
                     .ToList())));
 
         // A credential's value, written and never rendered back. The composite reader is

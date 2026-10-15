@@ -27,7 +27,7 @@ using Microsoft.Extensions.Logging;
 /// asked for earlier and collected later — a reviewer's click has to do something now.
 /// </para>
 /// <para>
-/// There is a budget of <see cref="FactoryConstants.ContainerBudget"/> rounds in flight
+/// There is a ceiling of <see cref="FactoryConstants.RoundConcurrency"/> rounds in flight
 /// rather than one, and it is the whole of what bounds concurrency. Each round runs in its
 /// own fresh worker container whatever project it is for (ADR-0001), so there is no shared
 /// tree to serialise and no lock to take: the only scarce thing is a container, and the
@@ -172,9 +172,77 @@ public sealed class Orchestrator
         }
 
         return await ApplyADecision()
+            ?? await HandBackAnAnsweredGrill()
             ?? await MergeWhatNobodyReviewed()
             ?? await RetryAParkedMerge()
-            ?? (StartARound() ? StepResult.Moved : StepResult.Idle);
+            ?? (await StartARoundAsync() ? StepResult.Moved : StepResult.Idle);
+    }
+
+    /// <summary>
+    /// Hands a grilled work item back to the pipeline when its answers have arrived.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A Grill's questions are filed as an issue, and a human answers them the only way a
+    /// tracker actually carries an answer: a comment in that issue's conversation. So this
+    /// is the watch: for every work item waiting on its questions issue, read that issue's
+    /// conversation, and anything said after the work item began waiting is an answer. The
+    /// work item returns to Backlog unrouted, and the next routing round reads the whole
+    /// conversation — question and answers — and decides again; nothing is spent on a build
+    /// until that round has seen what the human said.
+    /// </para>
+    /// <para>
+    /// The timestamp is the whole test, and it is why <c>UpdatedUtc</c> is good enough for
+    /// it: a work item in Waiting is written by nothing else, so its last write is the
+    /// moment the questions were published, and any comment newer than that is not the
+    /// factory's. A read that fails is contained — logged, and the next pass reads again —
+    /// because nothing here is a reason to park a work item whose only fault is that its
+    /// conversation is temporarily unreachable.
+    /// </para>
+    /// </remarks>
+    private async Task<StepResult?> HandBackAnAnsweredGrill()
+    {
+        foreach (var item in _store.List().Where(item =>
+            item.Swimlane == Swimlane.Waiting && item.RoutingIssue is { }))
+        {
+            IReadOnlyList<GitHub.IssueComment> conversation;
+            try
+            {
+                conversation = await _github.ReadCommentsAsync(
+                    item.RepoUrl,
+                    item.RoutingIssue!.Value,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception refused)
+            {
+                _logger.LogWarning(
+                    "The conversation on the questions issue {Question} of {Project}#{Issue} could not be read: "
+                        + "{Refusal}. The work item waits on, and the next pass reads again.",
+                    item.RoutingIssue,
+                    item.Project,
+                    item.IssueNumber,
+                    refused.Message);
+                continue;
+            }
+
+            if (!conversation.Any(comment => comment.CreatedUtc > item.UpdatedUtc))
+            {
+                continue;
+            }
+
+            using var trace = _logger.ForWorkItem(item.Id, item.Project, item.IssueNumber);
+            _store.RecordHandBack(item.Id);
+            _logger.LogInformation(
+                "{Project}#{Issue} was answered in the conversation on #{Question}; it is handed back to "
+                    + "routing to be read whole, answers included.",
+                item.Project,
+                item.IssueNumber,
+                item.RoutingIssue);
+
+            return StepResult.Moved;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -190,6 +258,62 @@ public sealed class Orchestrator
     {
         while ((await StepAsync()).Applied)
         {
+        }
+    }
+
+    /// <summary>
+    /// Reconciles the rounds a restart interrupted, before the machine serves anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every pending-round row is a round whose end the process never saw. Reconciliation
+    /// clears the row and puts the work item back where a fresh round is asked for: a build
+    /// round's work item from In Progress to Frontier, a routing round's straight back to
+    /// Backlog where <c>NextToRoute</c> finds it.
+    /// </para>
+    /// <para>
+    /// The dead round's partial work is discarded, and that cost is stated rather than
+    /// hidden: nobody on this side of the restart holds its result, so the change it was
+    /// making is gone with it, and the honest answer is to ask for the round again rather
+    /// than to pretend the process never died. The work item's round count has not moved,
+    /// because a round that never landed was never an attempt at building anything the
+    /// reviewer's ceiling counts. What reconciliation cannot do is reach the agent process
+    /// of a round whose factory died without cancelling it — a process tree is not a
+    /// container, and there is no name on it to find it by; that gap is stated where the
+    /// process runner is defined, which is where the start and the kill both live.
+    /// </para>
+    /// <para>
+    /// This runs at startup and is synchronous on purpose: it is finished before the
+    /// machine serves anything or the heartbeat ticks, so a reconcile that is half-done is
+    /// a state nothing else can observe.
+    /// </para>
+    /// </remarks>
+    public void RecoverOrphanedRounds()
+    {
+        foreach (var pending in _store.ListPendingRounds())
+        {
+            var item = _store.Get(pending.WorkItemId);
+            _store.ClearPendingRound(pending.WorkItemId);
+
+            if (item is not { } workItem)
+            {
+                continue;
+            }
+
+            if (workItem.Swimlane == Swimlane.InProgress)
+            {
+                _store.Move(workItem.Id, Swimlane.Frontier);
+            }
+
+            using var trace = _logger.ForWorkItem(
+                workItem.Id, workItem.Project, workItem.IssueNumber, pending.RoundNumber);
+            _logger.LogInformation(
+                "Recovered an interrupted {Purpose} round {Round} of {Project}#{Issue} after the restart: "
+                    + "the round is asked for again.",
+                pending.Purpose,
+                pending.RoundNumber,
+                workItem.Project,
+                workItem.IssueNumber);
         }
     }
 
@@ -738,7 +862,7 @@ public sealed class Orchestrator
     /// budget and the queue reads in the order it was picked up (ADR-0007).
     /// </para>
     /// </remarks>
-    private bool StartARound()
+    private async Task<bool> StartARoundAsync()
     {
         if (!ASlotIsFree())
         {
@@ -762,43 +886,90 @@ public sealed class Orchestrator
         // and only one of them is eligible for a build round.
         var purpose = RoundPurposes.IsRoutable(next.Kind) ? RoundPurpose.Route : RoundPurpose.Build;
 
-        // The round's number is the work item's rounds so far, plus this one. The scope
-        // carries the identity and the round number, and the call below is made *inside* it
-        // — so every record the round runner, the container runtime, the deriver and the
-        // Docker CLI write for the next ninety minutes arrives already stamped with which
-        // work item and which round it was, none of them having been told either.
-        using var trace = _logger.ForWorkItem(
-            next.Id, next.Project, next.IssueNumber, next.RoundCount + 1);
+        // The conversation travels with the round, because an issue is a conversation and
+        // not a document: the body is how it started, and a Grill's answers live in the
+        // comments of the issue the questions were filed on. Both conversations are read —
+        // the issue's own and, when one exists, its questions issue's — and they arrive in
+        // the order they were said. Read here rather than at the runner, because this is
+        // the one moment the round is being composed, and read contained rather than
+        // fatal: a conversation that cannot be read is a round with less to go on and not
+        // a reason to spend a container finding that out again. The refusal is logged and
+        // the next round reads again.
+        IReadOnlyList<GitHub.IssueComment> conversation;
+        try
+        {
+            var all = new List<GitHub.IssueComment>();
+            all.AddRange(await _github.ReadCommentsAsync(
+                next.RepoUrl, next.IssueNumber, CancellationToken.None).ConfigureAwait(false));
 
-        // The call is made and not awaited. The result is collected on a later step, which
-        // is what keeps the loop from being blocked inside a container it knows nothing
-        // about, and what makes the timeout a comparison against the clock. The token is
-        // the round's own: ending the round ends the call.
+            if (next.RoutingIssue is { } question && question != next.IssueNumber)
+            {
+                all.AddRange(await _github.ReadCommentsAsync(
+                    next.RepoUrl, question, CancellationToken.None).ConfigureAwait(false));
+            }
+
+            conversation = all.OrderBy(comment => comment.CreatedUtc).ToList();
+        }
+        catch (Exception refused)
+        {
+            _logger.LogWarning(
+                "The conversation on {Repository}#{Issue} could not be read: {Refusal}. The round is asked "
+                    + "with the issue alone, and the next one reads the conversation again.",
+                next.RepoUrl,
+                next.IssueNumber,
+                refused.Message);
+            conversation = [];
+        }
+
+        // The round's number is the work item's rounds so far, plus this one — and it is
+        // the number the landing directory is named by, so it is computed once here. The
+        // scope carries the identity and the round number, and the call below is made
+        // *inside* it — so every record the round runner, the collector, the deriver and
+        // the process runner write for the next ninety minutes arrives already stamped
+        // with which work item and which round it was, none of them having been told
+        // either.
+        var roundNumber = next.RoundCount + 1;
+
+        using var trace = _logger.ForWorkItem(
+            next.Id, next.Project, next.IssueNumber, roundNumber);
+
+        // The round is on the record before it is asked for. The row is the whole of what a
+        // restart needs — which work item a round was building, and which round and attempt
+        // it was — and it is written before the ask rather than after, because a process
+        // that dies between the two leaves a row whose round may never have been asked for,
+        // and reconciliation reads that row and asks again.
+        _store.RecordPendingRound(new PendingRound(
+            next.Id,
+            roundNumber,
+            1,
+            purpose.ToString(),
+            _clock.UtcNow));
+
         var inFlight = new InFlight(
-            next.Id, next.Project, next.IssueNumber, next.RoundCount + 1, _clock.UtcNow, purpose);
+            next.Id, next.Project, next.IssueNumber, roundNumber, _clock.UtcNow, purpose, conversation);
         inFlight.Pending = AskForTheRound(RoundFor(inFlight), inFlight.Token);
 
         _inFlight.Add(next.Id, inFlight);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
 
-        // A build round takes its work item into In Progress because a container is holding
+        // A build round takes its work item into In Progress because a round is holding
         // it. A routing round does not: it is holding the same slot, but the work item is
         // still in Backlog and still waiting for a reviewer, and moving it to In Progress
-        // would put a card in a lane meaning "a worker is building this" for a round that is
-        // only deciding what kind of work it is.
+        // would put a card in a lane meaning "an agent is building this" for a round that
+        // is only deciding what kind of work it is.
         if (purpose == RoundPurpose.Build)
         {
             _store.Move(next.Id, Swimlane.InProgress);
         }
 
         _logger.LogInformation(
-            "{Purpose} round {Round} of {Project}#{Issue} started; {Busy} of {Budget} worker containers are in use.",
+            "{Purpose} round {Round} of {Project}#{Issue} started; {Busy} of {Budget} rounds are in flight.",
             purpose == RoundPurpose.Route ? "A routing" : "Round",
             inFlight.RoundNumber,
             next.Project,
             next.IssueNumber,
             RoundsInFlight,
-            FactoryConstants.ContainerBudget);
+            FactoryConstants.RoundConcurrency);
 
         return true;
     }
@@ -879,12 +1050,12 @@ public sealed class Orchestrator
     }
 
     /// <summary>
-    /// Whether the container budget has room for another round. The whole of the
+    /// Whether the round concurrency has room for another round. The whole of the
     /// concurrency policy in one comparison, and it counts rounds rather than projects:
-    /// each round gets its own fresh container whatever project it is for, so there is
+    /// each round gets its own fresh working tree whatever project it is for, so there is
     /// nothing shared to lock and nothing to serialise (ADR-0001).
     /// </summary>
-    private bool ASlotIsFree() => _inFlight.Count < FactoryConstants.ContainerBudget;
+    private bool ASlotIsFree() => _inFlight.Count < FactoryConstants.RoundConcurrency;
 
     /// <summary>
     /// Lands one round in flight if it is over: returned, or past the round timeout. A
@@ -945,7 +1116,12 @@ public sealed class Orchestrator
         // round's token has nothing left to cancel, a work item in Escalated is not holding
         // a slot, and the budget is one container freer for whatever is queued behind it.
         // Removing by key rather than clearing the set is what keeps one round ending from
-        // releasing the slot of a round that is still running.
+        // releasing the slot of a round that is still running. The pending-round row goes
+        // with it: the row is the record of a round whose end nobody had seen, and this is
+        // that end — landed, parked, timed out, every shape of over. The transient-retry
+        // path above returned before reaching this line, because a round waiting out its
+        // backoff has not ended and its row is what keeps the wait alive past a restart.
+        _store.ClearPendingRound(run.WorkItemId);
         _inFlight.Remove(run.WorkItemId);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
         run.Dispose();
@@ -1161,6 +1337,10 @@ public sealed class Orchestrator
         var backoff = FactoryConstants.RetryBackoff(run.Attempts);
         run.WaitForRetryUntil(_clock.UtcNow + backoff);
 
+        // The backoff's durable half: the wait is on the pending-round row, so a process
+        // that dies inside the wait is a process whose restart still honours it.
+        _store.SetPendingRoundRetryAfter(run.WorkItemId, run.RetryAfterUtc!.Value);
+
         _logger.LogWarning(
             "Round {Round} of {Project}#{Issue} failed transiently on attempt {Attempt} of {Ceiling}. "
                 + "It is asked for again after {Backoff}, and nothing waits here for it.",
@@ -1241,7 +1421,8 @@ public sealed class Orchestrator
             BriefFor(run.WorkItemId),
             run.RoundNumber,
             run.Attempts,
-            run.Purpose);
+            run.Purpose,
+            run.Conversation);
     }
 
     /// <summary>
@@ -1319,9 +1500,18 @@ public sealed class Orchestrator
         int issueNumber,
         int roundNumber,
         DateTimeOffset startedUtc,
-        RoundPurpose purpose) : IDisposable
+        RoundPurpose purpose,
+        IReadOnlyList<GitHub.IssueComment> conversation) : IDisposable
     {
         private readonly CancellationTokenSource _rounds = new();
+
+        /// <summary>
+        /// The issue's conversation, read once when the round was asked for and carried for
+        /// every attempt of it: a retried round is the same round with the same brief, and
+        /// re-reading the conversation mid-round would hand attempt two a different work
+        /// order than the one attempt one was given.
+        /// </summary>
+        public IReadOnlyList<GitHub.IssueComment> Conversation { get; } = conversation;
 
         public Guid WorkItemId { get; } = workItemId;
 

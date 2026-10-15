@@ -1,24 +1,23 @@
 # agent-factory
 
 The agent factory: a generic system that takes GitHub issues as use cases,
-builds the change that answers them using code-server and OpenCode inside a
-fresh worker container per round, and merges the result back to the repository
-through a Kanban board where a human reviews it.
+builds the change that answers them by driving OpenCode in a fresh working tree
+per round, and merges the result back to the repository through a Kanban board
+where a human reviews it.
 
 ## Status
 
 **Implemented, and running.** One .NET process polls the open issues of every
 configured project, turns each into a work item on a board at port 5000, runs up
-to three rounds per work item in fresh worker containers, and merges the change
+to three rounds per work item in fresh working trees, and merges the change
 on approval from the host under a credential the agent never sees. This has been
 run end to end against a real repository: an issue was polled, built by an agent
-in a real container, reviewed on the board, and shipped as a merged pull request.
+in a real working tree, reviewed on the board, and shipped as a merged pull request.
 
 Build and test it with the commands in [`AGENTS.md`](AGENTS.md).
 
 ```bash
-docker compose up --build -d      # the factory, the board on 127.0.0.1:5000
-docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/   # the image rounds start from
+dotnet run --project src/agent-factory    # the factory and the board on 127.0.0.1:5000
 ```
 
 [`DESIGN.md`](DESIGN.md) is the specification the factory is built against
@@ -37,7 +36,7 @@ record and the implementation.
 ## What is here
 
 - [`DESIGN.md`](DESIGN.md) — the design: components, the per-project
-  configuration model, the worker container lifecycle, the Kanban feedback loop
+  configuration model, the round lifecycle, the Kanban feedback loop
   and its 3-round ceiling, multi-project round-robin, observability and error
   handling, the testing strategy, deployment, and the security posture.
 - [`AGENTS.md`](AGENTS.md) — what is built and how it is verified.
@@ -46,13 +45,11 @@ record and the implementation.
 - [`docs/adr/`](docs/adr/) — the decisions the design defers on.
 - [`src/`](src/) — the .NET solution: one process holding the config loader, the
   work item store, the orchestrator, intake, the merger and the board.
-- [`worker/`](worker/) — the base worker image a round starts from, its smoke
-  test, and the recipe for deriving a project's own.
 - [`factories/`](factories/) — one file per project, and **this repository commits
   none**: a file there is served, not sampled. The examples are in
-  [`worker/examples/`](worker/examples); read [`factories/README.md`](factories/README.md)
-  before adding one.
-- [`docker-compose.yml`](docker-compose.yml) — one deployment for every project.
+  read [`factories/README.md`](factories/README.md) before adding one.
+- [`docker-compose.yml`](docker-compose.yml) — the Temporal dev server behind the
+  durable workflow (ADR-0016); the factory itself runs on this machine.
 - [`.gitignore`](.gitignore) — keeps local agent and tool state, including
   `.claude/settings.local.json`, out of the repository.
 

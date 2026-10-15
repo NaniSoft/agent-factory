@@ -13,7 +13,11 @@
     "The floors are deliberately low, so a renamed directory empties a run and",
     "fails rather than reporting a repository that rendered nothing. The app is",
     "served at the root with `trailingSlash: true`, so its export emits a directory",
-    "index per route and the links gate reads those emitted routes."
+    "index per route and the links gate reads those emitted routes. The gate names",
+    "such a route `/projects/index` and resolves an anchor's `/projects` against",
+    "`/projects` or `/projects/`, so the build also writes the `.html` spelling of",
+    "each route (`scripts/emit-route-aliases.mjs`) — the shape Next itself ships for",
+    "the not-found route — which is what gives an anchor's spelling a real page."
   ],
   "gateKit": 1,
   "gates": [

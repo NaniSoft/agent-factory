@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.Boundary;
 
 using System.Net;
 using AgentFactory;
-using AgentFactory.Containers;
+
 using AgentFactory.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
@@ -136,7 +136,7 @@ public class TheProcessTests
     }
 
     [Fact]
-    public void The_agent_seam_is_a_real_container_runtime_and_not_a_refusal()
+    public void The_agent_seam_is_a_real_round_runner_and_not_a_refusal()
     {
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         using var app = FactoryApp.Create(
@@ -150,13 +150,14 @@ public class TheProcessTests
 
         // The counterpart to the seam test above, and the reason both seams are now of this
         // shape: a round asked for in a factory that still registered a refusal would say
-        // the container runtime is not built, and a merge would say the client is not. Both
-        // are built, and which runtime is a composition root's business rather than a
-        // loop's.
+        // the agent is not built, and a merge would say the client is not. Both are built,
+        // and which runner is a composition root's business rather than a loop's. The
+        // process seam is named too, because the runner is the one thing that starts
+        // programs and the seam is what a test fakes to drive it.
         var agent = app.Services.GetRequiredService<INOpenCode>();
 
-        Assert.IsType<WorkerRoundRunner>(agent);
-        Assert.IsType<DockerCli>(app.Services.GetRequiredService<IDockerCli>());
+        Assert.IsType<RoundRunner>(agent);
+        Assert.IsType<ProcessCli>(app.Services.GetRequiredService<IProcessCli>());
         Assert.IsType<GitHubClient>(app.Services.GetRequiredService<IGitHub>());
     }
 

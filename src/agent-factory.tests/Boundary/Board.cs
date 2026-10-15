@@ -223,7 +223,6 @@ public sealed class Board
                 html.Append("<li")
                     .Append($" data-served-project=\"{Esc(Str(item, "name"))}\"")
                     .Append($" data-repo-url=\"{Esc(Str(item, "repoUrl"))}\"")
-                    .Append($" data-worker-image=\"{Esc(Str(item, "workerImage"))}\"")
                     .Append($" data-llm-model=\"{Esc(Str(item, "llmModel"))}\"")
                     .Append($" data-github-key=\"{Esc(Str(item, "githubKeyName"))}\"")
                     .Append($" data-llm-key=\"{Esc(Str(item, "llmKeyName"))}\"")
@@ -236,14 +235,6 @@ public sealed class Board
         }
 
         html.Append("</p>");
-
-        var budget = board.GetProperty("budget");
-        var inUse = Int(budget, "inUse");
-        var of = Int(budget, "of");
-        html.Append("<p class=\"container-budget\" data-container-budget=\"budget\"")
-            .Append($" data-budget=\"{of}\" data-in-flight=\"{inUse}\">")
-            .Append($"{inUse} of {of} worker containers in use.")
-            .Append("</p>");
 
         // The project filter: every project always on offer, including the one in force.
         html.Append("<nav class=\"project-filter\" data-project-filter=\"filter\">");

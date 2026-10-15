@@ -2,13 +2,24 @@
 
 Guidance for agents operating in this repository.
 
+> **Read this first — the container sections below are superseded.**
+> [ADR-0016](docs/adr/0016-rounds-run-on-the-host-and-the-factory-knows-no-docker.md)
+> removed the worker container: a round is this machine's own child process,
+> `opencode run` in a fresh working tree the runner clones itself. The sections below
+> that still speak of containers, `docker cp`, the worker image, the container budget
+> and the review-workspace containers describe the superseded architecture and are
+> kept only until a dedicated documentation pass rewrites them; where they disagree
+> with the code, the code and ADR-0016 are the truth. The round's boundary, its
+> result file, the diff in Review, the merger, routing, retry classification and the
+> board are unchanged, and their sections read true.
+
 ## What this repository is
 
 `agent-factory` is the implementation of the agent factory described in
 [`DESIGN.md`](DESIGN.md): a generic system that takes GitHub issues as use cases,
-builds the change that answers them using code-server and OpenCode inside a fresh
-container per issue, and merges the result back through a Kanban board where a
-human reviews it. One issue in, one reviewed pull request out.
+builds the change that answers them by driving OpenCode in a fresh working tree
+per round, and merges the result back through a Kanban board where a human
+reviews it. One issue in, one reviewed pull request out.
 
 The public, reader-facing version of the design is published separately as the
 Nexus documentation at https://nexus.nanisoft.com/docs. That is a publication
@@ -40,23 +51,15 @@ asserts on the state of the machine and the whole suite would be a race against 
 the only thing the test host switches off, and it is switched off by an explicit argument
 rather than by a setting nobody can find.
 
-Most of the suite is hermetic and needs neither Docker nor a network: the container
-runtime is driven through a recording `IDockerCli` in `Boundary/FakeDockerCli.cs`, which
-behaves like the commands it stands in for rather than remembering what it was told. It
-stands in for `docker cp` with real directories too, not only text files, because a round's
-tree is a git repository with a packfile in it and the host's diff reader runs `git` against
-whatever that `cp` left behind — a fake that could only produce text would make a diff test
-a test of the fake. The one requirement the review tests add is the `git` binary, which any
-checkout of this repository already has. The
-two classes that do need a real container are separated and **skipped, with the reason,
-on a machine that has no Docker daemon or no worker image** — `DockerFactAttribute` checks
-once and says which. Build the image first with
-`docker build -t ghcr.io/nanisoft/agent-factory-worker:1 worker/`. `WorkerRoundTests` uses
-the factory's own runtime against the real daemon, which is where the container's
-properties are read back off the container rather than off the command that made it;
-`WorkerImageTests` uses Testcontainers to ask a different question, what is in the image,
-without the factory in the way. Neither binds a port, and do not run `dotnet test`
-alongside anything else that wants the board's.
+Most of the suite is hermetic and needs neither Docker nor a network: the process
+seam is driven through a recording `IProcessCli` in `Boundary/FakeProcessCli.cs`,
+which answers from behaviour a test wrote and can also run real git (`WithRealGit`),
+so the real-round tests exercise the runner's own clone, the real collector, the real
+deriver and the host's diff reader with only the agent faked. The one requirement the
+review tests add is the `git` binary, which any checkout of this repository already
+has. The durable-workflow tests are separated and **skipped, with the reason, on a
+machine with no Temporal server** — `TemporalFactAttribute` probes once and says so;
+start the dev server with `docker compose up temporal` and they run.
 
 ## The factory
 
@@ -154,6 +157,32 @@ difference is what the board may offer: Escalated holds a parked *change*, so a 
 finishes it by merging or declining and both decisions are about something real. A work
 item in Waiting has no change to judge at all, so `Swimlanes.Decidable` is absent for it and
 `SqliteWorkItemStore.RecordDecision` refuses a decision about one.
+
+**An issue is a conversation, and the loop reads it like one.** Every round's brief carries
+the issue's comments beside its body — and, when the work item has a questions issue, that
+issue's comments too, merged in the order they were said. This is not decoration: a Grill's
+questions are answered in the questions issue's conversation, and a round handed the body
+alone would be asked to work from the question while the answers sat next to it unread.
+
+**The answers hand the work back.** `HandBackAnAnsweredGrill` runs in the step order after
+a reviewer's decision: for every work item waiting on its questions issue, it reads that
+issue's conversation, and any comment newer than the work item's own last write is an
+answer — a work item in Waiting is written by nothing else, so the timestamp is the whole
+test. The work item returns to Backlog unrouted **with its questions issue kept**, because
+that issue is where the answers live and the re-routing round reads the whole conversation
+— question and answers — before deciding again. That makes a handed-back item the third
+reading of `Unrouted`, next to "nobody has looked yet" and "a round looked and could not
+answer"; the route reason is what tells the three apart on the card, and
+`HowToReadTheRoute` says the third one in words. The hand-back found its shape by running
+without existing: the first live Grill published its questions and then the factory had
+nothing that could ever hear the answer — a work item waiting for ever on a reply nothing
+was reading.
+
+**A Grill leaves the maintainer's issue open.** For a while the routing layer closed it,
+saying where the work went — and a maintainer read a closed issue over work that had not
+started. The factory's rule is one rule everywhere now: **a merge is what closes an issue,
+and nothing short of a merge does** — a Grill has shipped nothing, so the issue stays as
+open as the work is unfinished, and the questions issue carries the conversation instead.
 
 `RecordRoute` refuses three things and they are one refusal: a verdict with no reason, a
 kind that waits on a person with no issue to answer on, and an `Unrouted` carrying an issue.
@@ -597,16 +626,22 @@ a convenience:
   find nothing; the second create is refused, and the client closes that window by asking
   again rather than by reading the 422's message.
 
-**The pull request carries the work item's identity both ways.** The title is the issue's
-own title, unchanged, so the two things a reader compares are the same string. The body's
-first line is `Refs #42`, and **the issue is linked rather than closed** — that is a
-decision, and `A_pull_request_body_can_never_close_the_issue_it_answers` holds the rendered
-body against GitHub's own closing-keyword list. Merging a pull request whose body says
-`Closes #42` closes the issue, and this factory can merge a change *nobody reviewed* (at
-the 48-hour threshold, or on a retry of a merge that failed), so closing somebody's issue on
-the strength of that is a second claim the merge has not earned. Nothing is lost by leaving
-it open: intake is idempotent on `(repo_url, issue_number)`, so a still-open issue is found
-again and changes nothing about a work item that is already Done.
+**A merge closes the issue it answers, and nothing short of a merge does.** The pull
+request still carries the work item's identity both ways — the title is the issue's own
+title, unchanged, so the two things a reader compares are the same string — and the body's
+first line is `Refs #42`, which
+`A_pull_request_body_can_never_close_the_issue_it_answers`
+still holds the rendered body against GitHub's own closing-keyword list — deliberately,
+because a keyword in a body gives GitHub the close and takes the judgement away: the
+factory's rule is that **merged** is what closes an issue, so the close is the merger's
+own last step, made after the merge is verified, on both of `MergeAsync`'s success paths —
+the merge it just made, and the retry that found the pull request already merged. Every
+other ending leaves the issue exactly as open as it was: a pull request declined without
+merging is a decline, and the issue a human wrote stays theirs. The issue's state is read
+before closing, so the retry creates nothing rather than collecting a second closing
+comment; and a close that cannot happen does not un-land a merge that did — the refusal
+is logged, the merge stands, and the open issue beside a merged change is a state a human
+finishes with one click.
 
 **The branch is a git refspec, an HTTP path segment and a pull request body**, and an
 issue's title is a stranger's words, so the slug is reduced to `[a-z0-9-]` and nothing else
@@ -904,8 +939,21 @@ The poller is deliberately **indiscriminate** — no label filter, no assignee f
 state filter beyond open, and no gate. That is ADR-0007 and it is not an oversight: a
 filter would put factory policy into project configuration, and which issues are worth
 building is a judgement a human makes **on the board**, the only surface the design
-trusts for human input. The labels and assignees are carried on `OpenIssue` and never
-read, and a test says so, so the rule cannot be quietly reintroduced.
+trusts for human input. The labels and assignees are carried on `OpenIssue`, and no
+repository's triage vocabulary is ever read — a test says so, so the rule cannot be
+quietly reintroduced.
+
+**The one label the poller reads is the factory's own.** An issue wearing
+`IGitHub.FactoryIssueLabel` (`agent-factory`) is this process's output — a Grill's
+questions, filed under the issue that asked for them — and not the repository's work, so
+intake declines it. This is authorship and not triage: ADR-0007 governs which of a
+repository's issues a human should judge, and the factory's own questions are not
+candidates for that judgement, because taking them is a loop that does not terminate.
+The guard exists because the loop ran: in the hour the Grill first published on a live
+repository, sixteen questions issues chained into sixteen routing rounds before anyone
+looked, each one the factory talking to itself. `The_factory_does_not_take_its_own_output`
+holds the count, and the sibling test beside it still holds ADR-0007's half — a
+repository's own labels decide nothing.
 
 Like the loop it is stepped, not timer-driven, and **what steps it is now the heartbeat**
 rather than a reviewer's click — see **The heartbeat** under **The loop**. What did *not*

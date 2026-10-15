@@ -89,11 +89,79 @@ public class RoutingTests
         Assert.Contains("Questions:", asked.Title, StringComparison.Ordinal);
         Assert.Equal(asked.Number, routed.RoutingIssue);
 
-        // And the maintainer's issue is closed saying where the work went, rather than left
-        // open beside a child claiming the same thing.
-        var closed = Assert.Single(host.GitHub.IssuesClosed);
-        Assert.Equal(workItem.IssueNumber, closed.Number);
-        Assert.Contains($"#{asked.Number}", closed.Because, StringComparison.Ordinal);
+        // And the maintainer's issue is still open, because a merge is what closes an
+        // issue and a Grill has shipped nothing. For a while this closed it, saying where
+        // the work went, and the maintainer read a closed issue over work that had not
+        // started — the claim the factory's close-on-merge rule refuses to make anywhere.
+        Assert.Empty(host.GitHub.IssuesClosed);
+    }
+
+    [Fact]
+    public async Task An_answer_on_the_questions_issue_hands_the_work_back_and_the_next_route_sees_it()
+    {
+        // The whole hand-back, in the order a human lives it: the factory asks, the human
+        // answers in the only place a tracker carries an answer — the conversation — and
+        // the work comes back with the answers on it. The clock in these tests starts on
+        // 2026-09-28, so an answer dated October is newer than any write the Waiting work
+        // item has, which is the test the hand-back actually makes.
+        var answer = new IssueComment(
+            "dpven",
+            "drafts count as published, and the schema stays as it is.",
+            new DateTimeOffset(2026, 10, 12, 12, 0, 0, TimeSpan.Zero));
+
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        var agent = new FakeNOpenCode()
+            .RoutingAs(
+                WorkItemKind.Grill,
+                "the shape is clear and two decisions about it are not",
+                [new ProposedQuestion("does a draft count as published?", "it changes what a click means")])
+            .RoutingAs(WorkItemKind.Build, "the answers in the conversation settle both decisions");
+        await using var host = await FactoryHost.StartAsync(root, agent: agent);
+        var workItem = await Intaken(host);
+
+        await host.Settle();
+
+        var grilled = host.Store.Get(workItem.Id)!;
+        Assert.Equal(Swimlane.Waiting, grilled.Swimlane);
+        var question = grilled.RoutingIssue!.Value;
+
+        // No answer yet: a pass reads the conversation and leaves the work item waiting.
+        // This is the check that keeps the hand-back from firing on the question itself.
+        await host.Step();
+        Assert.Equal(Swimlane.Waiting, host.Store.Get(workItem.Id)!.Swimlane);
+
+        // The human answers. The very next step hands the work back: Backlog, unrouted,
+        // and a reason a reader can check. The questions issue is kept rather than
+        // cleared, because it is where the answers live — the next routing round reads
+        // that conversation whole, and it can only do that if the record still points
+        // at it.
+        host.GitHub.WithComments(RepoUrl, question, answer);
+
+        await host.Step();
+
+        var handed = host.Store.Get(workItem.Id)!;
+        Assert.Equal(Swimlane.Backlog, handed.Swimlane);
+        Assert.Equal(WorkItemKind.Unrouted, handed.Kind);
+        Assert.Equal(question, handed.RoutingIssue);
+        Assert.Contains("answers arrived", handed.RouteReason, StringComparison.Ordinal);
+
+        // And the routing round that follows reads the whole conversation — the issue, the
+        // question, and the answer — so its second verdict is a decision about the same
+        // conversation the human had, not about the body alone.
+        await host.Settle();
+
+        var rerouted = host.Store.Get(workItem.Id)!;
+        Assert.Equal(WorkItemKind.Build, rerouted.Kind);
+        Assert.Equal("the answers in the conversation settle both decisions", rerouted.RouteReason);
+
+        var second = Assert.Single(agent.AskedFor.Skip(1));
+        var said = Assert.Single(second.Conversation);
+        Assert.Equal("dpven", said.Author);
+        Assert.Contains("drafts count as published", said.Body, StringComparison.Ordinal);
+
+        // A hand-back is a Grill's exit, not a general rewind: a work item that is not
+        // waiting on a questions issue has nothing that answering would unblock.
+        Assert.Throws<InvalidOperationException>(() => host.Store.RecordHandBack(workItem.Id));
     }
 
     [Fact]

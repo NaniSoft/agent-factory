@@ -6,14 +6,34 @@ namespace AgentFactory.GitHub;
 /// </summary>
 public interface IGitHub
 {
+    /// <summary>
+    /// The label every issue the factory creates carries, and the one label intake reads:
+    /// an issue wearing it is this factory's own output — a Grill's questions, filed under
+    /// the issue that asked for them — and not the repository's work. It exists for humans
+    /// reading the tracker and for exactly this one fact, because a factory that takes its
+    /// own questions as work is a loop that does not terminate.
+    /// </summary>
+    public const string FactoryIssueLabel = "agent-factory";
+
     /// <summary>The repository's default branch, resolved when an issue is polled.</summary>
     Task<string> GetDefaultBranchAsync(string repoUrl, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Every open issue on the repository. The factory applies no label, assignee or
-    /// any other filter: the board is where a human decides what is worth building.
+    /// Every open issue on the repository. No filter a repository's conventions could hang
+    /// a triage decision on — labels, assignees — decides what is taken, because the board
+    /// is where a human decides what is worth building (ADR-0007). The one exception is
+    /// the factory's own authorship, <see cref="FactoryIssueLabel"/>, which the poller
+    /// reads to decline its own output.
     /// </summary>
     Task<IReadOnlyList<OpenIssue>> ListOpenIssuesAsync(string repoUrl, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The conversation on one issue, in order. An issue is a conversation and not a
+    /// document: the body is how it started, and the comments are everything everybody
+    /// said since — which is where a human answers a Grill's questions, and the only
+    /// place an answer has ever lived.
+    /// </summary>
+    Task<IReadOnlyList<IssueComment>> ReadCommentsAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken);
 
     /// <summary>
     /// Opens a pull request from the host, under the factory's own credential. A worker
@@ -130,9 +150,10 @@ public sealed record NewIssue(string RepoUrl, int? ParentNumber, string Title, s
 /// <summary>
 /// An open issue. The factory's input, and it stays GitHub's object. The labels and
 /// assignees are carried because GitHub issues have them and the seam is faithful to
-/// what it returns — and the poller never reads either of them, which is the point
-/// (ADR-0007). They are here so that "the factory applies no filter" is a decision
-/// visible in one place rather than an absence nobody can find.
+/// what it returns — and the poller reads neither as a triage filter, which is the point
+/// (ADR-0007): a repository's own conventions decide nothing about what is worth building.
+/// The one read is the factory's own authorship label (<see cref="IGitHub.FactoryIssueLabel"/>),
+/// which declines the factory's output rather than the repository's work.
 /// </summary>
 public sealed record OpenIssue(
     int Number,
@@ -144,6 +165,14 @@ public sealed record OpenIssue(
     /// <summary>An issue with nothing else on it: no labels, nobody assigned.</summary>
     public static OpenIssue Plain(int number, string title, string body) => new(number, title, body, [], []);
 }
+
+/// <summary>
+/// One turn of an issue's conversation: who said it, what they said, and when. The
+/// created time is carried because it is how the loop tells an answer from the silence it
+/// landed in — a Waiting work item watches its questions issue for anything said after the
+/// question was asked, and a timestamp is the only honest test of that.
+/// </summary>
+public sealed record IssueComment(string Author, string Body, DateTimeOffset CreatedUtc);
 
 /// <summary>A pull request the factory opened. Always a real one, so a merge is revertible.</summary>
 public sealed record PullRequest(int Number, string Url);

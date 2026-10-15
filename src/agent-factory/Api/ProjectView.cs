@@ -5,7 +5,7 @@ using AgentFactory.Projects;
 
 /// <summary>
 /// One Project the factory serves, as both the board's filter and the projects surface
-/// offer it: the six values its file states, the file it was read from, and the load
+/// offer it: the five values its file states, the file it was read from, and the load
 /// state. Credentials are the names of environment variables and are never values — the
 /// renderer shows which names a Project declares, never what they hold.
 /// </summary>
@@ -20,7 +20,6 @@ using AgentFactory.Projects;
 public sealed record ProjectView(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("repoUrl")] string RepoUrl,
-    [property: JsonPropertyName("workerImage")] string WorkerImage,
     [property: JsonPropertyName("llmModel")] string LlmModel,
     [property: JsonPropertyName("githubKeyName")] string GitHubKeyName,
     [property: JsonPropertyName("llmKeyName")] string LlmKeyName,
@@ -35,7 +34,6 @@ public sealed record ProjectView(
         return new ProjectView(
             project.Name,
             project.RepoUrl,
-            project.WorkerImage,
             project.LlmModel,
             project.GitHubKeyName,
             project.LlmKeyName,

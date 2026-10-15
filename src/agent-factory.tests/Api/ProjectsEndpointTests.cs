@@ -19,8 +19,6 @@ public class ProjectsEndpointTests
         name: nexus
         repo:
           url: https://github.com/NaniSoft/nexus
-        worker:
-          image: ghcr.io/nanisoft/agent-factory-worker:1
         llm:
           model: anthropic/claude-sonnet-4-5
         keys:
@@ -44,12 +42,11 @@ public class ProjectsEndpointTests
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var projects = document.RootElement.GetProperty("projects");
 
-        // The six values the file states, and the load state the loader decided: a
+        // The five values the file states, and the load state the loader decided: a
         // project in this list is one the factory serves.
         var nexus = Assert.Single(projects.EnumerateArray());
         Assert.Equal("nexus", nexus.GetProperty("name").GetString());
         Assert.Equal("https://github.com/NaniSoft/nexus", nexus.GetProperty("repoUrl").GetString());
-        Assert.Equal("ghcr.io/nanisoft/agent-factory-worker:1", nexus.GetProperty("workerImage").GetString());
         Assert.Equal("anthropic/claude-sonnet-4-5", nexus.GetProperty("llmModel").GetString());
         Assert.Equal("NEXUS_GITHUB_TOKEN", nexus.GetProperty("githubKeyName").GetString());
         Assert.Equal("NEXUS_ANTHROPIC_API_KEY", nexus.GetProperty("llmKeyName").GetString());
@@ -77,7 +74,6 @@ public class ProjectsEndpointTests
                 {
                   "name": "atlas",
                   "repoUrl": "https://github.com/NaniSoft/atlas",
-                  "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
                   "llmModel": "anthropic/claude-sonnet-4-5",
                   "githubKeyName": "ATLAS_GITHUB_TOKEN",
                   "llmKeyName": "ATLAS_ANTHROPIC_API_KEY"
@@ -111,7 +107,6 @@ public class ProjectsEndpointTests
                 {
                   "name": "nexus",
                   "repoUrl": "https://github.com/NaniSoft/nexus",
-                  "workerImage": "ghcr.io/nanisoft/agent-factory-worker:2",
                   "llmModel": "anthropic/claude-opus-4-5",
                   "githubKeyName": "NEXUS_GITHUB_TOKEN",
                   "llmKeyName": "NEXUS_ANTHROPIC_API_KEY"
@@ -122,7 +117,6 @@ public class ProjectsEndpointTests
 
         // The file is overwritten rather than added beside: one project is one file.
         var written = await File.ReadAllTextAsync(Path.Combine(root.FactoriesDirectory, "nexus.yaml"));
-        Assert.Contains("image: ghcr.io/nanisoft/agent-factory-worker:2", written, StringComparison.Ordinal);
         Assert.Contains("model: anthropic/claude-opus-4-5", written, StringComparison.Ordinal);
     }
 
@@ -141,7 +135,6 @@ public class ProjectsEndpointTests
                 {
                   "name": "bad/name",
                   "repoUrl": "https://github.com/NaniSoft/nexus",
-                  "workerImage": "ghcr.io/nanisoft/agent-factory-worker:1",
                   "llmModel": "anthropic/claude-sonnet-4-5",
                   "githubKeyName": "NEXUS_GITHUB_TOKEN",
                   "llmKeyName": "NEXUS_ANTHROPIC_API_KEY"

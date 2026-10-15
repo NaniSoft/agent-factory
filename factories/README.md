@@ -11,29 +11,33 @@ only thing standing between a fresh checkout and a write to somebody's repositor
 credential's environment variable happens to be unset — which is luck, not policy, and it is
 true of every checkout.
 
-So the examples live one directory over, in [`worker/examples/`](../worker/examples), where
-they are readable and not loaded:
+So a project file looks like this, with your own values:
 
-- [`nexus.project.yaml`](../worker/examples/nexus.project.yaml) — the repository the design
-  is written about.
-- [`example.project.yaml`](../worker/examples/example.project.yaml) — the same shape with
-  placeholder values.
+```yaml
+name: nexus
+repo:
+  url: https://github.com/NaniSoft/nexus
+llm:
+  model: anthropic/claude-sonnet-4-5
+keys:
+  github: NEXUS_GITHUB_TOKEN
+  llm: NEXUS_ANTHROPIC_API_KEY
+```
 
 ## Adding a project
 
-Copy one of those here and fill in your own values, or use the board's
-[projects page](http://127.0.0.1:5000/Projects), which writes the file for you.
+Write one of those here, or use the board's
+[projects page](http://127.0.0.1:5000/projects), which writes the file for you.
 
 | Field | |
 | --- | --- |
 | `name` | the project's name, unique across this directory |
 | `repo.url` | absolute `http` or `https` URL |
-| `worker.image` | the image each round's worker container starts from |
 | `llm.model` | a full `provider/model` reference (#38) |
 | `keys.github` | the **name** of an environment variable, never its value |
 | `keys.llm` | the **name** of an environment variable, never its value |
 
-A field beyond those six is **refused**, not ignored. So are shared, partial, included and
+A field beyond those five is **refused**, not ignored. So are shared, partial, included and
 generated files: a project is always exactly one complete file someone wrote. A file that
 fails validation keeps its own project out of the rotation and is reported on the board under
 "Project files refused" — the factory still starts.
@@ -50,18 +54,18 @@ one fails with `Remote branch main not found` and a non-zero exit — which the 
 permanent failure, so the work item parks rather than retrying.
 
 **The first commit is a human's.** The factory will not make one: it holds a write credential
-for the *host*, and ADR-0006's whole shape is that the host pushes a commit a round made
-inside a container that could not push anything. Inventing a project's first commit is a
-different act from answering its first issue, and the design does not grant it.
+for the *host*, and ADR-0006's whole shape is that the host pushes a commit a round made in
+its own working tree, which holds nothing that can push. Inventing a project's first commit is
+a different act from answering its first issue, and the design does not grant it.
 
 So a greenfield project's owner pushes a README — or a `.gitignore`, or a LICENSE — before
 adding the project file. One commit, from them, and every issue after it is the factory's.
 
 ## What a credential here can reach
 
-The `keys.github` name is read on the **host**, by the merger, after the round's container is
-gone (ADR-0006). It is never passed into a worker container, so a confused, injected or
-compromised agent has nothing that can push anywhere. The `keys.llm` value *does* go into the
-round's container, scoped to that one project and dying with that one round.
+The `keys.github` name is read on the **host**, by the merger, after the round is over
+(ADR-0006). It is never passed into a round, so a confused, injected or compromised agent has
+nothing that can push anywhere. The `keys.llm` value *does* go into the round's environment,
+scoped to that one project and dying with that one process.
 
 Scope the token to the one repository, not the organisation.

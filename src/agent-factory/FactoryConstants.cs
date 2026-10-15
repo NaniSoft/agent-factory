@@ -94,29 +94,31 @@ public static class FactoryConstants
     public const int BoardAutoRefreshSeconds = 5;
 
     /// <summary>
-    /// How many worker containers the factory may have running at once. Two, sized for
-    /// this machine's 7.19 GB, in which each worker runs an agent, a toolchain and a
-    /// build: three would have them fighting each other for memory rather than building.
-    /// A code constant and not configuration, like everything else here, so every project
-    /// gets the same budget and changing it is a deliberate edit in one obvious place.
+    /// How many rounds the factory may run at once. Two, sized for this machine: each
+    /// round is an agent, a toolchain and a build in its own working tree, and three at a
+    /// time would have them fighting each other for memory rather than building. A code
+    /// constant and not configuration, like everything else here, so every project gets
+    /// the same ceiling and changing it is a deliberate edit in one obvious place.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The budget is a count of <em>containers</em>, and it is the only thing that bounds
-    /// concurrency. It is deliberately not a lock, not a shared working tree and not a
-    /// per-project quota: each round gets its own fresh container whatever project it is
-    /// for (ADR-0001), so there is nothing to serialise and nothing to share, and a
-    /// project's own long build cannot hold another project's issue out of a container.
+    /// It bounds <em>rounds</em>, and it is the only thing that bounds concurrency. It is
+    /// deliberately not a lock, not a shared working tree and not a per-project quota:
+    /// each round gets its own fresh working tree whatever project it is for (ADR-0001),
+    /// so there is nothing to serialise and nothing to share, and a project's own long
+    /// build cannot hold another project's issue out.
     /// </para>
     /// <para>
     /// It is not the same number as <see cref="TransientRetryAttempts"/>, and the two
     /// must not be conflated: that one counts how many times one round is asked for, and
     /// this one counts how many rounds exist at a time. A round waiting out its retry
-    /// backoff still holds a container slot — it has not ended — so three waiting retries
-    /// cannot happen at all, because a budget of two never admits a third round to wait.
+    /// backoff still holds a slot — it has not ended — so three waiting retries cannot
+    /// happen at all, because a ceiling of two never admits a third round to wait. In
+    /// workflow mode it is the activity worker's own concurrency, which makes it global
+    /// across every ticket by construction.
     /// </para>
     /// </remarks>
-    public const int ContainerBudget = 2;
+    public const int RoundConcurrency = 2;
 
     /// <summary>
     /// How often the driver steps the machine: intake takes a turn and the loop applies
@@ -176,31 +178,4 @@ public static class FactoryConstants
     /// instead of sleeping, and so a slow pass cannot become a fast one.
     /// </summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
-
-    /// <summary>
-    /// The host ports a review workspace may be published on, loopback only. A code
-    /// constant and not configuration, like everything else here — the exposure decision
-    /// (#30) put the range in the factory rather than in a compose file, so a workspace is
-    /// never reachable past the machine that decided to open it. Exhaustion is a rendered
-    /// state on the card, never silence.
-    /// </summary>
-    public const int WorkspacePortFloor = 7100;
-
-    /// <summary>The last host port of the workspace range, inclusive.</summary>
-    public const int WorkspacePortCeiling = 7199;
-
-    /// <summary>
-    /// The port code-server listens on inside a review workspace. Nothing outside the
-    /// container's own publish decides it, so the whole mapping is one fact the factory
-    /// states twice at most: here and in the create it composes.
-    /// </summary>
-    public const int CodeServerPort = 6800;
-
-    /// <summary>
-    /// How long a review workspace lives from spawn. A fixed lifetime rather than an idle
-    /// detection, because nothing inside a workspace can report idleness without new
-    /// machinery: it ends on the reviewer's decision, on a new round starting, or here —
-    /// and re-opening one is a click that always reflects the current tree (#31).
-    /// </summary>
-    public static readonly TimeSpan WorkspaceLifetime = TimeSpan.FromHours(4);
 }

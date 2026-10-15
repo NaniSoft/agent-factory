@@ -94,6 +94,20 @@ public interface IWorkItemStore
     void RecordRoute(Guid workItemId, WorkItemKind kind, string reason, int? routingIssue = null);
 
     /// <summary>
+    /// Hands a grilled work item back to the pipeline: Backlog, unrouted, with its
+    /// questions issue kept — because that issue's conversation is where the answers live,
+    /// and the next routing round reads the whole conversation and decides again. Only a
+    /// work item waiting on a questions issue can be handed back — anything else has
+    /// nothing that answering would unblock, and a second route on it would be a round
+    /// spent on a verdict that already exists.
+    /// </summary>
+    /// <exception cref="KeyNotFoundException">There is no such work item.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The work item is not waiting on a questions issue.
+    /// </exception>
+    void RecordHandBack(Guid workItemId);
+
+    /// <summary>
     /// Keeps one round's result against the work item and counts the round. Results are
     /// appended, never replaced, so a work item that has run three rounds keeps all
     /// three.
@@ -196,4 +210,40 @@ public interface IWorkItemStore
     /// There is no such decision of that work item's, or the loop has already applied it.
     /// </exception>
     void ApplyDecision(Guid workItemId, int sequence, Swimlane swimlane);
+
+    /// <summary>
+    /// Records the round the factory is about to ask for, before it is asked. Written
+    /// first because the ask is not awaited: a process that dies between the write and the
+    /// ask leaves a row whose container may never have existed, and reconciliation reads
+    /// that row, takes away whatever is there, and asks again — a factory that only
+    /// remembered its rounds after they ended would forget exactly the round that was
+    /// running when it died.
+    /// </summary>
+    void RecordPendingRound(PendingRound pending);
+
+    /// <summary>Removes the work item's pending-round row: the round has ended, whatever way it ended.</summary>
+    void ClearPendingRound(Guid workItemId);
+
+    /// <summary>Every round asked for and not yet seen the end of, oldest first.</summary>
+    IReadOnlyList<PendingRound> ListPendingRounds();
+
+    /// <summary>
+    /// Moves a pending round's transient backoff onto the row, so a wait that the process
+    /// dies inside is still a wait after the process comes back.
+    /// </summary>
+    void SetPendingRoundRetryAfter(Guid workItemId, DateTimeOffset retryAfterUtc);
 }
+
+/// <summary>
+/// One asked-for round whose end the factory has not seen. The row exists from before the
+/// ask until after the landing, and it is the whole of what reconciliation reads: which
+/// work item, which round and attempt, for what purpose, since when, and not before when
+/// a retry may be asked for.
+/// </summary>
+public sealed record PendingRound(
+    Guid WorkItemId,
+    int RoundNumber,
+    int Attempt,
+    string Purpose,
+    DateTimeOffset AskedUtc,
+    DateTimeOffset? RetryAfterUtc = null);

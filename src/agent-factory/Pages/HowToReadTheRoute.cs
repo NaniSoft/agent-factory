@@ -36,6 +36,10 @@ public static class HowToReadTheRoute
             WorkItemKind.Unrouted when workItem.Swimlane == Swimlane.Escalated =>
                 "A routing round looked at this issue and could not answer. It is parked with the reason above.",
 
+            WorkItemKind.Unrouted when workItem.RoutingIssue is { } question =>
+                "The answers arrived in the conversation on #" + question + ", and a routing round is reading "
+                    + "the whole conversation again — question and answers — before anything is built.",
+
             WorkItemKind.Unrouted =>
                 "Nobody has looked at this issue yet. A routing round will decide whether it is a build "
                     + "ticket before it can be built, and it costs a container.",

@@ -75,6 +75,25 @@ describe('the credentials page', () => {
     expect(screen.queryByText(secret)).toBeNull();
   });
 
+  it('fills the name with the variable the chosen provider reads, and follows a hand edit', async () => {
+    factoryAnswering();
+
+    render(<CredentialsPage />);
+    await screen.findByText('NEXUS_ANTHROPIC_API_KEY');
+
+    const provider = screen.getByLabelText('Provider') as HTMLSelectElement;
+    expect((provider.selectedOptions[0]?.textContent ?? '')).toContain('Choose a provider');
+
+    // Choosing the OpenCode gateway fills the name with the variable its tooling reads —
+    // the name a project declares as its LLM credential for the value to be routed.
+    fireEvent.change(provider, { target: { value: 'opencode' } });
+    expect(screen.getByDisplayValue('OPENCODE_API_KEY')).toBeTruthy();
+
+    // The selection is derived from the name, so a hand edit is the truth the form shows.
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'NEXUS_OPENCODE_KEY' } });
+    expect((screen.getByLabelText('Provider') as HTMLSelectElement).value).toBe('');
+  });
+
   it('removes a credential by name', async () => {
     const { calls } = factoryAnswering();
 

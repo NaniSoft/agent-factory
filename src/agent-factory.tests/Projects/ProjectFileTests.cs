@@ -18,7 +18,6 @@ public class ProjectFileTests
         var board = await Board.ReadAsync(host.Board);
 
         Assert.Equal("https://github.com/NaniSoft/nexus", board.Rendered("data-served-project", "nexus", "data-repo-url"));
-        Assert.Equal("ghcr.io/nanisoft/agent-factory-worker:1", board.Rendered("data-served-project", "nexus", "data-worker-image"));
         Assert.Equal(ProjectFile.Model, board.Rendered("data-served-project", "nexus", "data-llm-model"));
     }
 
@@ -73,8 +72,6 @@ public class ProjectFileTests
           name: nexus
           repo:
             url: https://github.com/NaniSoft/nexus
-          worker:
-            image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
             model: anthropic/claude-sonnet-4-5
           keys:
@@ -84,8 +81,6 @@ public class ProjectFileTests
           name: nexus
           repo:
             url: https://github.com/NaniSoft/nexus
-          worker:
-            image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
             model:
           keys:
@@ -96,13 +91,12 @@ public class ProjectFileTests
         // Invalid: a field beyond the schema, or a value that is not one.
         { ProjectFile.Valid + "\nrounds: 5\n", "Invalid" },
         { ProjectFile.Valid + "\nlabel: Nexus\n", "Invalid" },
+        { ProjectFile.Valid + "\nworker:\n  image: anywhere:1\n", "Invalid" },
         { """
           name: nexus
           repo:
             url: https://github.com/NaniSoft/nexus
             branch: main
-          worker:
-            image: ghcr.io/nanisoft/agent-factory-worker:1
           llm:
             model: anthropic/claude-sonnet-4-5
           keys:
@@ -198,8 +192,6 @@ public class ProjectFileTests
                 name: shared
                 repo:
                   url: https://github.com/NaniSoft/nexus
-                worker:
-                  image: ghcr.io/nanisoft/agent-factory-worker:1
                 llm:
                   model: anthropic/claude-sonnet-4-5
                 keys:
@@ -210,14 +202,11 @@ public class ProjectFileTests
                 name: nexus
                 repo:
                   url: https://github.com/NaniSoft/nexus
-                worker:
-                  <<: &shared
-                    image: ghcr.io/nanisoft/agent-factory-worker:1
-                  image: ghcr.io/nanisoft/agent-factory-worker:1
                 llm:
                   model: anthropic/claude-sonnet-4-5
                 keys:
-                  github: NEXUS_GITHUB_TOKEN
+                  <<: &shared
+                    github: NEXUS_GITHUB_TOKEN
                   llm: NEXUS_ANTHROPIC_API_KEY
                 """);
         await using var host = await FactoryHost.StartAsync(root);

@@ -3,16 +3,15 @@ namespace AgentFactory.Projects;
 /// <summary>
 /// Writes and removes project files in <c>factories/</c> on the board's behalf. The file
 /// stays the single source of truth: the page is an editor of exactly the schema the
-/// loader accepts, and nothing else — no field beyond the six, no partial file, no
+/// loader accepts, and nothing else — no field beyond the five, no partial file, no
 /// <c>*.generated.yaml</c>, which the loader refuses on sight.
 /// </summary>
 public static class ProjectFiles
 {
-    /// <summary>The six values a project file states, in the order the schema fixes them.</summary>
+    /// <summary>The five values a project file states, in the order the schema fixes them.</summary>
     public static string Text(
         string name,
         string repoUrl,
-        string workerImage,
         string llmModel,
         string githubKeyName,
         string llmKeyName) => $"""
@@ -21,8 +20,6 @@ public static class ProjectFiles
         name: {name}
         repo:
           url: {repoUrl}
-        worker:
-          image: {workerImage}
         llm:
           model: {llmModel}
         keys:
@@ -42,7 +39,6 @@ public static class ProjectFiles
         string factoriesDirectory,
         string name,
         string repoUrl,
-        string workerImage,
         string llmModel,
         string githubKeyName,
         string llmKeyName)
@@ -55,7 +51,7 @@ public static class ProjectFiles
         Directory.CreateDirectory(factoriesDirectory);
         File.WriteAllText(
             Path.Combine(factoriesDirectory, $"{name}.yaml"),
-            Text(name, repoUrl, workerImage, llmModel, githubKeyName, llmKeyName));
+            Text(name, repoUrl, llmModel, githubKeyName, llmKeyName));
         return null;
     }
 

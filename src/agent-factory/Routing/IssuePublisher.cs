@@ -74,10 +74,12 @@ public sealed class IssuePublisher(
             _ => (int?)null,
         };
 
-        if (filed is { } issue)
-        {
-            await CloseTheParentAsync(workItem, issue, cancellationToken).ConfigureAwait(false);
-        }
+        // The maintainer's issue is deliberately left open. For a while this closed it,
+        // saying where the work went — and the maintainer read a closed issue over work
+        // that had not shipped, which is exactly the claim this factory's rule refuses to
+        // make: a merge is what closes an issue, and a Grill has shipped nothing. The
+        // questions issue carries the conversation, a human answers it there, and the loop
+        // hands the work back when the answer arrives.
 
         return filed;
     }
@@ -228,45 +230,6 @@ public sealed class IssuePublisher(
                         ticket.Title);
                 }
             }
-        }
-    }
-
-    /// <summary>
-    /// Closes the maintainer's issue, saying where its work went. Best-effort by design: the
-    /// children are already filed and the verdict is already true, so a close that GitHub
-    /// refuses costs tidiness and nothing else.
-    /// </summary>
-    private async Task CloseTheParentAsync(
-        WorkItem workItem,
-        int filedAs,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await github.CloseIssueAsync(
-                workItem.RepoUrl,
-                workItem.IssueNumber,
-                $"""
-                 The factory has taken this one apart rather than building it directly.
-
-                 The questions and the tickets are in #{filedAs}. Nothing here needs doing by
-                 hand: read that issue, answer what it asks, and the factory will pick the work
-                 up from your reply.
-
-                 This issue is closed so that the work has one place to live. Reopen it if you
-                 would rather keep the conversation here.
-                 """,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (FactoryFailure refused)
-        {
-            logger.LogWarning(
-                refused,
-                "{Project}#{Issue} was decomposed into #{Filed} but could not be closed. It is still open and its "
-                    + "work is in the child; nothing depends on the close having landed.",
-                workItem.Project,
-                workItem.IssueNumber,
-                filedAs);
         }
     }
 

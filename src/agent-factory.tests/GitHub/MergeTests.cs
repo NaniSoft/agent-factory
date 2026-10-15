@@ -28,6 +28,12 @@ public class MergeTests
             "/pulls",
             (HttpStatusCode.Created, GitHubApi.PullRequest(7, merging.Commit, merging.Branch)));
         merging.Api.Responding("PUT", "/pulls/7/merge", (HttpStatusCode.OK, """{"merged": true}"""));
+        merging.Api.Responding(
+            "GET",
+            "/repos/NaniSoft/nexus/issues/42",
+            (HttpStatusCode.OK, """{ "id": 312459876, "number": 42, "state": "open" }"""));
+        merging.Api.Responding("POST", "/issues/42/comments", (HttpStatusCode.Created, "{}"));
+        merging.Api.Responding("PATCH", "/issues/42", (HttpStatusCode.OK, """{ "state": "closed" }"""));
 
         await merging.Merge();
 
@@ -45,6 +51,17 @@ public class MergeTests
         // Nothing opened twice and nothing asked twice.
         Assert.Equal(1, merging.Api.TimesAsked("POST", "/pulls"));
         Assert.Equal(1, merging.Api.TimesAsked("PUT", "/merge"));
+
+        // A merge closes the issue it answers, and it is the merger's own act after the
+        // merge is verified — the body says Refs, so nothing GitHub did on its own closed
+        // it. A comment carries the reason in the issue's own conversation, then the close.
+        var comment = Assert.Single(
+            merging.Api.Requests,
+            request => request.PathAndQuery.Contains("/issues/42/comments", StringComparison.Ordinal));
+        Assert.Contains("merged as #7", comment.Json().GetProperty("body").GetString(), StringComparison.OrdinalIgnoreCase);
+        var close = Assert.Single(merging.Api.Requests, request => request.Method == "PATCH");
+        Assert.Contains("/issues/42", close.PathAndQuery, StringComparison.Ordinal);
+        Assert.Equal("closed", close.Json().GetProperty("state").GetString());
     }
 
     [Fact]
@@ -162,7 +179,10 @@ public class MergeTests
         // The other half of idempotency, and the one a reviewer's second approve hits: the
         // change is on the base branch, `Done` means merged, and there is nothing left to
         // do. A client that pushed and opened again here would put a second pull request
-        // proposing a change that is already merged.
+        // proposing a change that is already merged. The issue is scripted closed, because
+        // the first attempt's close is part of what "already done" means: the retry reads
+        // the state, sees it, and creates nothing — no second comment under an issue a
+        // human already saw closed.
         using var merging = new Merging();
         merging.Api.Responding(
             "GET",
@@ -172,16 +192,100 @@ public class MergeTests
                 GitHubApi.PullRequestsMatching(
                     request.PathAndQuery,
                     GitHubApi.PullRequest(7, merging.Commit, merging.Branch, merged: true))));
+        merging.Api.Responding(
+            "GET",
+            "/repos/NaniSoft/nexus/issues/42",
+            (HttpStatusCode.OK, """{ "id": 312459876, "number": 42, "state": "closed" }"""));
 
         await merging.Merge();
 
         Assert.DoesNotContain(merging.Api.Shapes, shape => shape.StartsWith("POST", StringComparison.Ordinal));
         Assert.DoesNotContain(merging.Api.Shapes, shape => shape.StartsWith("PUT", StringComparison.Ordinal));
+        Assert.DoesNotContain(merging.Api.Shapes, shape => shape.StartsWith("PATCH", StringComparison.Ordinal));
         Assert.Empty(merging.Remote.Branches());
 
         // And it said so, rather than being a silent success.
         Assert.Contains(merging.Api.Requests, request => request.Method == "GET");
         Assert.Contains("already", merging.Log.Everything, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_merge_closes_the_questions_issue_whose_answers_shaped_the_change()
+    {
+        // A grilled change carries its questions issue on its record, and that issue's
+        // conversation is where the human answered. When the change lands, the questions
+        // issue's story ends with it: left open, it is the factory's own output outliving
+        // its purpose — found live, when the first grilled change shipped and its
+        // questions issue sat open with nothing left to say.
+        using var merging = new Merging();
+        merging.Store.RecordRoute(
+            merging.WorkItem.Id,
+            AgentFactory.WorkItems.WorkItemKind.Grill,
+            "the shape is clear and two decisions about it are not",
+            routingIssue: 25);
+        merging.NothingShippedYet();
+        merging.Api.Responding(
+            "POST",
+            "/pulls",
+            (HttpStatusCode.Created, GitHubApi.PullRequest(7, merging.Commit, merging.Branch)));
+        merging.Api.Responding("PUT", "/pulls/7/merge", (HttpStatusCode.OK, """{"merged": true}"""));
+        merging.Api.Responding(
+            "GET",
+            "/repos/NaniSoft/nexus/issues/42",
+            (HttpStatusCode.OK, """{ "id": 312459876, "number": 42, "state": "open" }"""));
+        merging.Api.Responding(
+            "GET",
+            "/repos/NaniSoft/nexus/issues/25",
+            (HttpStatusCode.OK, """{ "id": 312460990, "number": 25, "state": "open" }"""));
+        merging.Api.Responding("POST", "/issues/42/comments", (HttpStatusCode.Created, "{}"));
+        merging.Api.Responding("PATCH", "/issues/42", (HttpStatusCode.OK, """{ "state": "closed" }"""));
+        merging.Api.Responding("POST", "/issues/25/comments", (HttpStatusCode.Created, "{}"));
+        merging.Api.Responding("PATCH", "/issues/25", (HttpStatusCode.OK, """{ "state": "closed" }"""));
+
+        await merging.Merge();
+
+        var closes = merging.Api.Requests
+            .Where(request => request.Method == "PATCH")
+            .Select(request => request.PathAndQuery)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(
+            [
+                "/repos/NaniSoft/nexus/issues/25",
+                "/repos/NaniSoft/nexus/issues/42",
+            ],
+            closes);
+    }
+
+    [Fact]
+    public async Task A_retry_that_finds_the_pull_request_merged_still_closes_an_issue_a_human_left_open()
+    {
+        // The one broken state the close-on-merge exists to repair: the first attempt
+        // merged and died before it could close, so the issue a human is reading is open
+        // over a change that is already on the base branch. The retry finds the pull
+        // request merged, reads the issue still open, and closes it — the same rule as the
+        // fresh merge, one step later.
+        using var merging = new Merging();
+        merging.Api.Responding(
+            "GET",
+            "/pulls?",
+            request => GitHubApi.Answer.Of(
+                HttpStatusCode.OK,
+                GitHubApi.PullRequestsMatching(
+                    request.PathAndQuery,
+                    GitHubApi.PullRequest(7, merging.Commit, merging.Branch, merged: true))));
+        merging.Api.Responding(
+            "GET",
+            "/repos/NaniSoft/nexus/issues/42",
+            (HttpStatusCode.OK, """{ "id": 312459876, "number": 42, "state": "open" }"""));
+        merging.Api.Responding("POST", "/issues/42/comments", (HttpStatusCode.Created, "{}"));
+        merging.Api.Responding("PATCH", "/issues/42", (HttpStatusCode.OK, """{ "state": "closed" }"""));
+
+        await merging.Merge();
+
+        var close = Assert.Single(merging.Api.Requests, request => request.Method == "PATCH");
+        Assert.Contains("/issues/42", close.PathAndQuery, StringComparison.Ordinal);
+        Assert.Equal("closed", close.Json().GetProperty("state").GetString());
     }
 
     [Fact]
@@ -287,7 +391,7 @@ public class MergeTests
             "main",
             System.IO.Path.Combine(
                 later.Options.RoundsDirectory, later.WorkItem.Id.ToString("N"), "round-2", "attempt-1",
-                AgentFactory.Containers.ContainerRuntime.RoundTreeFolder));
+                "tree"));
         secondRound.Committed("the second round's change", ("src/Second.cs", "public sealed class Second { }\n"));
         secondRound.WithReadOnlyObjects();
 
@@ -339,7 +443,7 @@ public class MergeTests
             File.SetAttributes(file, FileAttributes.Normal);
         }
 
-        Directory.Delete(merging.TreePath, recursive: true);
+        GitTrees.Delete(merging.TreePath);
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(() => merging.Merge());
 
@@ -383,7 +487,6 @@ public class MergeTests
                 [new AgentFactory.Projects.Project(
                     "nexus",
                     merging.WorkItem.RepoUrl,
-                    "image",
                     "anthropic",
                     "NEXUS_GITHUB_TOKEN",
                     "NEXUS_LLM_KEY",
@@ -454,7 +557,7 @@ public class MergeTests
 
         // The remote is gone, so git cannot push to it. The API fakes are untouched, which
         // is what makes this hermetic: nothing leaves the machine either way.
-        Directory.Delete(merging.Remote.Path, recursive: true);
+        GitTrees.Delete(merging.Remote.Path);
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(() => merging.Merge());
 
@@ -481,7 +584,7 @@ public class MergeTests
         merging.Api.Responding("GET", "/git/ref/heads/", (HttpStatusCode.NotFound, """{"message": "Not Found"}"""));
         merging.Api.Responding("GET", "repos/NaniSoft/nexus", GitHubApi.Answer.RateLimited("""{"message": "rate limited"}"""));
 
-        Directory.Delete(merging.Remote.Path, recursive: true);
+        GitTrees.Delete(merging.Remote.Path);
 
         var refused = await Assert.ThrowsAsync<TransientFailure>(() => merging.Merge());
 

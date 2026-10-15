@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@nanisoft/prism-ui/com
 import { Input } from '@nanisoft/prism-ui/components/input';
 import { Item } from '@nanisoft/prism-ui/components/item';
 import { Label } from '@nanisoft/prism-ui/components/label';
+import { NativeSelect } from '@nanisoft/prism-ui/components/native-select';
 import { PasswordField } from '@nanisoft/prism-ui/components/password-field';
 import { Status } from '@nanisoft/prism-ui/components/status';
 
@@ -16,6 +17,7 @@ import {
   removeCredential,
   setCredential,
   type CredentialView,
+  type LlmProvider,
 } from '@/lib/credentials';
 
 /**
@@ -25,8 +27,21 @@ import {
  */
 type Reading =
   | { phase: 'loading' }
-  | { phase: 'ready'; credentials: CredentialView[] }
+  | { phase: 'ready'; credentials: CredentialView[]; llmProviders: LlmProvider[] }
   | { phase: 'error'; message: string };
+
+/**
+ * The words a provider option reads. The id is the wire format — the prefix of a
+ * project's model reference — and these are this app's words for it, the way the
+ * decision buttons are named here and not by the factory.
+ */
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+  opencode: 'OpenCode Zen',
+  'opencode-go': 'OpenCode Go',
+};
 
 /**
  * The Credentials surface.
@@ -36,6 +51,13 @@ type Reading =
  * any item whose whole job is holding a secret: what is here is a list of names and a
  * `PasswordField`, and the value the reader types is posted and never rendered back.
  * Nothing on this page ever reads a value — neither the API it calls nor this code can.
+ *
+ * The form opens with the factory's own provider table: a provider is one half of a
+ * model reference (`anthropic/claude-sonnet-4-5`), and choosing one fills the name with
+ * the environment variable that provider's tooling reads — the name a project has to
+ * declare as its LLM credential for the factory to route the value into the round. The
+ * name stays editable, because a project may name a credential anything; the dropdown
+ * is a fact about OpenCode's contract, not a restriction on the file.
  */
 export default function CredentialsPage() {
   const [reading, setReading] = useState<Reading>({ phase: 'loading' });
@@ -47,7 +69,12 @@ export default function CredentialsPage() {
 
   const load = useCallback((signal?: AbortSignal) => {
     fetchCredentials(signal)
-      .then((view) => setReading({ phase: 'ready', credentials: view.credentials }))
+      .then((view) =>
+        setReading({
+          phase: 'ready',
+          credentials: view.credentials,
+          llmProviders: view.llmProviders,
+        }))
       .catch((error: unknown) => {
         if (signal?.aborted) return;
         setReading({
@@ -184,6 +211,39 @@ export default function CredentialsPage() {
             </CardHeader>
             <CardContent>
               <form className="credentials__form" onSubmit={(event) => void write(event)}>
+                <div className="credentials__field">
+                  <Label htmlFor="credential-provider">Provider</Label>
+                  <NativeSelect
+                    id="credential-provider"
+                    autoComplete="off"
+                    value={
+                      reading.llmProviders.find(
+                        (candidate) => candidate.canonicalEnvironmentVariable === name.trim(),
+                      )?.id ?? ''
+                    }
+                    onChange={(event) => {
+                      const chosen = reading.llmProviders.find(
+                        (candidate) => candidate.id === event.target.value,
+                      );
+                      if (chosen) {
+                        setName(chosen.canonicalEnvironmentVariable);
+                      }
+                    }}
+                  >
+                    <option value="">Choose a provider</option>
+                    {reading.llmProviders.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {`${PROVIDER_LABELS[candidate.id] ?? candidate.id} — ${candidate.canonicalEnvironmentVariable}`}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                  <p className="credentials__hint">
+                    Optional. A provider is the OpenCode CLI&apos;s half of a model reference:
+                    choosing one fills the name with the environment variable its tooling reads —
+                    the name a project then declares as its LLM credential. A name of your own
+                    works too.
+                  </p>
+                </div>
                 <div className="credentials__field">
                   <Label htmlFor="credential-name">Name</Label>
                   <Input
