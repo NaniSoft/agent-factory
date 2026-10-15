@@ -12,6 +12,15 @@
   </PropertyGroup>
 
   <ItemGroup Label="The factory">
+    <!--
+      The one package any of the three libraries takes, and the reason `Application` can
+      hold `WorkItemScope` and `ProjectScope`: a record is written from inside, and
+      `ILogger<T>` is how that is expressed. `Microsoft.NET.Sdk` and the Web SDK carry it
+      implicitly; the libraries carry nothing, so it is declared. It is the abstractions
+      and not the whole logging stack, because a scope opens a record and does not choose
+      where the record goes — which is #63's, on the far side of the boundary.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Temporalio" Version="1.20.0" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />

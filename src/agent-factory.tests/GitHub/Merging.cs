@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.GitHub;
 
 using AgentFactory.Credentials;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
@@ -72,7 +73,7 @@ public sealed class Merging : IDisposable
         // ships is the tree the board showed a reviewer.
         Round = Store.RecordRound(
             WorkItem.Id,
-            AgentFactory.Rounds.RoundOutcome.Produced,
+            AgentFactory.Domain.Rounds.RoundOutcome.Produced,
             resultPayload: "the round's own record of itself",
             agentNote: "Made the poller keep going when a project is paced.",
             startedUtc: _clock.UtcNow,

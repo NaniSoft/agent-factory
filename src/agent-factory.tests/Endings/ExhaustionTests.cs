@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Endings;
 
 using System.Net;
+using AgentFactory.Domain.Rounds;
 using AgentFactory;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

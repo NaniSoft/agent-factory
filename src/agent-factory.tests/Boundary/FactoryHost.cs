@@ -2,12 +2,12 @@ namespace AgentFactory.Tests.Boundary;
 
 using System.Reflection;
 using AgentFactory;
-using AgentFactory.Clock;
+using AgentFactory.Application.Clock;
 
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
-using AgentFactory.Observability;
+using AgentFactory.Application.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.Rounds;

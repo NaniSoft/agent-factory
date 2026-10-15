@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Api;
 using System.Net;
 using System.Text.Json;
 using AgentFactory;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

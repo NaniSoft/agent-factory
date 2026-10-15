@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Intake;
 
 using System.Net;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

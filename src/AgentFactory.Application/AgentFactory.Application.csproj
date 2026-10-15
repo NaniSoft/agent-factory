@@ -20,4 +20,15 @@
     <ProjectReference Include="..\AgentFactory.Domain\AgentFactory.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      `WorkItemScope` and `ProjectScope` put a work item's or a project's identity on every
+      record written inside them, and `ILogger<T>` is the only way this factory expresses
+      that. The Web SDK carries this package implicitly and `Microsoft.NET.Sdk` does not, so
+      it is declared rather than assumed — the reference `docs/architecture.md` says
+      Application and Infrastructure both take when they first need one.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
 </Project>

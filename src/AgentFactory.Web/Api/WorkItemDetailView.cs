@@ -1,7 +1,7 @@
 namespace AgentFactory.Api;
 
 using System.Text.Json.Serialization;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Pages;
 using AgentFactory.Results;
 using AgentFactory.Rounds;

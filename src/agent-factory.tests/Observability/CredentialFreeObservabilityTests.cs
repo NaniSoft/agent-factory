@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.Observability;
 
 using System.Net;
 using AgentFactory.GitHub;
-using AgentFactory.Observability;
+using AgentFactory.Application.Observability;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.GitHub;
 using AgentFactory.WorkItems;

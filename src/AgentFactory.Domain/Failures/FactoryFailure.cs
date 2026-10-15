@@ -1,4 +1,4 @@
-namespace AgentFactory.Failures;
+namespace AgentFactory.Domain.Failures;
 
 /// <summary>
 /// A failure that says what class of failure it is. Classification is a property of

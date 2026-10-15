@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Api;
 
 using System.Net;
+using AgentFactory.Domain.Rounds;
 using System.Text.Json;
 using AgentFactory;
 using AgentFactory.Rounds;

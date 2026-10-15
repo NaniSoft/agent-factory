@@ -1,4 +1,4 @@
-namespace AgentFactory.Observability;
+namespace AgentFactory.Application.Observability;
 
 using Microsoft.Extensions.Logging;
 
@@ -35,7 +35,7 @@ using Microsoft.Extensions.Logging;
 /// with the identity it was handed, inside it. A record the deriver writes an hour into a
 /// ninety-minute round therefore carries the work item <em>and</em> the round it belongs
 /// to, and the round runner is not one argument closer to knowing either of them than
-/// <see cref="Rounds.Round"/> already is.
+/// <see cref="AgentFactory.Rounds.Round"/> already is.
 /// </para>
 /// </remarks>
 public static class WorkItemScope

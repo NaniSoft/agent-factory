@@ -1,7 +1,7 @@
 namespace AgentFactory.Tests.GitHub;
 
 using System.Net;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Projects;
 using AgentFactory.Tests.Boundary;

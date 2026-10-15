@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.GitHub;
 using System.Net;
 using System.Text;
 using AgentFactory.Credentials;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;

@@ -1,7 +1,8 @@
 namespace AgentFactory.Durability;
 
 using AgentFactory.Credentials;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Projects;
 using AgentFactory.Routing;
@@ -321,7 +322,7 @@ public sealed class TicketWorkflow
             BackoffCoefficient = 2,
             MaximumInterval = TimeSpan.FromMinutes(5),
             MaximumAttempts = 3,
-            NonRetryableErrorTypes = ["AgentFactory.Failures.PermanentFailure"],
+            NonRetryableErrorTypes = ["AgentFactory.Domain.Failures.PermanentFailure"],
         },
     };
 

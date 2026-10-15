@@ -1,6 +1,6 @@
 namespace AgentFactory.Rounds;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 
 /// <summary>
 /// A child process on this machine, as the round runner and the collector see it: one

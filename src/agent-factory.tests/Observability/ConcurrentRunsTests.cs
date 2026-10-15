@@ -1,7 +1,8 @@
 namespace AgentFactory.Tests.Observability;
 
 using AgentFactory.GitHub;
-using AgentFactory.Observability;
+using AgentFactory.Application.Observability;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
@@ -120,7 +121,7 @@ public class ConcurrentRunsTests
 
             var round = Assert.Single(mine, record => record.Values("Outcome").Count > 0);
             Assert.Equal(1, round.Field("Round"));
-            Assert.Equal(nameof(AgentFactory.Rounds.RoundOutcome.Produced), round.Field("Outcome")?.ToString());
+            Assert.Equal(nameof(AgentFactory.Domain.Rounds.RoundOutcome.Produced), round.Field("Outcome")?.ToString());
         }
 
         // The two projects are distinguishable in the records, and each one only ever names
@@ -135,7 +136,7 @@ public class ConcurrentRunsTests
 
         // And the metrics agree with both, without naming either: two rounds, one per
         // project, and the only labelled thing is the project rather than the work item.
-        Assert.Equal(2, measurements.Count(FactoryMetrics.RoundsName, nameof(AgentFactory.Rounds.RoundOutcome.Produced)));
+        Assert.Equal(2, measurements.Count(FactoryMetrics.RoundsName, nameof(AgentFactory.Domain.Rounds.RoundOutcome.Produced)));
         Assert.Equal(
             [Atlas, Nexus],
             measurements.TagValues.Where(value => value is Atlas or Nexus).Distinct().Order().ToList());

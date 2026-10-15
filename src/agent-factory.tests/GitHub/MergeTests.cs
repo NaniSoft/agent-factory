@@ -1,7 +1,8 @@
 namespace AgentFactory.Tests.GitHub;
 
 using System.Net;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 
@@ -397,7 +398,7 @@ public class MergeTests
 
         var second = later.Store.RecordRound(
             later.WorkItem.Id,
-            AgentFactory.Rounds.RoundOutcome.Produced,
+            AgentFactory.Domain.Rounds.RoundOutcome.Produced,
             resultPayload: "round two's own record",
             agentNote: "Answered it differently.",
             startedUtc: later.Clock.UtcNow,

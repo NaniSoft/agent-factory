@@ -1,6 +1,6 @@
 namespace AgentFactory.GitHub;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 
 /// <summary>
 /// A repository, as the two halves of the GitHub path the API addresses it by, and the

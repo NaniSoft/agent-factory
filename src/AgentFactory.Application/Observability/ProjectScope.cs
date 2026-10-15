@@ -1,4 +1,4 @@
-namespace AgentFactory.Observability;
+namespace AgentFactory.Application.Observability;
 
 using Microsoft.Extensions.Logging;
 

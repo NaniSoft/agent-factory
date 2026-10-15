@@ -1,7 +1,8 @@
 namespace AgentFactory.WorkItems;
 
-using AgentFactory.Clock;
-using AgentFactory.Failures;
+using AgentFactory.Application.Clock;
+using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using Microsoft.Data.Sqlite;

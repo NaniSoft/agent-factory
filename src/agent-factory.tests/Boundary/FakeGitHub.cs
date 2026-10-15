@@ -1,6 +1,6 @@
 namespace AgentFactory.Tests.Boundary;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 
 /// <summary>

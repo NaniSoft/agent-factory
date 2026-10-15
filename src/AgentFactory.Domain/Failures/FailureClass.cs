@@ -1,4 +1,4 @@
-namespace AgentFactory.Failures;
+namespace AgentFactory.Domain.Failures;
 
 /// <summary>
 /// Whether a failure is worth trying again. These are DESIGN.md's own two words: "a

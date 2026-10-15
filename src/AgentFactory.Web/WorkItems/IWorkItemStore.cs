@@ -1,6 +1,7 @@
 namespace AgentFactory.WorkItems;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Rounds;
 
 /// <summary>

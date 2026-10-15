@@ -5,8 +5,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using AgentFactory.Credentials;
-using AgentFactory.Failures;
-using AgentFactory.Observability;
+using AgentFactory.Domain.Failures;
+using AgentFactory.Application.Observability;
 using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;

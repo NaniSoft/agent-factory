@@ -1,9 +1,10 @@
 namespace AgentFactory.Tests.Observability;
 
 using System.Net;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
-using AgentFactory.Observability;
+using AgentFactory.Application.Observability;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;

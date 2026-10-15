@@ -72,7 +72,7 @@ public sealed class RecordedLog : ILoggerProvider, ISupportExternalScope
     /// by accident.
     /// </summary>
     public IReadOnlyList<Record> About(Guid workItemId) =>
-        [.. Records.Where(record => record.Guids(AgentFactory.Observability.WorkItemScope.WorkItemIdKey)
+        [.. Records.Where(record => record.Guids(AgentFactory.Application.Observability.WorkItemScope.WorkItemIdKey)
             .Contains(workItemId))];
 
     /// <summary>

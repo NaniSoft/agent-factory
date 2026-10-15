@@ -2,7 +2,7 @@ namespace AgentFactory.GitHub;
 
 using System.Diagnostics;
 using System.Text;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Results;
 
 /// <summary>

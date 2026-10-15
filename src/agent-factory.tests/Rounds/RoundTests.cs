@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Rounds;
 
 using System.Xml.Linq;
+using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;

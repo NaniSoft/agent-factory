@@ -3,7 +3,7 @@ namespace AgentFactory.Rounds;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 
 /// <summary>
 /// The child process as a fact of this machine: a program off the <c>PATH</c>, started

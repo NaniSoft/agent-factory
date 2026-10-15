@@ -2,9 +2,9 @@ namespace AgentFactory.Tests.Failures;
 
 using System.Reflection;
 using AgentFactory.Credentials;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Loop;
-using AgentFactory.Observability;
+using AgentFactory.Application.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Results;
 using AgentFactory.Rounds;

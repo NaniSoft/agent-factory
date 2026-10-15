@@ -1,6 +1,6 @@
 namespace AgentFactory.Tests.Boundary;
 
-using AgentFactory.Clock;
+using AgentFactory.Application.Clock;
 
 /// <summary>
 /// A clock the test owns. The 48-hour auto-merge and the 90-minute round timeout are

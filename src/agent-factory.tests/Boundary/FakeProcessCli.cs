@@ -194,8 +194,8 @@ public sealed class FakeProcessCli : IProcessCli
     public FakeProcessCli FailsToStart()
     {
         _realGit = false;
-        _gitAnswer = _ => throw new AgentFactory.Failures.PermanentFailure("there is no git on this machine's PATH: faked");
-        _agent = (_, _) => throw new AgentFactory.Failures.PermanentFailure("there is no opencode on this machine's PATH: faked");
+        _gitAnswer = _ => throw new AgentFactory.Domain.Failures.PermanentFailure("there is no git on this machine's PATH: faked");
+        _agent = (_, _) => throw new AgentFactory.Domain.Failures.PermanentFailure("there is no opencode on this machine's PATH: faked");
         return this;
     }
 

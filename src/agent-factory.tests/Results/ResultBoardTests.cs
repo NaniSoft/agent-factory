@@ -1,6 +1,6 @@
 namespace AgentFactory.Tests.Results;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

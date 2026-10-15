@@ -1,6 +1,6 @@
 namespace AgentFactory.Polling;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Projects;
 
 /// <summary>

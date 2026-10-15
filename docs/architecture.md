@@ -75,8 +75,16 @@ as an HTTP endpoint — the caller is outside, the contract is the inside's.
 - `Observability/WorkItemScope`, `Observability/ProjectScope` → **`Application`.**
   The scope vocabulary is the factory's own ("this record is about work item 4,
   project nexus, issue 42, round 2") and a record is written from inside.
-- `Observability/FactoryMetrics` → **`Infrastructure`.** It is the wiring that turns
-  instruments into signals, and it is where an OpenTelemetry exporter will live.
+- `Observability/FactoryMetrics` → **`Application`.** It is four instruments on the
+  platform's own `System.Diagnostics.Metrics`, and `Orchestrator` and `Poller` both take
+  it as a concrete type — so putting it in `Infrastructure` would make `Application`
+  depend on `Infrastructure`, which is the one cardinal violation this rule has. What
+  belongs in `Infrastructure` is the **OpenTelemetry exporter registration**, which is
+  what turns instruments into signals and is [#63](#63)'s, not this file's. **This
+  corrects the placement this document first gave it**, and the correction is the
+  layering rather than a preference: the instruments describe outcomes, which are
+  `Domain`'s, and `RoundOutcome` moved to `Domain` with them so the reference is legal
+  rather than absent.
 
 ### The rules a project reference cannot see
 
@@ -96,8 +104,11 @@ slice is allowed to keep:
    merger borrowing the review surface's git-safety configuration. Both end up in
    `Infrastructure`, so this becomes legal, and it is recorded rather than left to
    look accidental: the safety pins are shared on purpose.
-4. **`Observability/FactoryMetrics` depends on `Rounds`.** Resolved by the split
-   above — the instruments describe outcomes, which are `Domain`'s.
+4. **`Observability/FactoryMetrics` depended on `Rounds`.** Resolved by moving the
+   instruments to `Application` and the outcome they count to `Domain` beside it — the
+   instruments describe outcomes, which are `Domain`'s, and `RoundOutcome` is now one.
+   The OpenTelemetry exporter, which is the part that really does reach outside, stays
+   on the far side of the boundary for [#63](#63).
 
 ### The merger's store coupling
 

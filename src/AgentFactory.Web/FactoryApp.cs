@@ -1,12 +1,13 @@
 namespace AgentFactory;
 
 using System.Diagnostics.Metrics;
-using AgentFactory.Clock;
+using AgentFactory.Application.Clock;
+using AgentFactory.Application.Observability;
 using AgentFactory.Credentials;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.Clock;
 using AgentFactory.Loop;
-using AgentFactory.Observability;
 using AgentFactory.Polling;
 using AgentFactory.Projects;
 using AgentFactory.Results;

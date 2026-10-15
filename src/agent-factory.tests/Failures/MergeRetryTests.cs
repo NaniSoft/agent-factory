@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.Failures;
 
 using System.Net;
 using AgentFactory;
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;

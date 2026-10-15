@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Boundary;
 using System.Net;
 using AgentFactory;
 
-using AgentFactory.Failures;
+using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
