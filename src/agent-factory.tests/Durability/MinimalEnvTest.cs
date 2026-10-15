@@ -55,7 +55,7 @@ public class MinimalEnvTest
         }
 
         Assert.True(landed, "the route never landed");
-        Assert.Equal(1, agent.AskedFor.Count);
+        Assert.Single(agent.AskedFor);
 
         await stopped.CancelAsync();
         try { await running; } catch (OperationCanceledException) { }

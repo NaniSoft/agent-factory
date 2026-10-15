@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    What every project in this repository shares. Introduced with the four-project
+    Clean Architecture split, where four csproj files each restating `net10.0`,
+    nullable and implicit usings would be four places for the target framework to
+    drift. Everything here is a property the whole solution agrees on; anything a
+    single project decides for itself stays in that project's file.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      The build is a gate. Before this, five analyzer warnings sat in the suite
+      unremarked; a warning nobody is stopped by is a warning nobody reads, and
+      the four-project split moves roughly seventy files, which is exactly when
+      a warning is worth catching.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      Style is the editor's business here. The .editorconfig below is guidance for
+      whoever is writing; making it an error would fail a build over a brace.
+    -->
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

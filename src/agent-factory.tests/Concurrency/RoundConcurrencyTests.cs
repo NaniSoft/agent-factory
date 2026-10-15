@@ -492,7 +492,7 @@ public class RoundConcurrencyTests
     }
 
     [Fact]
-    public void Two_rounds_running_at_once_each_get_a_tree_of_their_own()
+    public async Task Two_rounds_running_at_once_each_get_a_tree_of_their_own()
     {
         // The same claim end to end rather than by name: two rounds of two different
         // projects, run through the real round runner against the process seam, and two
@@ -536,12 +536,15 @@ public class RoundConcurrencyTests
                 RoundRunner.LandingFor(options, alphaRound),
                 RoundRunner.LandingFor(options, nexusRound),
             };
-            Task.WaitAll([alphaTask, nexusTask], TimeSpan.FromSeconds(120));
+            await Task.WhenAll(alphaTask, nexusTask).WaitAsync(TimeSpan.FromSeconds(120));
 
             // Both rounds produced, and neither was refused at the clone: a round that
             // failed here would silently pass the count assertions below if the results
-            // were not read.
-            Assert.Equal([RoundOutcome.Produced, RoundOutcome.Produced], [alphaTask.Result.Outcome, nexusTask.Result.Outcome]);
+            // were not read. The results are awaited rather than read off `.Result`, which
+            // would block the test thread and turn a hang into a deadlock.
+            var alphaLanded = await alphaTask;
+            var nexusLanded = await nexusTask;
+            Assert.Equal([RoundOutcome.Produced, RoundOutcome.Produced], [alphaLanded.Outcome, nexusLanded.Outcome]);
 
             Assert.Equal(2, processes.From("opencode").Count);
             Assert.Equal(2, landings.Distinct(StringComparer.Ordinal).Count());

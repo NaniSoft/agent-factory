@@ -303,10 +303,14 @@ public static class FactoryApp
                     : string.Empty;
             }
 
-            // A work item that is not one, or a slug that is not one of the three, is not a
+            // A work item that is not one, or a slug that is not one of the three — including
+            // a form that sent no slug at all, which arrives here as a null — is not a
             // decision: nothing here parses an arbitrary name into the set, so a form posted
             // by hand is refused rather than interpreted and the set cannot grow by accident.
-            if (!Guid.TryParse(id, out var workItemId) || !Decisions.TryParse(request.Decision, out var made))
+            var posted = request.Decision;
+            if (!Guid.TryParse(id, out var workItemId)
+                || posted is null
+                || !Decisions.TryParse(posted, out var made))
             {
                 return Microsoft.AspNetCore.Http.Results.Json(new Api.DecisionResult(
                     false,
@@ -325,7 +329,7 @@ public static class FactoryApp
             {
                 var (handled, applied, refusal) = await tickets.DecideAsync(
                     workItemId,
-                    request.Decision,
+                    posted,
                     request.Feedback);
                 if (handled)
                 {

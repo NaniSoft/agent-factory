@@ -626,7 +626,13 @@ public class RoundRunnerTests
         try
         {
             return Directory.Exists(path)
-                ? Directory.EnumerateFileSystemEntries(path).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList()
+                ? Directory.EnumerateFileSystemEntries(path)
+                    // `Path.GetFileName` is null-annotated because a null path has no file
+                    // name; an enumerator over a directory never yields one, so the `??` is
+                    // dead in practice and there to keep that a fact the compiler can see.
+                    .Select(entry => Path.GetFileName(entry) ?? entry)
+                    .Order(StringComparer.Ordinal)
+                    .ToList()
                 : ["(the directory does not exist)"];
         }
         catch (IOException)

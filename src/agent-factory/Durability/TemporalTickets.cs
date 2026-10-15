@@ -44,7 +44,7 @@ public interface ITicketStarter
     /// falls back to the store path for a ticket the workflow never owned.
     /// </summary>
     Task<(bool Handled, bool Applied, string? Refusal)> DecideAsync(
-        Guid workItemId, string decision, string feedback);
+        Guid workItemId, string decision, string? feedback);
 }
 
 /// <inheritdoc />
@@ -186,7 +186,7 @@ public sealed class TemporalTickets : BackgroundService, ITicketStarter
 
     /// <inheritdoc />
     public async Task<(bool Handled, bool Applied, string? Refusal)> DecideAsync(
-        Guid workItemId, string decision, string feedback)
+        Guid workItemId, string decision, string? feedback)
     {
         var client = await ClientAsync().ConfigureAwait(false);
         var handle = client.GetWorkflowHandle<TicketWorkflow>($"ticket-{workItemId:N}");
@@ -241,6 +241,6 @@ public sealed class NullTicketStarter : ITicketStarter
         Task.FromResult((false, false, (string?)null));
 
     public Task<(bool Handled, bool Applied, string? Refusal)> DecideAsync(
-        Guid workItemId, string decision, string feedback) =>
+        Guid workItemId, string decision, string? feedback) =>
         Task.FromResult((false, false, (string?)null));
 }

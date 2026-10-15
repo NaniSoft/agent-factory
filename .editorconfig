@@ -1,0 +1,62 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,js,jsx,ts,tsx,css,md}]
+indent_size = 2
+
+[*.{csproj,props,targets,slnx,config}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# Namespaces. File-scoped, because the codebase reads as one continuous file per
+# folder and block-scoped braces nest two levels deeper than the code does.
+csharp_style_namespace_declarations = file_scoped:suggestion
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Usings. `IDE0005` is the compiler telling us an import is unused; it is a
+# suggestion rather than a warning because removing one during a file move is a
+# judgement the person moving the file is better placed to make.
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+
+# `var` where the type says nothing the right-hand side does not, explicit where it
+# says something. The rule is deliberately suggested, not enforced.
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Braces always, even for a one-line guard: this codebase's refusals read as
+# sentences and a braceless `if` breaks them.
+csharp_prefer_braces = true:suggestion
+
+# Expression-bodied members for one-liners, blocks for anything with a decision in
+# it. `Orchestrator` is the reason the distinction is worth writing down.
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+
+# Naming.
+dotnet_naming_rule.private_fields_with_underscore.severity = suggestion
+dotnet_naming_rule.private_fields_with_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_with_underscore.style = underscore_prefix
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.underscore_prefix.capitalization = camel_case
+dotnet_naming_style.underscore_prefix.required_prefix = _
+
+# Private fields in this codebase are `_camelCase`, and the compiler's own naming
+# convention for `private` in a sealed class is `camelCase`. The rule above is what
+# makes the two agree.

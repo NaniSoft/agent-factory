@@ -277,8 +277,14 @@ public sealed class TicketActivities(
 /// <summary>The workflow's view of one ticket. Carried once, at start, and never changed.</summary>
 public sealed record TicketInput(Guid WorkItemId, bool AutoMerge);
 
-/// <summary>One reviewer decision, as the board's own form carries it.</summary>
-public sealed record TicketDecision(string Decision, string Feedback);
+/// <summary>
+/// One reviewer decision, as the board's own form carries it. <see cref="Feedback"/> is
+/// nullable because a reviewer's keyboard is not a schema: an approval and a rejection
+/// both carry no words, and only a request for changes insists on them. It travels as a
+/// workflow input, which is another reason to say so here rather than let a null cross
+/// a serializer as if it were a string.
+/// </summary>
+public sealed record TicketDecision(string Decision, string? Feedback);
 
 /// <summary>What a decision update answers: whether it applied, and the refusal when it did not.</summary>
 public sealed record TicketDecisionResult(bool Applied, string? Refusal);

@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    One place every package version lives. `Temporalio` was declared twice by hand
+    at the same version, which is the kind of agreement that survives exactly until
+    one of the two is edited. A project then says which packages it uses and
+    `Directory.Packages.props` says which versions they are.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup Label="The factory">
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageVersion Include="Temporalio" Version="1.20.0" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="The suite">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <!--
+    `Testcontainers` was declared by the test project and used by nothing. It drove
+    the worker-image tests, which ADR-0016 deleted along with the worker image, and
+    the only mention left in the suite is the assertion in `RoundTests` that the
+    factory takes no container-runtime package at all — which the reference was
+    contradicting. It goes with the ADR that stranded it.
+  -->
+
+</Project>
