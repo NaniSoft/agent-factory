@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The factory's policy, and its seams. `Orchestrator`, `Poller`, `FactoryDriver`, the
+    eight ports, the merge policy and the Routes/Api projections. It names Domain because
+    it decides things about the factory's own vocabulary, and it names nothing outside
+    itself: an implementation is somebody else's problem and arrives through a port
+    (docs/architecture.md, "The dependency rule").
+
+    Everything else shared is in Directory.Build.props. Package versions are in
+    Directory.Packages.props.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>AgentFactory.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The one edge inward, and it is a project reference because Domain is a project. -->
+    <ProjectReference Include="..\AgentFactory.Domain\AgentFactory.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

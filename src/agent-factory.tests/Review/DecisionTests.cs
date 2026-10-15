@@ -391,7 +391,7 @@ public class DecisionTests
              directory is not null;
              directory = directory.Parent)
         {
-            var path = Path.Combine([directory.FullName, "src", "agent-factory", .. beneath]);
+            var path = Path.Combine([directory.FullName, "src", "AgentFactory.Web", .. beneath]);
             if (File.Exists(path))
             {
                 return File.ReadAllText(path);

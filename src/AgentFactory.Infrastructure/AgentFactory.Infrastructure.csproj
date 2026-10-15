@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Everything that reaches outside: `SqliteWorkItemStore`, `GitHubClient`, `ProcessCli`,
+    `RoundRunner`, `HostDiffReader`, `SystemClock`, the Temporal driver, the OpenTelemetry
+    wiring. It points at Application because an adapter is written to a port the inside
+    declared, and at nothing beyond it — which is why an adapter here may hold a
+    transport, a credential reader or a disk while Application holds none of those
+    (docs/architecture.md, "The dependency rule").
+
+    Everything else shared is in Directory.Build.props. Package versions are in
+    Directory.Packages.props.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>AgentFactory.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentFactory.Application\AgentFactory.Application.csproj" />
+  </ItemGroup>
+
+</Project>

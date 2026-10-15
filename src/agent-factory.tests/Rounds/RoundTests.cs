@@ -342,8 +342,22 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         var packages = project.Descendants("PackageReference")
             .Select(reference => (string?)reference.Attribute("Include") ?? string.Empty);
 
+        // Central Package Management moved the versions out of the project file and into
+        // `Directory.Packages.props`, so the scan above is no longer the whole of where a
+        // container runtime could be declared: the `Include` names are still here, but a
+        // `PackageVersion` is now a second place the same claim is made, and it is the one
+        // a future package is added to — a package cannot reach any csproj without an
+        // entry in that file, so reading it covers the other three projects too. Both
+        // files are read and the assertion is over the union, which makes the claim the
+        // one this test has always meant: nothing in this repository depends on a
+        // container runtime, which is what ADR-0016 decided when it deleted the worker
+        // image.
+        var packagesCentrally = CentralPackageFile()
+            .Descendants("PackageVersion")
+            .Select(reference => (string?)reference.Attribute("Include") ?? string.Empty);
+
         Assert.DoesNotContain(
-            packages,
+            packages.Concat(packagesCentrally),
             package => package.Contains("Docker", StringComparison.OrdinalIgnoreCase)
                 || package.Contains("Podman", StringComparison.OrdinalIgnoreCase)
                 || package.Contains("Testcontainers", StringComparison.OrdinalIgnoreCase));
@@ -358,24 +372,33 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
                 || assembly.Contains("Podman", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static XDocument FactoryProjectFile()
+    private static XDocument FactoryProjectFile() => XmlFileAbove(
+        Path.Combine("src", "AgentFactory.Web", "AgentFactory.Web.csproj"));
+
+    private static XDocument CentralPackageFile() => XmlFileAbove("Directory.Packages.props");
+
+    /// <summary>
+    /// Reads a repository file by its path from the root, walking up from the test
+    /// binaries until it is found. How deep the binaries sit is a build-output detail, so
+    /// the walk is what keeps this test independent of it — and what keeps it honest,
+    /// because a path that is not found fails loudly rather than scanning nothing.
+    /// </summary>
+    private static XDocument XmlFileAbove(string relativePath)
     {
-        // Walk up to the solution rather than counting directories: the path from the
-        // test binaries to the factory's project file is a build-output detail.
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
              directory is not null;
              directory = directory.Parent)
         {
-            var path = Path.Combine(directory.FullName, "src", "agent-factory", "agent-factory.csproj");
+            var path = Path.Combine(directory.FullName, relativePath);
             if (File.Exists(path))
             {
-                using var project = File.OpenRead(path);
-                return XDocument.Load(project);
+                using var file = File.OpenRead(path);
+                return XDocument.Load(file);
             }
         }
 
         throw new DirectoryNotFoundException(
-            $"no agent-factory.csproj found above {AppContext.BaseDirectory}");
+            $"no {Path.GetFileName(relativePath)} found above {AppContext.BaseDirectory}");
     }
 
     private static Swimlane SwimlaneOf(FactoryHost host, Guid id) => host.Store.Get(id)!.Swimlane;

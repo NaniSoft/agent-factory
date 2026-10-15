@@ -17,7 +17,7 @@ in a real working tree, reviewed on the board, and shipped as a merged pull requ
 Build and test it with the commands in [`AGENTS.md`](AGENTS.md).
 
 ```bash
-dotnet run --project src/agent-factory    # the factory and the board on 127.0.0.1:5000
+dotnet run --project src/AgentFactory.Web    # the factory and the board on 127.0.0.1:5000
 ```
 
 [`DESIGN.md`](DESIGN.md) is the specification the factory is built against

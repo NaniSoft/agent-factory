@@ -33,7 +33,7 @@ root.
 ```bash
 dotnet build src/agent-factory.slnx    # build the factory and its tests
 dotnet test src/agent-factory.slnx     # run the whole suite
-dotnet run --project src/agent-factory # run the factory; the board is on port 5000
+dotnet run --project src/AgentFactory.Web  # run the factory; the board is on port 5000
 ```
 
 The board is at <http://127.0.0.1:5000>. It is bound to loopback on purpose: the machine
@@ -63,7 +63,7 @@ start the dev server with `docker compose up temporal` and they run.
 
 ## The factory
 
-One process (`src/agent-factory`): the config loader, the work item store, intake, the
+One process (`src/AgentFactory.Web`): the config loader, the work item store, intake, the
 loop, and the board, which is an ASP.NET Core endpoint the same process serves. See
 ADR-0003.
 

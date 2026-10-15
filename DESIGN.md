@@ -276,7 +276,7 @@ being a second thing to keep in step.
 
 ## Deployment
 
-The factory runs on the machine (`dotnet run --project src/agent-factory`) —
+The factory runs on the machine (`dotnet run --project src/AgentFactory.Web`) —
 rounds are that machine's own child processes, so the factory itself has no
 container and needs no daemon (ADR-0016). One deployment serves every configured
 project; there is no per-project deployment. The only thing compose runs is the

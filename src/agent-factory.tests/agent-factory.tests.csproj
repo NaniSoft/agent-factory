@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\agent-factory\agent-factory.csproj" />
+    <ProjectReference Include="..\AgentFactory.Web\AgentFactory.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,11 +4,27 @@
     TargetFramework, Nullable, ImplicitUsings and IsPackable are in
     Directory.Build.props; this file says only what is true of the factory alone.
     Package versions are in Directory.Packages.props.
+
+    This project is `AgentFactory.Web` and its root namespace is `AgentFactory`, which
+    is the one place the two do not agree — and it is deliberate, not an oversight.
+    Every existing `.cs` file declares `namespace AgentFactory.Loop`,
+    `AgentFactory.Rounds` and so on, and the split moves code, so the convention it is
+    establishing is *namespace = project name*: Domain, Application and Infrastructure
+    all take their own names, and Web keeps `AgentFactory` so that the move does not
+    have to be a rename at the same time. When the composition root is the last thing
+    left here (#81), this becomes `AgentFactory.Web` along with everything else.
+
+    Until then every `.cs` file in this project still lives in Web, which is exactly
+    where a slice ticket moves code *from*.
   -->
 
   <PropertyGroup>
     <RootNamespace>AgentFactory</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentFactory.Infrastructure\AgentFactory.Infrastructure.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />

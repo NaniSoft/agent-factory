@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="AgentFactory.Domain/AgentFactory.Domain.csproj" />
+  <Project Path="AgentFactory.Application/AgentFactory.Application.csproj" />
+  <Project Path="AgentFactory.Infrastructure/AgentFactory.Infrastructure.csproj" />
+  <Project Path="AgentFactory.Web/AgentFactory.Web.csproj" />
   <Project Path="agent-factory.tests/agent-factory.tests.csproj" />
-  <Project Path="agent-factory/agent-factory.csproj" />
 </Solution>

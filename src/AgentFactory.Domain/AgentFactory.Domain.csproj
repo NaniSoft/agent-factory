@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The factory's own vocabulary, and nothing else. `WorkItem`, `Round`, `Swimlane`,
+    `Decision`, `Escalation`, `DerivedResult` — the words in CONTEXT.md, in code, with
+    no knowledge of how anything is stored, scheduled, called or rendered.
+
+    **This project has no project reference at all.** Not to Application, not to
+    Infrastructure, not to Web, and not to a package: nothing in here can be handed a
+    seam, because a type that cannot name a seam cannot depend on one. That absence is
+    the whole property the layering exists for, and it is the one edge in the graph
+    there is no way to add later without a slice deciding it deliberately
+    (docs/architecture.md, "The dependency rule").
+
+    TargetFramework, Nullable, ImplicitUsings, LangVersion, TreatWarningsAsErrors and
+    IsPackable are in Directory.Build.props; this file says only what is true of this
+    project alone, which today is its name. Package versions are in
+    Directory.Packages.props — there are none.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>AgentFactory.Domain</RootNamespace>
+  </PropertyGroup>
+
+</Project>
