@@ -6,6 +6,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Results;

@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Rounds;
 
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;

@@ -6,6 +6,7 @@ using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;

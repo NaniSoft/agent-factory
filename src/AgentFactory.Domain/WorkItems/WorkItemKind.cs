@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What kind of work a work item turned out to be. A work item is an issue at intake and

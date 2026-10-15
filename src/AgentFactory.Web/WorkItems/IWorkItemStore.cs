@@ -2,12 +2,26 @@ namespace AgentFactory.WorkItems;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Rounds;
 
 /// <summary>
 /// The store of record. Work items are persisted, so a restart does not discard an
 /// agent's work. One writer, in one process, against one SQLite file (ADR-0009).
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>This is a port and it has not moved yet, which is deliberate rather than
+/// forgotten.</strong> `AgentFactory.Application` declares the eight ports, and this is
+/// one of them. It cannot get there until three of its own types can: <c>RoundOutcome</c>
+/// has moved to `Domain`, but <c>RecordRound</c> also takes a
+/// <see cref="Results.HostDiff"/> and hands back a <see cref="RoundResultRecord"/>, and
+/// both of those are persistence shape that belongs beside the store
+/// (docs/architecture.md, "The dependency rule"). It moves the moment they do - the
+/// Results slice for the diff, the store slice for the records - and nothing about this
+/// interface changes when it does.
+/// </para>
+/// </remarks>
 public interface IWorkItemStore
 {
     /// <summary>

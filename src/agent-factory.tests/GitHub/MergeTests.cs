@@ -4,6 +4,7 @@ using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using System.Net;
@@ -223,7 +224,7 @@ public class MergeTests
         using var merging = new Merging();
         merging.Store.RecordRoute(
             merging.WorkItem.Id,
-            AgentFactory.WorkItems.WorkItemKind.Grill,
+            AgentFactory.Domain.WorkItems.WorkItemKind.Grill,
             "the shape is clear and two decisions about it are not",
             routingIssue: 25);
         merging.NothingShippedYet();

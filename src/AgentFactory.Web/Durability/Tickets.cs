@@ -3,6 +3,7 @@ namespace AgentFactory.Durability;
 using AgentFactory.Application.Credentials;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.Routing;

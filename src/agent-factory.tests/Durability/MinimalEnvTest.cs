@@ -2,6 +2,7 @@ namespace AgentFactory.Tests.Durability;
 
 
 using AgentFactory.Durability;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Routing;
 using AgentFactory.Tests.Boundary;

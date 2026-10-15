@@ -2,6 +2,7 @@ namespace AgentFactory.Api;
 
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Pages;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
@@ -21,7 +22,7 @@ using System.Text.Json.Serialization;
 /// This is the detail behind the work-item card on the board, and it is the same judgement
 /// the board itself renders: the diff's four states come from
 /// <see cref="HowToReadTheDiff"/>, the ending from <see cref="HowItEnded.Describe"/>, the
-/// offered decisions from <see cref="WorkItems.Decisions.OfferedIn"/>, and the routing
+/// offered decisions from <see cref="AgentFactory.Domain.WorkItems.Decisions.OfferedIn"/>, and the routing
 /// verdict from <see cref="HowToReadTheRoute"/>. The endpoint
 /// that produces it holds no policy, calls no seam and moves nothing.
 /// </para>
@@ -57,7 +58,7 @@ public sealed record WorkItemDetailView(
             WorkItemHeaderView.Of(workItem),
             [.. rounds.Select(RoundOnTheBoardView.Of)],
             [.. decisions.Select(DecisionMadeView.Of)],
-            [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
+            [.. AgentFactory.Domain.WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(AgentFactory.Domain.WorkItems.Decisions.Slug)],
             HowItEnded.Describe(workItem, rounds, decisions),
             RouteView.Of(workItem));
     }

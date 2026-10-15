@@ -10,6 +10,7 @@ using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 
@@ -737,7 +738,7 @@ public sealed class GitHubClient : IGitHub
     private async Task CloseTheStoriesAsync(
         RepositoryRef repository,
         string repoUrl,
-        WorkItems.WorkItem workItem,
+        WorkItem workItem,
         int pullNumber,
         string token,
         CancellationToken cancellationToken)

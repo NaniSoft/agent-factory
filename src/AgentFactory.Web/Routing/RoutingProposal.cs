@@ -1,6 +1,7 @@
 namespace AgentFactory.Routing;
 
 using AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What a routing round proposed, read out of <c>routing.json</c> by

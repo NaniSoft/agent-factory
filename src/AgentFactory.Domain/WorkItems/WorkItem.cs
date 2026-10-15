@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// The factory's own record of an issue. It carries the project it belongs to, the

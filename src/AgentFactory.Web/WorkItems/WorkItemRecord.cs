@@ -1,4 +1,5 @@
 namespace AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What intake did with an issue: the work item for it, and whether this call made that

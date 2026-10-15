@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Concurrency;
 
 using AgentFactory.GitHub;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Routing;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
@@ -29,7 +30,7 @@ public class RestartRecoveryTests
         first.GitHub.WithRepository(RepoUrl, "main", OpenIssue.Plain(42, "the issue being built", "What the issue says."));
         await first.PollAsync();
         var workItem = Assert.Single(first.Store.List());
-        first.Route(workItem.Id, AgentFactory.WorkItems.WorkItemKind.Build);
+        first.Route(workItem.Id, AgentFactory.Domain.WorkItems.WorkItemKind.Build);
         await first.PromoteBacklogAsync();
         await first.Step();
 

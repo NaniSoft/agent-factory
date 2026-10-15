@@ -1,6 +1,7 @@
 namespace AgentFactory.Routing;
 
 using AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 using System.Text.Json;
 
 /// <summary>

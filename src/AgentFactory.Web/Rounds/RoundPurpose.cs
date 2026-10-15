@@ -1,6 +1,7 @@
 namespace AgentFactory.Rounds;
 
 using AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What a round is for. Two of them, and the difference is whether the round looks at the

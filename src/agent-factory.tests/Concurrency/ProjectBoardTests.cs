@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.Concurrency;
 
 using AgentFactory.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 

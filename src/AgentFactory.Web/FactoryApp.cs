@@ -5,6 +5,7 @@ using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Infrastructure.Clock;

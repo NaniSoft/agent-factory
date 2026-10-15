@@ -2,6 +2,7 @@ namespace AgentFactory.Routing;
 
 using AgentFactory.Application.Observability;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;

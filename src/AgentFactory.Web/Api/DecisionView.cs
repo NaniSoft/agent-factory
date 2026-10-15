@@ -23,7 +23,7 @@ public sealed record DecisionRequest(
 /// What a decision came to, as the renderer reads it. <c>applied</c> is the loop's own
 /// answer to the decision — whether it carried it out — and <c>refusal</c> is what the
 /// factory said when it did not, in its own words: a decision that is not one of the
-/// three, a work item outside <see cref="WorkItems.Swimlanes.Decidable"/>, a request for
+/// three, a work item outside <see cref="Swimlanes.Decidable"/>, a request for
 /// changes with no reasons, or an approval the merge could not carry out. A refusal is
 /// reported rather than swallowed, and it is rendered where the reviewer acted.
 /// </summary>

@@ -1,6 +1,7 @@
 namespace AgentFactory.GitHub;
 
 using AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What the pull request is called and what it says, both composed from the work item.

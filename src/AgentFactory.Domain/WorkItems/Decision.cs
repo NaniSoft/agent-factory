@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// The three decisions, and only the three: what a reviewer does with a work item in

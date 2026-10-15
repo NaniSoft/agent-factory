@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.Observability;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.GitHub;

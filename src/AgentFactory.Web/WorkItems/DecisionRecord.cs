@@ -1,4 +1,5 @@
 namespace AgentFactory.WorkItems;
+using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// One decision, as the reviewer made it and the factory kept it. The words are theirs:

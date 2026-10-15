@@ -4,6 +4,7 @@ using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Loop;
 using AgentFactory.Polling;

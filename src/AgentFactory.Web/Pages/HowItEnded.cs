@@ -3,6 +3,7 @@ namespace AgentFactory.Pages;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 

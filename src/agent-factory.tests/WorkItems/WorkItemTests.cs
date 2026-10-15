@@ -1,6 +1,7 @@
 namespace AgentFactory.Tests.WorkItems;
 
 using AgentFactory.Tests.Boundary;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.WorkItems;
 
 /// <summary>

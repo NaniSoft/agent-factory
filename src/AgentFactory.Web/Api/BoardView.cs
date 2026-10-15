@@ -2,6 +2,7 @@ namespace AgentFactory.Api;
 
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Loop;
 using AgentFactory.Pages;
 using AgentFactory.Polling;
@@ -20,7 +21,7 @@ using System.Text.Json.Serialization;
 /// and reads them. It holds no policy, calls no seam, and re-decides nothing: the mode is
 /// <see cref="FactoryOptions.AutoMerge"/>, and every card field is
 /// the factory's own judgement — <see cref="Swimlanes.Label"/> for the lane's words,
-/// <see cref="Decisions.OfferedIn"/> for the decisions a reviewer may make, and
+/// <see cref="AgentFactory.Domain.WorkItems.Decisions.OfferedIn"/> for the decisions a reviewer may make, and
 /// <see cref="HowItEnded.Describe"/> for why a work item ended where it did.
 /// </para>
 /// <para>
@@ -257,7 +258,7 @@ public sealed record LaneView(
 /// </param>
 /// <param name="Decisions">
 /// The decisions a reviewer may still make about this work item, from
-/// <see cref="Decisions.OfferedIn"/>, as the slugs a button posts. Empty for a lane a
+/// <see cref="AgentFactory.Domain.WorkItems.Decisions.OfferedIn"/>, as the slugs a button posts. Empty for a lane a
 /// reviewer cannot act on. The decision <em>form</em> is a later ticket's; the offered set
 /// is the factory's judgement and belongs on the card either way.
 /// </param>
@@ -335,7 +336,7 @@ public sealed record CardView(
             workItem.RoundCount,
             FactoryConstants.RoundCeiling,
             HowItEnded.Describe(workItem, store.Rounds(workItem.Id), store.Decisions(workItem.Id)),
-            [.. WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(WorkItems.Decisions.Slug)],
+            [.. AgentFactory.Domain.WorkItems.Decisions.OfferedIn(workItem.Swimlane).Select(AgentFactory.Domain.WorkItems.Decisions.Slug)],
             autoMergeAt?.ToString("O"),
             workItem.Kind.ToString(),
             WorkItemKinds.Label(workItem.Kind),

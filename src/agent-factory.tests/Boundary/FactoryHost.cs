@@ -10,6 +10,7 @@ using AgentFactory.Loop;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Polling;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;

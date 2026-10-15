@@ -1,4 +1,4 @@
-namespace AgentFactory.WorkItems;
+namespace AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// Where a work item sits. Backlog, Frontier, In Progress, Review and Done are the

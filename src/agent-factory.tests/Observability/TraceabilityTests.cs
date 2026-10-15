@@ -4,6 +4,7 @@ using AgentFactory.Application.Observability;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
@@ -145,8 +146,8 @@ public class TraceabilityTests
 
         Assert.Equal(
             [
-                (Decision: nameof(AgentFactory.WorkItems.Decision.RequestChanges), Swimlane: "Frontier"),
-                (Decision: nameof(AgentFactory.WorkItems.Decision.Approve), Swimlane: "Escalated"),
+                (Decision: nameof(AgentFactory.Domain.WorkItems.Decision.RequestChanges), Swimlane: "Frontier"),
+                (Decision: nameof(AgentFactory.Domain.WorkItems.Decision.Approve), Swimlane: "Escalated"),
             ],
             decided);
 
