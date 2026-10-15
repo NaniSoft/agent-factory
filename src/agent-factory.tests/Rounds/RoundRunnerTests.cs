@@ -1,9 +1,10 @@
 namespace AgentFactory.Tests.Rounds;
 
 using AgentFactory;
+using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
-using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

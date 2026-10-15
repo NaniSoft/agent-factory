@@ -4,10 +4,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Observability;
-using AgentFactory.Projects;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 

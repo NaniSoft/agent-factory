@@ -1,7 +1,6 @@
 namespace AgentFactory.Tests.Review;
 
 using AgentFactory.Domain.Failures;
-using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

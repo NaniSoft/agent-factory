@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.Projects;
 
 using System.Net.Http.Json;
 using System.Text.Json;
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
 using AgentFactory.Tests.Boundary;
 using Microsoft.Extensions.DependencyInjection;
 

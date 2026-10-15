@@ -1,6 +1,7 @@
-namespace AgentFactory.Credentials;
+namespace AgentFactory.Infrastructure.Credentials;
 
-using AgentFactory.Projects;
+using AgentFactory.Application.Projects;
+
 
 /// <summary>
 /// The credential names the factory can use, and the one way a credential's file is

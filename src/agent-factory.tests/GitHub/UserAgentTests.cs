@@ -1,9 +1,10 @@
 namespace AgentFactory.Tests.GitHub;
 
 using System.Net;
+using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Projects;
 using AgentFactory.GitHub;
-using AgentFactory.Projects;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;

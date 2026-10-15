@@ -1,6 +1,8 @@
 namespace AgentFactory.Projects;
 
 using Microsoft.Extensions.Logging;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 

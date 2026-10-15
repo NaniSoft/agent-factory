@@ -1,7 +1,8 @@
 namespace AgentFactory.Api;
 
 using System.Text.Json.Serialization;
-using AgentFactory.Projects;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 
 /// <summary>
 /// One Project the factory serves, as both the board's filter and the projects surface

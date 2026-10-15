@@ -4,7 +4,8 @@ using AgentFactory.Application.Clock;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
-using AgentFactory.Projects;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 

@@ -1,4 +1,4 @@
-namespace AgentFactory.Credentials;
+namespace AgentFactory.Application.Credentials;
 
 /// <summary>
 /// Where a secret comes from. One method, and it is the whole of the factory's reach into

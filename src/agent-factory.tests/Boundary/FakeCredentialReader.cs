@@ -1,6 +1,6 @@
 namespace AgentFactory.Tests.Boundary;
 
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
 
 /// <summary>
 /// The host's environment, faked. A round's container is the one place a secret's value

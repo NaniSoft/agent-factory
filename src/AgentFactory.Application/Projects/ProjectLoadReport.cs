@@ -1,4 +1,7 @@
-namespace AgentFactory.Projects;
+namespace AgentFactory.Application.Projects;
+
+using AgentFactory.Domain.Projects;
+
 
 /// <summary>
 /// Why a file in <c>factories/</c> is not a project. A file that fails validation keeps

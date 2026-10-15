@@ -1,10 +1,10 @@
 namespace AgentFactory.Api;
 
 using System.Text.Json.Serialization;
+using AgentFactory.Application.Projects;
 using AgentFactory.Loop;
 using AgentFactory.Pages;
 using AgentFactory.Polling;
-using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 
 /// <summary>

@@ -3,6 +3,8 @@ namespace AgentFactory.Tests.Observability;
 using System.Net;
 using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.GitHub;
 using AgentFactory.WorkItems;
@@ -129,8 +131,8 @@ public class CredentialFreeObservabilityTests
         var log = new RecordedLog();
         var client = new GitHubClient(
             new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
-            new AgentFactory.Projects.ProjectLoadReport(
-                [new AgentFactory.Projects.Project(
+            new AgentFactory.Application.Projects.ProjectLoadReport(
+                [new AgentFactory.Domain.Projects.Project(
                     "nexus",
                     merging.WorkItem.RepoUrl,
                     "anthropic",

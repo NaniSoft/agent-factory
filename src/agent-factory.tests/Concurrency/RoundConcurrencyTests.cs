@@ -1,12 +1,13 @@
 namespace AgentFactory.Tests.Concurrency;
 
 using AgentFactory;
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
+using AgentFactory.Application.Projects;
 using AgentFactory.Driving;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
-using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

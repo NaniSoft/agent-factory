@@ -1,4 +1,4 @@
-namespace AgentFactory.Projects;
+namespace AgentFactory.Domain.Projects;
 
 /// <summary>
 /// A project the factory is serving. Credentials are referenced by environment

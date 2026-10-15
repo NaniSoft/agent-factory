@@ -1,10 +1,9 @@
 namespace AgentFactory.Durability;
 
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
-using AgentFactory.Projects;
 using AgentFactory.Routing;
 using AgentFactory.WorkItems;
 using AgentFactory.Rounds;

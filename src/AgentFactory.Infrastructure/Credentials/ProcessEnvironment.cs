@@ -1,4 +1,6 @@
-namespace AgentFactory.Credentials;
+namespace AgentFactory.Infrastructure.Credentials;
+
+using AgentFactory.Application.Credentials;
 
 /// <summary>
 /// The host's environment, read. The real implementation, and the only place in the

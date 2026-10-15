@@ -1,7 +1,7 @@
 namespace AgentFactory.Polling;
 
 using AgentFactory.Domain.Failures;
-using AgentFactory.Projects;
+using AgentFactory.Domain.Projects;
 
 /// <summary>
 /// What the factory last did about one project's open issues, in the three words a reviewer

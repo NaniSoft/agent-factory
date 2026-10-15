@@ -1,7 +1,9 @@
 namespace AgentFactory.Tests.GitHub;
 
 using System.Net;
+using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
@@ -460,7 +462,7 @@ public class MergeTests
         // to build for is refused rather than pushed to. Project files load at start, so a
         // second attempt would find exactly the same thing.
         using var merging = new Merging();
-        var unserved = new AgentFactory.Projects.ProjectLoadReport([], []);
+        var unserved = new AgentFactory.Application.Projects.ProjectLoadReport([], []);
         var client = new GitHubClient(
             new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
             unserved,
@@ -484,8 +486,8 @@ public class MergeTests
         using var merging = new Merging();
         var client = new GitHubClient(
             new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
-            new AgentFactory.Projects.ProjectLoadReport(
-                [new AgentFactory.Projects.Project(
+            new AgentFactory.Application.Projects.ProjectLoadReport(
+                [new AgentFactory.Domain.Projects.Project(
                     "nexus",
                     merging.WorkItem.RepoUrl,
                     "anthropic",

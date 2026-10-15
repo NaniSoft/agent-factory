@@ -2,8 +2,9 @@ namespace AgentFactory.Tests.Observability;
 
 using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
-using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

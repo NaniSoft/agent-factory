@@ -1,9 +1,10 @@
 namespace AgentFactory.Tests.GitHub;
 
-using AgentFactory.Credentials;
+using AgentFactory.Application.Credentials;
+using AgentFactory.Application.Projects;
+using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
-using AgentFactory.Projects;
 using AgentFactory.WorkItems;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;

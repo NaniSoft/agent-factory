@@ -1,4 +1,6 @@
-namespace AgentFactory.Credentials;
+namespace AgentFactory.Infrastructure.Credentials;
+
+using AgentFactory.Application.Credentials;
 
 /// <summary>
 /// The one <see cref="ICredentialReader"/> the process uses: the process environment
