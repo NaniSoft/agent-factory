@@ -1,13 +1,13 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Net;
-using System.Text.Json;
-using AgentFactory;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
+using System.Net;
+using System.Text.Json;
 
 /// <summary>
 /// The work-item detail endpoint, driven over the process's real HTTP surface. The factory,

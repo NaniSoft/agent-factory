@@ -1,5 +1,6 @@
 namespace AgentFactory.Tests.Intake;
 
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Polling;

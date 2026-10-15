@@ -1,4 +1,4 @@
-namespace AgentFactory;
+namespace AgentFactory.Application;
 
 /// <summary>
 /// The factory's own settings: where the project files live, where the store lives,
@@ -37,21 +37,6 @@ public sealed record FactoryOptions(
     public string SecretsDirectory => Path.Combine(
         Path.GetDirectoryName(Path.GetFullPath(FactoriesDirectory)) ?? "factories",
         "secrets");
-
-    public static FactoryOptions FromConfiguration(IConfiguration configuration, string contentRoot)
-    {
-        var root = FactoryPaths.ResolveRoot(configuration, contentRoot);
-
-        return new FactoryOptions(
-            FactoriesDirectory: configuration["Factory:FactoriesDirectory"] ?? Path.Combine(root, "factories"),
-            DatabasePath: configuration["Factory:DatabasePath"] ?? Path.Combine(root, "data", "agent-factory.db"),
-            BoardUrl: configuration["Factory:BoardUrl"] is { Length: > 0 } url ? new Uri(url) : DefaultBoardUrl,
-            AutoMerge: configuration["Factory:AutoMerge"] is { Length: > 0 } autoMerge
-                && autoMerge.Equals("true", StringComparison.OrdinalIgnoreCase))
-        {
-            TemporalEndpoint = configuration["Factory:Temporal:Endpoint"],
-        };
-    }
 
     /// <summary>
     /// The Temporal endpoint the per-ticket workflows run against, or null for store-only

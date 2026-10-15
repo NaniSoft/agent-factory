@@ -1,23 +1,24 @@
 namespace AgentFactory;
 
-using System.Diagnostics.Metrics;
 using AgentFactory.Application.Clock;
-using AgentFactory.Application.Observability;
 using AgentFactory.Application.Credentials;
+using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Infrastructure.Clock;
 using AgentFactory.Infrastructure.Credentials;
+using AgentFactory.Infrastructure.Projects;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
-using AgentFactory.Projects;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
+using System.Diagnostics.Metrics;
 
 /// <summary>
 /// The whole factory, in one process: the config loader, the store, intake, the
@@ -478,10 +479,10 @@ public static class FactoryApp
                 CredentialFiles.Names(projects, options.SecretsDirectory)
                     .Select(name => new Api.CredentialView(name, credentials.Has(name)))
                     .ToList(),
-                Projects.LlmProviders.OrderedIds
+                LlmProviders.OrderedIds
                     .Select(id => new Api.LlmProviderView(
                         id,
-                        Projects.LlmProviders.CanonicalEnvironmentVariables[id]))
+                        LlmProviders.CanonicalEnvironmentVariables[id]))
                     .ToList())));
 
         // A credential's value, written and never rendered back. The composite reader is

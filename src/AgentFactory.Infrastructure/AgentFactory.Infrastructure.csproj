@@ -20,4 +20,15 @@
     <ProjectReference Include="..\AgentFactory.Application\AgentFactory.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      `ProjectFileLoader` parses the YAML a human wrote in `factories/`, and
+      `FactoryPaths`/`FactorySettings` read the configuration section that says where
+      `factories/` is. All three are things this project reaches outside to get, which is
+      what an adapter is; `Application` reaches for neither.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
 </Project>

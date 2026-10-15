@@ -1,13 +1,13 @@
 namespace AgentFactory.Tests.Intake;
 
-using System.Net;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
-using System.Net.Http;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
+using System.Net;
 
 /// <summary>
 /// The gate between Backlog and Frontier (#40): intake is indiscriminate, and the board

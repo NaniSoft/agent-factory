@@ -1,7 +1,7 @@
 namespace AgentFactory.Tests.Failures;
 
-using System.Xml.Linq;
 using AgentFactory.Tests.Boundary;
+using System.Xml.Linq;
 
 /// <summary>
 /// The dependency rule, read where the compiler reads it.

@@ -1,9 +1,9 @@
 namespace AgentFactory.Rounds;
 
+using AgentFactory.Domain.Failures;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
-using AgentFactory.Domain.Failures;
 
 /// <summary>
 /// The child process as a fact of this machine: a program off the <c>PATH</c>, started

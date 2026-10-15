@@ -1,11 +1,11 @@
 namespace AgentFactory.Routing;
 
-using System.Text;
+using AgentFactory.Application.Observability;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
-using AgentFactory.Application.Observability;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
+using System.Text;
 
 /// <summary>
 /// Turns a routing round's proposal into real issues in the project's tracker, and is the

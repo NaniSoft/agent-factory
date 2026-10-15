@@ -1,7 +1,8 @@
 namespace AgentFactory.Tests.Intake;
 
-using AgentFactory.GitHub;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;

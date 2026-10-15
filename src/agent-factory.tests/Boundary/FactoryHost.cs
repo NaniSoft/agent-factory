@@ -1,14 +1,15 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Reflection;
-using AgentFactory;
 using AgentFactory.Application.Clock;
+using AgentFactory;
+using System.Reflection;
 
 using AgentFactory.Driving;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Polling;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;

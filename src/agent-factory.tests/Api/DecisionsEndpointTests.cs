@@ -1,12 +1,12 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Net;
 using AgentFactory.Domain.Rounds;
-using System.Net.Http.Json;
-using System.Text.Json;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using System.Net.Http.Json;
+using System.Net;
+using System.Text.Json;
 
 /// <summary>
 /// The decisions endpoint, driven over the process's real HTTP surface. It is the JSON

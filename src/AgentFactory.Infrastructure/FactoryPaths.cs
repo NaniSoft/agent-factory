@@ -1,4 +1,5 @@
-namespace AgentFactory;
+namespace AgentFactory.Infrastructure;
+using Microsoft.Extensions.Configuration;
 
 /// <summary>
 /// Finds the factory root: the directory that holds <c>factories/</c> and <c>data/</c>.

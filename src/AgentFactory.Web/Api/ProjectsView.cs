@@ -1,7 +1,7 @@
 namespace AgentFactory.Api;
 
-using System.Text.Json.Serialization;
 using AgentFactory.Application.Projects;
+using System.Text.Json.Serialization;
 
 /// <summary>
 /// What <c>GET /api/projects</c> returns: the set of Project files the factory serves,

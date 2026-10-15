@@ -1,14 +1,15 @@
 namespace AgentFactory.Tests.Observability;
 
-using System.Net;
-using AgentFactory.Domain.Failures;
-using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 /// <summary>
 /// The acceptance criterion, as a behaviour rather than a list of log lines: what happened

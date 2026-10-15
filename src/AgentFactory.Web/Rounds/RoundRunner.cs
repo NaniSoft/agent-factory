@@ -1,11 +1,12 @@
 namespace AgentFactory.Rounds;
 
 using AgentFactory.Application.Credentials;
-using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
-using AgentFactory.Projects;
+using AgentFactory.Infrastructure.Projects;
 using AgentFactory.Results;
 using Microsoft.Extensions.Logging;
 

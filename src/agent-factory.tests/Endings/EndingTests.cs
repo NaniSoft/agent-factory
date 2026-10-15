@@ -1,10 +1,11 @@
 namespace AgentFactory.Tests.Endings;
 
-using AgentFactory;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
 
 /// <summary>
 /// What the board says about the ways a work item ended. Nothing ends in silence, and

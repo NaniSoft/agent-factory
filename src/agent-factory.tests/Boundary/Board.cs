@@ -1,8 +1,9 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Text;
-using System.Text.Json;
+using AgentFactory.Application;
 using AgentFactory;
+using System.Text.Json;
+using System.Text;
 
 /// <summary>
 /// The Board, read back over the process's own HTTP surface — the `/api/*` JSON the

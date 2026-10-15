@@ -1,10 +1,10 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
-using System.Net.Http.Headers;
-using System.Reflection;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
+using System.Net.Http.Headers;
+using System.Net;
+using System.Reflection;
 
 /// <summary>
 /// The merger's whole judgement about a GitHub answer, asserted as a table rather than

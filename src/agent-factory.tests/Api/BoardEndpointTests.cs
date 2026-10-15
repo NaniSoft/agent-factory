@@ -1,12 +1,13 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Net;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
-using System.Text.Json;
-using AgentFactory;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
+using System.Net;
+using System.Text.Json;
 
 /// <summary>
 /// The first JSON endpoint, driven over the process's real HTTP surface. The factory, the

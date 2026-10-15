@@ -1,15 +1,16 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
-using System.Text;
 using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.GitHub;
+using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
-using AgentFactory.Tests.Boundary;
+using System.Net;
+using System.Text;
 
 /// <summary>
 /// Intake over the real client: the two reads the poller makes, and the two shapes of

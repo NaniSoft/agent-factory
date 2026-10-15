@@ -1,8 +1,8 @@
 namespace AgentFactory.Tests.Observability;
 
+using AgentFactory.Application.Observability;
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
-using AgentFactory.Application.Observability;
 
 /// <summary>
 /// Every measurement the factory published, read the way any consumer would read it: an

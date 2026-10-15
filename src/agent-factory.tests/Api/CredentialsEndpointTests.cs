@@ -1,9 +1,9 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using AgentFactory.Tests.Boundary;
+using System.Net.Http.Json;
+using System.Net;
+using System.Text.Json;
 
 /// <summary>
 /// The credentials surface, driven over the process's real HTTP surface. The factory,

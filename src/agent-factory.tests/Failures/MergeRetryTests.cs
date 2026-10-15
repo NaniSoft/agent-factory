@@ -1,11 +1,12 @@
 namespace AgentFactory.Tests.Failures;
 
-using System.Net;
-using AgentFactory;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
+using System.Net;
 
 /// <summary>
 /// A merge that did not land, and the one thing this ticket adds to what parking already

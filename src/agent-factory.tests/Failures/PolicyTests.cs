@@ -1,16 +1,17 @@
 namespace AgentFactory.Tests.Failures;
 
-using System.Reflection;
 using AgentFactory.Application.Credentials;
-using AgentFactory.Domain.Failures;
-using AgentFactory.Loop;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Infrastructure.Credentials;
+using AgentFactory.Loop;
 using AgentFactory.Polling;
 using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using System.Reflection;
 
 /// <summary>
 /// Where the retry policy lives, asserted structurally rather than only through behaviour.

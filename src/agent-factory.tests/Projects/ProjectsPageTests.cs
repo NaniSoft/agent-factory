@@ -1,10 +1,10 @@
 namespace AgentFactory.Tests.Projects;
 
-using System.Net.Http.Json;
-using System.Text.Json;
 using AgentFactory.Application.Credentials;
 using AgentFactory.Tests.Boundary;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 /// <summary>
 /// The projects surface, exercised through the running factory: a repository is added

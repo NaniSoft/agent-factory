@@ -1,7 +1,7 @@
 namespace AgentFactory.Routing;
 
-using System.Text.Json;
 using AgentFactory.WorkItems;
+using System.Text.Json;
 
 /// <summary>
 /// What became of a routing round's verdict: either the proposal it wrote, or the reason it

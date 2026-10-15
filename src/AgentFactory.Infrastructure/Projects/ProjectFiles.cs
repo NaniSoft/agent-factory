@@ -1,4 +1,4 @@
-namespace AgentFactory.Projects;
+namespace AgentFactory.Infrastructure.Projects;
 
 /// <summary>
 /// Writes and removes project files in <c>factories/</c> on the board's behalf. The file

@@ -1,8 +1,8 @@
 namespace AgentFactory.GitHub;
 
-using System.Net;
-using System.Net.Http.Headers;
 using AgentFactory.Domain.Failures;
+using System.Net.Http.Headers;
+using System.Net;
 
 /// <summary>
 /// The merger's whole judgement about a GitHub answer, in one table. This is where #7's

@@ -1,8 +1,9 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Net;
+using AgentFactory.Infrastructure;
 using AgentFactory;
 using Microsoft.Extensions.Configuration;
+using System.Net;
 
 /// <summary>
 /// The one process serves the board on port 5000, bound to loopback. Loopback is not a
@@ -17,7 +18,7 @@ public class BoardPortTests
         using var root = FactoryRoot.Create();
 
         // Options straight from configuration, exactly as the entry point derives them.
-        var options = FactoryOptions.FromConfiguration(new ConfigurationBuilder().Build(), root.Path);
+        var options = FactorySettings.FromConfiguration(new ConfigurationBuilder().Build(), root.Path);
         await using var host = await FactoryHost.StartAsync(root, options);
 
         var response = await host.Board.GetAsync("/api/board");

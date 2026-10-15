@@ -1,11 +1,12 @@
 namespace AgentFactory.Tests.Failures;
 
-using AgentFactory;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
 
 /// <summary>
 /// A round that failed, and what the factory does about it. The load-bearing distinction

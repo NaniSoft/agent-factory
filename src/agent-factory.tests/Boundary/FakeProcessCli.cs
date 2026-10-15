@@ -1,7 +1,7 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Diagnostics;
 using AgentFactory.Rounds;
+using System.Diagnostics;
 
 /// <summary>
 /// The child process, faked: it records every request verbatim and answers from behaviour a

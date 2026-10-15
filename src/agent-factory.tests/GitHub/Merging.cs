@@ -2,12 +2,13 @@ namespace AgentFactory.Tests.GitHub;
 
 using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
-using AgentFactory.WorkItems;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
+using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>

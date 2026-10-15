@@ -1,8 +1,9 @@
 namespace AgentFactory.Tests.Routing;
 
+using AgentFactory.Application.Observability;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
-using AgentFactory.Application.Observability;
 using AgentFactory.Rounds;
 using AgentFactory.Routing;
 using AgentFactory.Tests.Boundary;

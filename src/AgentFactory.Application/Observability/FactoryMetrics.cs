@@ -1,7 +1,7 @@
 namespace AgentFactory.Application.Observability;
 
-using System.Diagnostics.Metrics;
 using AgentFactory.Domain.Rounds;
+using System.Diagnostics.Metrics;
 
 /// <summary>
 /// The factory's counters. Four instruments on the platform's own metrics API

@@ -1,11 +1,12 @@
 namespace AgentFactory.Polling;
 
 using AgentFactory.Application.Clock;
-using AgentFactory.Domain.Failures;
-using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
+using AgentFactory.GitHub;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
 

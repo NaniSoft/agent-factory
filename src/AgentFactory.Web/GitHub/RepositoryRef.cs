@@ -16,7 +16,7 @@ using AgentFactory.Domain.Failures;
 /// </para>
 /// <para>
 /// A local path is accepted as well as an http URL, and that is not the project loader
-/// having loosened: <see cref="Projects.ProjectFileLoader"/> refuses anything that is not
+/// having loosened: <see cref="Infrastructure.Projects.ProjectFileLoader"/> refuses anything that is not
 /// an absolute http or https URL long before a project record exists, so no project can
 /// reach this with a path. It is here because a test has to be able to name a bare
 /// repository on this machine, or the push — the step whose failure modes are the whole

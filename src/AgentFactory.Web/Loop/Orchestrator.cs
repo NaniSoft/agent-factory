@@ -1,10 +1,11 @@
 namespace AgentFactory.Loop;
 
 using AgentFactory.Application.Clock;
-using AgentFactory.Domain.Failures;
-using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application;
+using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;

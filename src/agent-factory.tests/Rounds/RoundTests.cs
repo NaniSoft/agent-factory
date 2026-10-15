@@ -1,12 +1,13 @@
 namespace AgentFactory.Tests.Rounds;
 
-using System.Xml.Linq;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using System.Xml.Linq;
 
 /// <summary>
 /// A round, with the agent faked. The loop is real, the store is real, the board is

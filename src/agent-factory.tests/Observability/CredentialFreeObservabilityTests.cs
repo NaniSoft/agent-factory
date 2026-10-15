@@ -1,14 +1,14 @@
 namespace AgentFactory.Tests.Observability;
 
-using System.Net;
-using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Projects;
+using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.GitHub;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 /// <summary>
 /// The sharp edge. #10 closed a leak by hand — a token that reached a log line, a board

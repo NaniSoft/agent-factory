@@ -1,5 +1,6 @@
 namespace AgentFactory.Driving;
 
+using AgentFactory.Application;
 using AgentFactory.Durability;
 using AgentFactory.Loop;
 using AgentFactory.Polling;

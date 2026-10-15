@@ -1,7 +1,7 @@
 namespace AgentFactory.Tests.Rounds;
 
-using AgentFactory;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
@@ -9,6 +9,7 @@ using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
+using AgentFactory;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>

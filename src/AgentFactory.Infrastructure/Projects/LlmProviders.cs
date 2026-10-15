@@ -1,4 +1,4 @@
-namespace AgentFactory.Projects;
+namespace AgentFactory.Infrastructure.Projects;
 
 /// <summary>
 /// The providers a project's <c>llm.model</c> reference may name, and the one

@@ -1,9 +1,9 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Net;
-using System.Text;
-using System.Text.Json;
 using AgentFactory.Tests.Boundary;
+using System.Net;
+using System.Text.Json;
+using System.Text;
 
 /// <summary>
 /// The Projects write and read surface, driven over the process's real HTTP surface.

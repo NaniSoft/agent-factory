@@ -1,12 +1,13 @@
 namespace AgentFactory.Tests.Observability;
 
-using System.Net;
-using AgentFactory.GitHub;
 using AgentFactory.Application.Observability;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
+using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using System.Net;
 
 /// <summary>
 /// The counters, and the claims the design makes about them: issues processed, builds

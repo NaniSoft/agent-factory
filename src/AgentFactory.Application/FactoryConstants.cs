@@ -1,4 +1,4 @@
-namespace AgentFactory;
+namespace AgentFactory.Application;
 
 /// <summary>
 /// Factory behaviour is code, never configuration. Every project gets identical

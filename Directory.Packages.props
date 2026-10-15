@@ -21,6 +21,13 @@
       where the record goes — which is #63's, on the far side of the boundary.
     -->
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <!--
+      `FactoryPaths` and `FactorySettings` read a configuration key before they resolve
+      anything on a disk, so this project names `IConfiguration` and declares the
+      abstractions for it. `Application` does not: `FactoryOptions` is the values, and
+      nothing in the policy reads a key.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Temporalio" Version="1.20.0" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />

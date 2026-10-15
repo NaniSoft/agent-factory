@@ -1,13 +1,14 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 /// <summary>
 /// The header GitHub refuses a request without, and the test that exists because 317 tests

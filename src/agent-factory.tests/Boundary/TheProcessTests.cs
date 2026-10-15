@@ -1,7 +1,8 @@
 namespace AgentFactory.Tests.Boundary;
 
-using System.Net;
+using AgentFactory.Application;
 using AgentFactory;
+using System.Net;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;

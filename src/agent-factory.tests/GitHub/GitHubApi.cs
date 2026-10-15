@@ -1,9 +1,9 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
-using System.Text;
-using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Text.Json;
+using System.Text;
 
 /// <summary>
 /// GitHub's API, faked at the transport. It answers from routes a test wrote and records

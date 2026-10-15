@@ -1,12 +1,12 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
+using System.Net;
 
 /// <summary>
 /// What one <c>MergeAsync</c> call does to a repository: push the branch, open the pull

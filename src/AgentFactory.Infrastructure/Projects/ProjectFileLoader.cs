@@ -1,8 +1,8 @@
-namespace AgentFactory.Projects;
+namespace AgentFactory.Infrastructure.Projects;
 
-using Microsoft.Extensions.Logging;
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Projects;
+using Microsoft.Extensions.Logging;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -18,7 +18,7 @@ using YamlDotNet.RepresentationModel;
 /// list. Credentials are referenced by environment variable name and are never read
 /// here, so a project record holds names and no values.
 /// </remarks>
-internal static class ProjectFileLoader
+public static class ProjectFileLoader
 {
     private static readonly string[] TopLevelFields = ["name", "repo", "llm", "keys"];
 

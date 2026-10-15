@@ -1,9 +1,9 @@
 namespace AgentFactory.Tests.Results;
 
-using System.Text;
-using System.Text.Json;
 using AgentFactory.Results;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
+using System.Text;
 
 /// <summary>
 /// The deriver, driven against result files shaped like the ones the worker image's own

@@ -1,10 +1,11 @@
 namespace AgentFactory.Tests.Endings;
 
-using AgentFactory;
+using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
+using AgentFactory;
 
 /// <summary>
 /// The other way a work item stops looping without a human finishing it: nobody looking.

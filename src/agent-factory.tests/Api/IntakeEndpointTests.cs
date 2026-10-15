@@ -1,10 +1,11 @@
 namespace AgentFactory.Tests.Api;
 
-using System.Text.Json;
-using AgentFactory;
+using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
+using AgentFactory;
+using System.Text.Json;
 
 /// <summary>
 /// The Board endpoint's account of intake, driven over the process's real HTTP surface.

@@ -1,13 +1,14 @@
 namespace AgentFactory.Tests.GitHub;
 
-using System.Net;
 using AgentFactory.Application.Projects;
+using AgentFactory.Application;
 using AgentFactory.Domain.Projects;
-using System.Text.Json;
 using AgentFactory.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Text.Json;
 
 /// <summary>
 /// The shape of the relationship calls, as what the factory actually put on the wire: a

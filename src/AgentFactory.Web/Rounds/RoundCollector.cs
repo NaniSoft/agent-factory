@@ -1,11 +1,11 @@
 namespace AgentFactory.Rounds;
 
+using AgentFactory.Results;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
-using AgentFactory.Results;
+using System.Text.Json;
+using System.Text;
 
 /// <summary>
 /// What a round left behind, gathered into the one result file the factory reads. This is

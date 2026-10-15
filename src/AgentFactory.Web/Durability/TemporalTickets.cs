@@ -1,5 +1,6 @@
 namespace AgentFactory.Durability;
 
+using AgentFactory.Application;
 using AgentFactory.GitHub;
 using AgentFactory.Rounds;
 using AgentFactory.Routing;

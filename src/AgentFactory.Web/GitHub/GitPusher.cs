@@ -1,9 +1,9 @@
 namespace AgentFactory.GitHub;
 
-using System.Diagnostics;
-using System.Text;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Results;
+using System.Diagnostics;
+using System.Text;
 
 /// <summary>
 /// Git, as a process, for the two things the host has to ask a round's tree: what commit it
