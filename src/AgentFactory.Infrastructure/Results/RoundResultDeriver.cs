@@ -1,5 +1,8 @@
-namespace AgentFactory.Results;
+namespace AgentFactory.Infrastructure.Results;
 
+using AgentFactory.Application.Results;
+using AgentFactory.Domain.Results;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 /// <summary>
@@ -31,9 +34,6 @@ using System.Text.Json;
 /// </remarks>
 public sealed class RoundResultDeriver
 {
-    /// <summary>The schema the image's collector writes. Recorded, not enforced.</summary>
-    public const string WorkerResultSchema = "agent-factory/worker-result@1";
-
     private readonly ILogger<RoundResultDeriver> _logger;
 
     public RoundResultDeriver(ILogger<RoundResultDeriver> logger) =>

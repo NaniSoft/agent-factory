@@ -1,6 +1,7 @@
 namespace AgentFactory.WorkItems;
 
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Rounds;
@@ -15,7 +16,7 @@ using AgentFactory.Rounds;
 /// forgotten.</strong> `AgentFactory.Application` declares the eight ports, and this is
 /// one of them. It cannot get there until three of its own types can: <c>RoundOutcome</c>
 /// has moved to `Domain`, but <c>RecordRound</c> also takes a
-/// <see cref="Results.HostDiff"/> and hands back a <see cref="RoundResultRecord"/>, and
+/// <see cref="HostDiff"/> and hands back a <see cref="RoundResultRecord"/>, and
 /// both of those are persistence shape that belongs beside the store
 /// (docs/architecture.md, "The dependency rule"). It moves the moment they do - the
 /// Results slice for the diff, the store slice for the records - and nothing about this
@@ -160,7 +161,7 @@ public interface IWorkItemStore
         int attempts = 1,
         FailureClass? failure = null,
         string? log = null,
-        Results.HostDiff? diff = null);
+        HostDiff? diff = null);
 
     /// <summary>Every round the work item has run, oldest first.</summary>
     IReadOnlyList<RoundResultRecord> Rounds(Guid workItemId);

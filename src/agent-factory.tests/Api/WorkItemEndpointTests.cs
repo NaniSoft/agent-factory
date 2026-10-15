@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.Api;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Results;
+using AgentFactory.Domain.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;

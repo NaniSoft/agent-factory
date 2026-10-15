@@ -3,6 +3,7 @@ namespace AgentFactory.Tests.GitHub;
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
@@ -405,7 +406,7 @@ public class MergeTests
             resultPayload: "round two's own record",
             agentNote: "Answered it differently.",
             startedUtc: later.Clock.UtcNow,
-            diff: new AgentFactory.Results.HostDiff(
+            diff: new HostDiff(
                 "diff --git a/src/Second.cs b/src/Second.cs\n",
                 "refs/remotes/origin/main",
                 secondRound.Path,

@@ -1,4 +1,4 @@
-namespace AgentFactory.Results;
+namespace AgentFactory.Domain.Results;
 
 /// <summary>
 /// What one round produced, as the factory derived it by watching the container rather
@@ -72,6 +72,21 @@ public sealed record DerivedResult(
     int UnreadableLines,
     string? UnreadableBecause)
 {
+    /// <summary>
+    /// The name of the file this record is read out of, as the round's collector writes it.
+    /// Recorded, never enforced: a header in another schema is a file this build does not
+    /// read, and the deriver says so rather than guessing at one.
+    /// </summary>
+    /// <remarks>
+    /// It lives here, on the record it describes, rather than on the component that reads
+    /// the file — because three things name it and a copy in two of them is a string free
+    /// to disagree: the collector that writes the header, the deriver that reads it, and
+    /// the payload that prints it at the top of what a reviewer is shown. The reader and
+    /// the writer are adapters and the payload is the policy's own, so the only place all
+    /// three can reach is the vocabulary itself.
+    /// </remarks>
+    public const string Schema = "agent-factory/worker-result@1";
+
     /// <summary>Commands that returned something other than zero, in the order they ran.</summary>
     public IReadOnlyList<CommandOutcome> FailedCommands =>
         CommandsRun.Where(command => !command.Passed).ToList();

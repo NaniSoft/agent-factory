@@ -1,5 +1,6 @@
-namespace AgentFactory.Results;
+namespace AgentFactory.Application.Results;
 
+using AgentFactory.Domain.Results;
 using System.Text;
 
 /// <summary>

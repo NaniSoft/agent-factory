@@ -1,8 +1,8 @@
 namespace AgentFactory.WorkItems;
 
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
-using AgentFactory.Rounds;
 
 /// <summary>
 /// One round's result, as the factory kept it. The work item holds every round it has
@@ -50,7 +50,7 @@ public sealed record RoundResultRecord(
     int Attempts = 1,
     FailureClass? Failure = null,
     string? Log = null,
-    Results.HostDiff? Diff = null)
+    HostDiff? Diff = null)
 {
     /// <summary>
     /// Whether the round has a change the board can show at all. An empty diff still

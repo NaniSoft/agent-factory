@@ -1,6 +1,8 @@
 namespace AgentFactory.Tests.Results;
 
-using AgentFactory.Results;
+using AgentFactory.Application.Results;
+using AgentFactory.Domain.Results;
+using AgentFactory.Infrastructure.Results;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Text;

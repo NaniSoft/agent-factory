@@ -1,5 +1,6 @@
-namespace AgentFactory.Results;
+namespace AgentFactory.Application.Results;
 
+using AgentFactory.Domain.Results;
 using System.Globalization;
 using System.Text;
 
@@ -63,7 +64,7 @@ public static class ResultPayload
     {
         var round = result.Environment;
 
-        text.Append("result  ").AppendLine(RoundResultDeriver.WorkerResultSchema);
+        text.Append("result  ").AppendLine(DerivedResult.Schema);
         text.Append("round   ran as ")
             .Append(round.User is { Length: > 0 } user ? $"{user} (uid {round.Uid})" : $"uid {round.Uid}")
             .AppendLine();

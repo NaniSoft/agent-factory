@@ -8,7 +8,9 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
-using AgentFactory.Results;
+using AgentFactory.Application.Results;
+using AgentFactory.Domain.Results;
+using AgentFactory.Infrastructure.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
@@ -272,7 +274,7 @@ public class PolicyTests
         // would be asserting on the compiler rather than on the policy.
         var read = CallsMadeBy(assemblies)
             .Where(call => call.Called.Name == "get_RoundExitCode" || call.Called.Name == "get_TheRoundRan")
-            .Where(call => Owner(call.Caller) != typeof(AgentFactory.Results.RoundEnvironment))
+            .Where(call => Owner(call.Caller) != typeof(RoundEnvironment))
             // The same exclusion, for the collector's own header record: its generated
             // print and deconstruct read every field it holds, which is the type talking
             // to itself rather than a second opinion about whether a round finished.
@@ -359,7 +361,7 @@ public class PolicyTests
         // own exit code is named `roundExitCode` and the command's is `exitCode`, and the
         // deriver reads them into two different types.
         Assert.NotEqual(
-            typeof(AgentFactory.Results.RoundEnvironment).GetProperty("RoundExitCode"),
+            typeof(RoundEnvironment).GetProperty("RoundExitCode"),
             typeof(CommandOutcome).GetProperty("ExitCode"));
 
         // Which is the structural claim #7 made, restated in the terms this ticket changed.

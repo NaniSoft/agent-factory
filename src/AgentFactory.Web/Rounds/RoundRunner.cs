@@ -4,10 +4,11 @@ using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
+using AgentFactory.Application.Results;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Infrastructure.Projects;
-using AgentFactory.Results;
+using AgentFactory.Infrastructure.Results;
 using Microsoft.Extensions.Logging;
 
 // The host diff. The round's tree is on the host because the host has to be able to reach

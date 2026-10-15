@@ -32,8 +32,9 @@ public sealed record RoutingOutcome(RoutingProposal? Proposal, string? Unreadabl
 /// </summary>
 /// <remarks>
 /// <para>
-/// It behaves like <see cref="Results.RoundResultDeriver"/> for the same reason and with the
-/// same rules: it observes, it never asks the agent anything, and it has no way to fail.
+/// It behaves like <see cref="AgentFactory.Infrastructure.Results.RoundResultDeriver"/> for the
+/// same reason and with the same rules: it observes, it never asks the agent anything, and it
+/// has no way to fail.
 /// Every entry point returns a <see cref="RoutingOutcome"/>, because a factory that dropped a
 /// work item on the floor for want of a parse would report a routing round as a routing round
 /// that decided nothing.

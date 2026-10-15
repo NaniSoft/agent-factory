@@ -1,6 +1,7 @@
 namespace AgentFactory.Rounds;
 
-using AgentFactory.Results;
+using AgentFactory.Domain.Results;
+using AgentFactory.Infrastructure.Results;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json.Serialization;
@@ -11,7 +12,7 @@ using System.Text;
 /// What a round left behind, gathered into the one result file the factory reads. This is
 /// the host-side successor of the worker image's collector, and it writes the same file in
 /// the same shape: JSON <em>lines</em>, one self-contained object per line, the header
-/// always first (schema <see cref="RoundResultDeriver.WorkerResultSchema"/>).
+/// always first (schema <see cref="DerivedResult.Schema"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -168,7 +169,7 @@ public static class RoundCollector
 
         return JsonLine(new HeaderRecord(
             Kind: "result",
-            Schema: RoundResultDeriver.WorkerResultSchema,
+            Schema: DerivedResult.Schema,
             RoundExitCode: roundExitCode,
             Work: workDirectory,
             Out: landing,
@@ -267,7 +268,7 @@ public static class RoundCollector
 
         // The same safe.directory the diff reader passes, through the environment, for the
         // same reason: reading a round's observations must never modify a round's tree.
-        foreach (var (name, value) in Results.HostDiffReader.GitEnvironment)
+        foreach (var (name, value) in HostDiffReader.GitEnvironment)
         {
             start.Environment[name] = value;
         }
@@ -394,7 +395,7 @@ public static class RoundCollector
                 process.StartInfo.ArgumentList.Add(argument);
             }
 
-            foreach (var (name, value) in Results.HostDiffReader.GitEnvironment)
+            foreach (var (name, value) in HostDiffReader.GitEnvironment)
             {
                 process.StartInfo.Environment[name] = value;
             }

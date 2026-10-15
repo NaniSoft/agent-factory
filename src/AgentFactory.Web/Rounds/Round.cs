@@ -1,6 +1,7 @@
 namespace AgentFactory.Rounds;
 
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 
 /// <summary>
@@ -133,7 +134,7 @@ public sealed record RoundResult(
     string? AgentNote,
     FailureClass? Failure,
     string? Log,
-    AgentFactory.Results.HostDiff? Diff = null,
+    HostDiff? Diff = null,
     Routing.RoutingOutcome? Routing = null)
 {
     /// <summary>
@@ -145,7 +146,7 @@ public sealed record RoundResult(
         string? payload,
         string? agentNote,
         string? log = null,
-        AgentFactory.Results.HostDiff? diff = null,
+        HostDiff? diff = null,
         Routing.RoutingOutcome? routing = null) =>
         new(RoundOutcome.Produced, payload, agentNote, Failure: null, log, diff, routing);
 
@@ -171,7 +172,7 @@ public sealed record RoundResult(
     public static RoundResult Failed(
         FailureClass failure,
         string? log = null,
-        AgentFactory.Results.HostDiff? diff = null,
+        HostDiff? diff = null,
         string? payload = null,
         Routing.RoutingOutcome? routing = null) =>
         new(RoundOutcome.Failed, payload, null, failure, log, diff, routing);

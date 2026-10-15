@@ -4,6 +4,7 @@ using AgentFactory.Application.Credentials;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.Projects;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.GitHub;
@@ -80,7 +81,7 @@ public sealed class Merging : IDisposable
             resultPayload: "the round's own record of itself",
             agentNote: "Made the poller keep going when a project is paced.",
             startedUtc: _clock.UtcNow,
-            diff: new AgentFactory.Results.HostDiff(
+            diff: new HostDiff(
                 Text: "diff --git a/src/Poller.cs b/src/Poller.cs\n",
                 Base: "refs/remotes/origin/main",
                 Tree: TreePath,

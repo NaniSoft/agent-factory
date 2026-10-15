@@ -29,6 +29,15 @@
     -->
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
     <PackageReference Include="YamlDotNet" />
+
+    <!--
+      The same reference `Application` takes, and for the same reason on this side of the
+      line: `RoundResultDeriver` reads a round's result file and says out loud what it
+      could not read, which is `ILogger<T>` and nothing else — the constructor that pin
+      names is the whole of the deriver's dependency list. The Web SDK carries this package
+      implicitly and `Microsoft.NET.Sdk` does not, so it is declared rather than assumed.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
 </Project>

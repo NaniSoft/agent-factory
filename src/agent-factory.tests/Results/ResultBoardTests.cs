@@ -1,8 +1,9 @@
 namespace AgentFactory.Tests.Results;
 
+using AgentFactory.Application.Results;
 using AgentFactory.Domain.Failures;
+using AgentFactory.Domain.Results;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Results;
 using AgentFactory.Rounds;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
@@ -233,9 +234,9 @@ public class ResultBoardTests
     /// failing command, a diff, and a note. Built here rather than read from a container so
     /// these tests say what the board renders without a Docker daemon anywhere.
     /// </summary>
-    private static AgentFactory.Results.DerivedResult Derived(
-        IReadOnlyList<AgentFactory.Results.ChangedFile>? files = null,
-        IReadOnlyList<AgentFactory.Results.CommandOutcome>? commands = null,
+    private static DerivedResult Derived(
+        IReadOnlyList<ChangedFile>? files = null,
+        IReadOnlyList<CommandOutcome>? commands = null,
         string diff = """
             diff --git a/src/Index.cs b/src/Index.cs
             index aaaaaaa..bbbbbbb 100644
@@ -248,17 +249,17 @@ public class ResultBoardTests
             """,
         string? note = "Added the endpoint, because nothing was answering.",
         IReadOnlyList<string>? credentials = null) => new(
-        files ?? [new AgentFactory.Results.ChangedFile("src/Index.cs", null, AgentFactory.Results.FileChange.Added, 12, 3, true, false)],
+        files ?? [new ChangedFile("src/Index.cs", null, FileChange.Added, 12, 3, true, false)],
         commands ??
         [
-            new AgentFactory.Results.CommandOutcome(1, "the unit tests", "dotnet test", "/work", 0, 1800, "42 passed, 0 failed\n", string.Empty, 21, 0),
-            new AgentFactory.Results.CommandOutcome(2, "the linter", "dotnet format --verify-no-changes", "/work", 2, 900, string.Empty, "2 files need formatting\n", 0, 27),
+            new CommandOutcome(1, "the unit tests", "dotnet test", "/work", 0, 1800, "42 passed, 0 failed\n", string.Empty, 21, 0),
+            new CommandOutcome(2, "the linter", "dotnet format --verify-no-changes", "/work", 2, 900, string.Empty, "2 files need formatting\n", 0, 27),
         ],
         diff,
         DiffTruncated: false,
         note,
         [],
-        new AgentFactory.Results.RoundEnvironment(
+        new RoundEnvironment(
             User: "agent",
             Uid: 1000,
             IsARepository: true,
