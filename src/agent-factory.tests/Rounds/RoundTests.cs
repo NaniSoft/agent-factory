@@ -338,17 +338,24 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
             .ToList();
         Assert.Equal(["MergeAsync"], merges);
 
-        var project = FactoryProjectFile();
-        var packages = project.Descendants("PackageReference")
+        // **Every factory project file is read, and that changed with the four-project
+        // split (#61).** It read one — `AgentFactory.Web`'s — because that was where every
+        // package reference in this repository lived. A slice moves `Microsoft.Data.Sqlite`
+        // and `Temporalio` into `Infrastructure`, and a scan of one project file would then
+        // read the emptiest of the four and pass on having found nothing, which is the
+        // whole hazard in a scan: "no package runtime here" and "no package runtime was
+        // where I looked" are the same empty list.
+        var packages = FactoryProjectFiles()
+            .SelectMany(project => project.Descendants("PackageReference"))
             .Select(reference => (string?)reference.Attribute("Include") ?? string.Empty);
 
-        // Central Package Management moved the versions out of the project file and into
-        // `Directory.Packages.props`, so the scan above is no longer the whole of where a
+        // Central Package Management moved the versions out of the project files and into
+        // `Directory.Packages.props`, so the scan above is not the whole of where a
         // container runtime could be declared: the `Include` names are still here, but a
         // `PackageVersion` is now a second place the same claim is made, and it is the one
         // a future package is added to — a package cannot reach any csproj without an
-        // entry in that file, so reading it covers the other three projects too. Both
-        // files are read and the assertion is over the union, which makes the claim the
+        // entry in that file, so reading it covers all four projects. Both sources are
+        // read and the assertion is over the union, which makes the claim the
         // one this test has always meant: nothing in this repository depends on a
         // container runtime, which is what ADR-0016 decided when it deleted the worker
         // image.
@@ -362,8 +369,13 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
                 || package.Contains("Podman", StringComparison.OrdinalIgnoreCase)
                 || package.Contains("Testcontainers", StringComparison.OrdinalIgnoreCase));
 
-        var assemblies = typeof(Orchestrator).Assembly
-            .GetReferencedAssemblies()
+        // And the same claim about the compiled output, over **all four** assemblies rather
+        // than the one `Orchestrator` happens to sit in. It followed `Orchestrator`
+        // because there was only one assembly to follow; a container runtime would land in
+        // `Infrastructure`, and an assertion scoped to the loop's own assembly would be an
+        // assertion about the project least likely to name one.
+        var assemblies = TheFactory.Assemblies
+            .SelectMany(assembly => assembly.GetReferencedAssemblies())
             .Select(assembly => assembly.Name ?? string.Empty);
 
         Assert.DoesNotContain(
@@ -372,8 +384,24 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
                 || assembly.Contains("Podman", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static XDocument FactoryProjectFile() => XmlFileAbove(
-        Path.Combine("src", "AgentFactory.Web", "AgentFactory.Web.csproj"));
+    /// <summary>
+    /// Every factory project file, read by path from the root. All four rather than one,
+    /// for the reason the assertion above names: a package lands in whichever project
+    /// needs it, and a scan of a single file is a scan of the place it no longer lands in.
+    /// </summary>
+    private static IEnumerable<XDocument> FactoryProjectFiles()
+    {
+        foreach (var project in new[]
+        {
+            "AgentFactory.Application",
+            "AgentFactory.Domain",
+            "AgentFactory.Infrastructure",
+            "AgentFactory.Web",
+        })
+        {
+            yield return XmlFileAbove(Path.Combine("src", project, $"{project}.csproj"));
+        }
+    }
 
     private static XDocument CentralPackageFile() => XmlFileAbove("Directory.Packages.props");
 

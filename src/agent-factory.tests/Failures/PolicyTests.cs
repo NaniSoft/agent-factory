@@ -17,6 +17,26 @@ using AgentFactory.WorkItems;
 /// backoff is a comparison against the clock and not a wait, that there is one answer to
 /// "is this worth retrying" rather than one per code path, and that the components that
 /// classify failures are the ones that observed them.
+/// <para>
+/// **Every scan in here reads all four of the factory's assemblies, and that is the
+/// whole of what the four-project split changed (#61).** Not one expected list below
+/// moved, and not one pin was deleted: all eighteen are claims about a method's callers,
+/// a record's construction sites, a type's constructor shape or a vocabulary that is
+/// closed, and **none of those is a claim about which project a type sits in.** A project
+/// reference can make an outward dependency impossible to compile; it cannot say who may
+/// call `Orchestrator.AskForTheRound`, may construct a `ProcessRequest`, may read
+/// <c>RoundResult.IsRetryable</c> or may pass <c>ILogger</c> to the deriver. Those are
+/// the rules the compiler has no vocabulary for, which is why the pins outlived the
+/// assembly rather than being replaced by it.
+/// </para>
+/// <para>
+/// What the split *would* have broken is the opposite half: a scan pointed at one
+/// assembly stops seeing a call that moved, its expected list shortens, and the assertion
+/// still compares two lists. So the scan set is <see cref="TheFactory.Assemblies"/>,
+/// named, and <c>ArchitectureTests</c> pins it — because "the set has four names" and
+/// "the walk reads four assemblies" are different claims and only the second one stops the
+/// shortening.
+/// </para>
 /// </summary>
 public class PolicyTests
 {
@@ -44,7 +64,7 @@ public class PolicyTests
         // is a test that a later agent makes pass by calling it something else. It scans for
         // calls to the four methods that wait, and nothing else: a false positive is
         // impossible, because the only way this fails is by finding one of them exactly.
-        var calls = CallsMadeBy(typeof(FactoryApp).Assembly).ToList();
+        var calls = CallsMadeBy(TheFactory.Assemblies).ToList();
 
         // The waits in the process, named. A tick between steps of the machine is a tick
         // and not a wait: nothing is held up behind it, and every cadence it drives — the
@@ -93,9 +113,9 @@ public class PolicyTests
         // to hang.
         Assert.Equal(
             ["FactoryDriver.ExecuteAsync", "TemporalTickets.ExecuteAsync"],
-            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.Tasks.Task:Delay"));
+            CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Threading.Tasks.Task:Delay"));
 
-        var timed = CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.CancellationTokenSource:CancelAfter");
+        var timed = CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Threading.CancellationTokenSource:CancelAfter");
         Assert.True(
             timed.Count == 0,
             "a cancellation that fires on a delay is a clock, and the seam's own bound is a client timeout: "
@@ -128,7 +148,7 @@ public class PolicyTests
         // opinion about.
         Assert.Equal(
             ["Orchestrator.StepAsync", "TemporalTickets.ClientAsync"],
-            CallsMadeBy(typeof(FactoryApp).Assembly)
+            CallsMadeBy(TheFactory.Assemblies)
                 .Where(call => call.Called.DeclaringType?.Name == "SemaphoreSlim"
                     && call.Called.Name is "WaitAsync" or "Wait")
                 .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
@@ -177,7 +197,7 @@ public class PolicyTests
                 "TicketActivities.BuildRoundAsync",
                 "TicketActivities.RouteRoundAsync",
             ],
-            CallsMadeBy(typeof(FactoryApp).Assembly)
+            CallsMadeBy(TheFactory.Assemblies)
                 .Where(call => call.Called.DeclaringType == typeof(INOpenCode)
                     && call.Called.Name == "RunRoundAsync")
                 .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
@@ -235,7 +255,7 @@ public class PolicyTests
         // outcome: a build whose tests failed is `Produced` and carries no classification at
         // all, and a policy that consulted the command exit codes would make every one of
         // them retryable, which is what DESIGN.md says not to do.
-        var assembly = typeof(FactoryApp).Assembly;
+        var assemblies = TheFactory.Assemblies;
 
         // Where the number comes from and where it is used. It is read out of the result
         // file's header by the deriver, put in front of a reviewer by the payload, and
@@ -247,7 +267,7 @@ public class PolicyTests
         // excludes them: `with`, `Deconstruct` and the compiler's copy constructor are the
         // type talking to itself rather than a second opinion, and a test that counted them
         // would be asserting on the compiler rather than on the policy.
-        var read = CallsMadeBy(assembly)
+        var read = CallsMadeBy(assemblies)
             .Where(call => call.Called.Name == "get_RoundExitCode" || call.Called.Name == "get_TheRoundRan")
             .Where(call => Owner(call.Caller) != typeof(AgentFactory.Results.RoundEnvironment))
             // The same exclusion, for the collector's own header record: its generated
@@ -275,7 +295,7 @@ public class PolicyTests
         // is the only method in the process that turns a header field into a number, and a
         // second reader would be a second reading of the round's own account of itself,
         // free to disagree with the first.
-        var fieldRead = CallsMadeBy(assembly)
+        var fieldRead = CallsMadeBy(assemblies)
             .Where(call => call.Called.DeclaringType?.Name == "RoundResultDeriver"
                 && call.Called.Name == "Int"
                 && call.Caller is { } caller
@@ -302,7 +322,7 @@ public class PolicyTests
         // boundary written as "did anything come back non-zero" would make every failing
         // test retryable, and this fails the moment the round runner or the loop so much as
         // looks at a command's exit code.
-        var policyDecidesOn = CallsMadeBy(assembly)
+        var policyDecidesOn = CallsMadeBy(assemblies)
             .Where(call => call.Called.Name is "get_Passed" or "get_FailedCommands"
                 // `ExitCode` is read off a *command record* and off nothing else: the
                 // process invocation's own exit code is the round's, and the runner is
@@ -326,7 +346,7 @@ public class PolicyTests
         // a reviewer what ran.
         Assert.Contains(
             "ResultPayload.Commands",
-            CallsMadeBy(assembly)
+            CallsMadeBy(assemblies)
                 .Where(call => call.Called.Name == "get_Passed")
                 .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}"));
 
@@ -360,7 +380,7 @@ public class PolicyTests
         // own members — and they are the type talking to itself rather than a second
         // opinion, so they do not count as a caller with a policy.
         var asked = new List<string>();
-        foreach (var (caller, called) in CallsMadeBy(typeof(FactoryApp).Assembly))
+        foreach (var (caller, called) in CallsMadeBy(TheFactory.Assemblies))
         {
             if (called.DeclaringType == typeof(RoundResult)
                 && called.Name == "get_IsRetryable"
@@ -390,8 +410,8 @@ public class PolicyTests
         //
         // The reverse direction matters just as much: a round that came back with a result
         // has no classification to read, and nothing in the loop can invent one.
-        var declaring = typeof(FactoryApp).Assembly
-            .GetTypes()
+        var declaring = TheFactory.Assemblies
+            .SelectMany(assembly => assembly.GetTypes())
             .Where(type => typeof(FactoryFailure).IsAssignableFrom(type) && type != typeof(FactoryFailure))
             .Select(type => type.Name)
             .Order(StringComparer.Ordinal)
@@ -407,7 +427,7 @@ public class PolicyTests
         // derives its class from anything but its own type.
         foreach (var failure in declaring)
         {
-            var type = typeof(FactoryApp).Assembly.GetTypes().Single(t => t.Name == failure);
+            var type = TheFactory.Assemblies.SelectMany(assembly => assembly.GetTypes()).Single(t => t.Name == failure);
             var parameters = type.GetConstructors().Single().GetParameters();
 
             Assert.DoesNotContain(parameters, parameter => parameter.ParameterType == typeof(bool));
@@ -440,7 +460,7 @@ public class PolicyTests
         // agent, and ADR-0006's whole claim is that it cannot. The merger's read is on the
         // other side of the boundary entirely — it is the host, it is after the round is
         // over, and there is no agent process for it to hand anything to.
-        var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
+        var readers = CallsMadeBy(TheFactory.Assemblies)
             .Where(call => call.Called.DeclaringType?.Name == "ICredentialReader"
                 && call.Called.Name == "Read"
                 && call.Caller?.DeclaringType != typeof(ICredentialReader)
@@ -501,7 +521,7 @@ public class PolicyTests
         // legitimate and this test must not become the thing that quietly forbids it again.
         Assert.DoesNotContain(
             "RoundResultDeriver",
-            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Threading.Tasks.Task:Delay"));
+            CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Threading.Tasks.Task:Delay"));
     }
 
     [Fact]
@@ -530,10 +550,12 @@ public class PolicyTests
     }
 
     /// <summary>
-    /// Every method in the process that constructs a <typeparamref name="T"/>, the record's
-    /// own generated members excluded.
+    /// Every method in the factory that constructs a <typeparamref name="T"/>, the record's
+    /// own generated members excluded. Reads all four assemblies like every other scan
+    /// here, so a <c>ChangedFile</c> that moved from the deriver to somewhere else would
+    /// leave one construction site behind rather than none.
     /// </summary>
-    private static IReadOnlyList<string> ConstructorsOf<T>() => CallsMadeBy(typeof(FactoryApp).Assembly)
+    private static IReadOnlyList<string> ConstructorsOf<T>() => CallsMadeBy(TheFactory.Assemblies)
         .Where(call => call.Called.DeclaringType == typeof(T)
             && call.Called.Name == ".ctor"
             && Owner(call.Caller) != typeof(T))
@@ -618,7 +640,7 @@ public class PolicyTests
         // Named by owner and method rather than by declaring type: an async method's body
         // compiles into a state machine, so the caller is `<Approve>d__18` and the method
         // is `MoveNext` unless it is recovered the way `Method` recovers it.
-        var readers = CallsMadeBy(typeof(FactoryApp).Assembly)
+        var readers = CallsMadeBy(TheFactory.Assemblies)
             .Where(call => call.Called.DeclaringType?.Name == "IGitHub")
             .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
             .Distinct()
@@ -676,7 +698,7 @@ public class PolicyTests
         // 1000 inside a container readable at all on a Linux host.
         Assert.Contains(
             "HostDiffReader.GitAsync",
-            CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Diagnostics.Process:Start"));
+            CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Diagnostics.Process:Start"));
 
         // The refusals, checked as the argument list rather than as source: they are the
         // point of the component, so they are a value it exposes and a test can read.
@@ -766,7 +788,7 @@ public class PolicyTests
         // and break the cardinality argument, because it would be a legal call to `Key`.
         // The other half is `ObservabilityTests`, which drives the real components and
         // asserts the *values* every published tag actually carries.
-        var built = CallsMadeBy(typeof(FactoryApp).Assembly)
+        var built = CallsMadeBy(TheFactory.Assemblies)
             .Where(call => call.Called.DeclaringType?.FullName == "System.Collections.Generic.KeyValuePair`2"
                 && call.Called.Name == ".ctor"
                 && Owner(call.Caller)?.Name != "FactoryMetrics")
@@ -820,7 +842,7 @@ public class PolicyTests
         // scope - a component can open one and then log outside it, and this cannot see that.
         // `TraceabilityTests` is the other half: it drives the real components and reads the
         // identity off the records themselves.
-        var opened = CallsMadeBy(typeof(FactoryApp).Assembly)
+        var opened = CallsMadeBy(TheFactory.Assemblies)
             .Where(call => call.Called.DeclaringType?.Name == "WorkItemScope"
                 && call.Called.Name == "ForWorkItem")
             .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
@@ -880,7 +902,7 @@ public class PolicyTests
         // Nothing was weakened to accommodate it. The claim above is still asserted in full
         // and a new claim is asserted beside it, so widening either vocabulary is still a
         // failing test rather than a silent addition.
-        var opened = CallsMadeBy(typeof(FactoryApp).Assembly)
+        var opened = CallsMadeBy(TheFactory.Assemblies)
             .Where(call => call.Called.DeclaringType?.Name == "ProjectScope"
                 && call.Called.Name == "ForProject")
             .Select(call => $"{Owner(call.Caller)?.Name}.{Method(call.Caller)}")
@@ -914,8 +936,8 @@ public class PolicyTests
         // The clock is the one that matters. A metrics component with a clock could start
         // emitting on a schedule, and a schedule is a wait, and there is exactly one wait in
         // this process and `PolicyTests` names it. Nothing here observes time.
-        var held = typeof(FactoryApp).Assembly
-            .GetTypes()
+        var held = TheFactory.Assemblies
+            .SelectMany(assembly => assembly.GetTypes())
             .Where(type => type.Name == "FactoryMetrics")
             .SelectMany(type => type.GetConstructors())
             .SelectMany(constructor => constructor.GetParameters())
@@ -931,8 +953,8 @@ public class PolicyTests
         // measurement over a socket of any kind — so the counters cannot have quietly become
         // a second inbound surface on a process that binds its board to loopback on purpose
         // (story 64, ADR-0012). An empty list is the whole assertion.
-        Assert.Empty(CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Net.HttpListener:..ctor"));
-        Assert.Empty(CallersOf(CallsMadeBy(typeof(FactoryApp).Assembly), "System.Net.Sockets.TcpListener:..ctor"));
+        Assert.Empty(CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Net.HttpListener:..ctor"));
+        Assert.Empty(CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Net.Sockets.TcpListener:..ctor"));
     }
 
     [Fact]
@@ -1020,13 +1042,44 @@ public class PolicyTests
     }
 
     /// <summary>
-    /// Every call made anywhere in the assembly, as the caller and the callee. A little IL
-    /// reader rather than a source grep, because a grep cannot see a call under another
-    /// name — and a claim like "nothing here waits" is worth a check that cannot be fooled.
+    /// Every call made anywhere in the assemblies it is given, as the caller and the
+    /// callee. A little IL reader rather than a source grep, because a grep cannot see a
+    /// call under another name — and a claim like "nothing here waits" is worth a check
+    /// that cannot be fooled.
+    /// <para>
+    /// **It takes a set rather than one assembly, and that changed with #61.** It took a
+    /// single assembly because there was a single assembly, and every expected list in
+    /// this file was written against all of it. The four-project split does not change any
+    /// of those claims — they are all claims about *callers*, *construction sites* or
+    /// *constructor shapes*, and none of them is a claim about which project a type sits
+    /// in — so none of the lists below needed editing. What a split would have changed,
+    /// if this had stayed pointed at one assembly, is what the scan could see: a call that
+    /// moved to `Infrastructure` would leave the scanned assembly, the list it appears in
+    /// would get one entry shorter, and `Assert.Equal` would still be comparing two lists.
+    /// <c>Assert.Equal</c> against a list the scan shortened is the silent failure, and
+    /// the only defence is the scan set.
+    /// </para>
+    /// <para>
+    /// So the set is <see cref="TheFactory.Assemblies"/> — all four, by name — and it is
+    /// not widened to "whatever is beside the test binaries", because a discovery that
+    /// quietly absorbed a fifth assembly would be a scan nobody had read. A fifth project
+    /// is a deliberate decision and <c>ArchitectureTests</c> says what it has to do to
+    /// this file.
+    /// </para>
+    /// <para>
+    /// It stays hand-rolled. The two things it does that a general-purpose
+    /// architecture-test library gets wrong most often are both here: <see cref="Owner"/>
+    /// and <see cref="Method"/> recover the real method behind the compiler's
+    /// <c>&lt;Name&gt;d__17</c> state-machine artefact, and <see cref="Instructions"/>
+    /// takes instruction lengths from the runtime's own opcode table after a byte-at-a-time
+    /// scan silently stepped over a real call. A replacement would have to re-derive both
+    /// against a framework whose answers are read out of the same metadata, and the point
+    /// of this file is that its answers are not guesses.
+    /// </para>
     /// </summary>
-    private static IEnumerable<(MethodBase? Caller, MethodBase Called)> CallsMadeBy(Assembly assembly)
+    private static IEnumerable<(MethodBase? Caller, MethodBase Called)> CallsMadeBy(params Assembly[] assemblies)
     {
-        foreach (var type in assembly.GetTypes())
+        foreach (var type in TypesIn(assemblies))
         {
             foreach (var method in AllMethods(type))
             {
@@ -1066,6 +1119,22 @@ public class PolicyTests
             }
         }
     }
+
+    /// <summary>
+    /// Every type in every one of the assemblies it is given — the walk the call scan is
+    /// built on, factored out so that it can be asserted on.
+    /// <para>
+    /// It exists for the one thing a widened scan cannot be trusted on its own to show:
+    /// that it reads all of them. Every line of the factory is still in
+    /// <c>AgentFactory.Web</c>, so a scan that took the set and read only its first entry
+    /// would satisfy every pin in this file today, correctly and silently.
+    /// <c>ArchitectureTests</c> asserts the count here against the assemblies' own
+    /// <c>GetTypes()</c>, which is what turns "the set has four names" into "the walk
+    /// visits four assemblies".
+    /// </para>
+    /// </summary>
+    internal static IEnumerable<Type> TypesIn(params Assembly[] assemblies) =>
+        assemblies.SelectMany(assembly => assembly.GetTypes());
 
     private static IEnumerable<MethodBase> AllMethods(Type type)
     {

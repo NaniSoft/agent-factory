@@ -131,10 +131,66 @@ Around it, two layers are new:
 - **Unit tests** over `Domain` and `Application`, which can now be constructed
   directly rather than reached through a host. This is the "hard to test in
   isolation" the restructure is for.
-- **Architecture tests** over the project graph and the rules above, replacing the
-  assembly-wide reflection scans that a four-project split breaks mechanically.
-  Decided in
+- **Architecture tests** over the project graph and the rules above, added beside the
+  assembly-wide reflection scans rather than in place of them — the scans say what may
+  call what, the graph says what may name what, and only the graph is something the
+  compiler can be made to enforce. Decided in
   [#61](https://github.com/NaniSoft/agent-factory/issues/61).
+
+## What replaces the eighteen reflection tests
+
+`PolicyTests` holds eighteen structural pins, sixteen of them IL scans. **The four-project
+split does not replace them, and none of them was deleted.** All eighteen are claims about
+a method's callers, a record's construction sites, a type's constructor shape or a
+vocabulary that is closed — and **none of those is a claim about which project a type sits
+in.** A project reference can make an outward dependency impossible to compile; it cannot
+say who may call `Orchestrator.AskForTheRound`, may construct a `ProcessRequest`, may read
+`RoundResult.IsRetryable` or may hand the deriver an `ILogger<T>` and nothing else. Two of
+them get *stronger* rather than redundant: the rule that the review surface may not reach
+GitHub, and the rule that `RoundResultDeriver`'s constructor is a logger and nothing
+else, both live on the far side of a boundary that now permits an adapter to hold a
+transport.
+
+What a split *does* break is the other half: a scan pointed at one assembly stops seeing a
+call that moved, its expected list gets one entry shorter, and `Assert.Equal` is still
+comparing two lists. That is the silent failure, and the whole of the defence is the scan
+set. `Boundary/TheFactory.cs` names the four assemblies and `PolicyTests.CallsMadeBy`
+takes them as a set. `ArchitectureTests.The_scan_reads_every_assembly_the_factory_is_made_of`
+pins that set and the walk over it — because "the set has four names" and "the walk reads
+four assemblies" are different claims, and every line of the factory is still in `Web`, so
+only the second one catches a scan narrowed back to one.
+
+`ArchitectureTests` also reads the four `csproj` files and asserts the graph, `Domain`'s
+total absence of references, and that only `Web` declares the ASP.NET SDK or names an
+ASP.NET package. The three libraries cannot see `Microsoft.AspNetCore` at all today, and
+that is a property of the graph rather than of a rule — the Web SDK's framework reference
+is transitive but flows to a project's *referrers*, and nothing references `Web`.
+
+### What a slice ticket does to its pins
+
+Mechanical, and the same every time:
+
+1. **Move the file, run the suite, and read the failure.** Every pin's expected list is
+   written in `Owner().Method()` form, so a method that merely changed project keeps its
+   entry verbatim. A pin fails only when the *claim* changed.
+2. **A failure of the form "expected one of X, found none" is the real hazard.** It means a
+   call left the scanned set, which can only happen if the scan set no longer covers where it
+   went. Fix the set, not the list. If a list genuinely must lose an entry, that is a change to
+   the policy and belongs in its own ticket.
+3. **Two pins will fail on their own and both are correct.** `IssuePublisher` moves to
+   `Infrastructure`, so `Orchestrator`'s constructor list and the `IGitHub` caller list
+   both have to name a **port** instead of the concrete type — which is rule 1 under
+   "The rules a project reference cannot see". Nothing in that pin is a boundary claim;
+   it is a collaborator list, and a slice that introduces the port renames the entry.
+4. **A library that uses `ILogger<T>` needs a package reference.** The three libraries are
+   `Microsoft.NET.Sdk` and see no `Microsoft.Extensions.*` and no ASP.NET — verified, not
+   assumed. `Application` and `Infrastructure` both take
+   `Microsoft.Extensions.Logging.Abstractions` when they first need it; `Domain` takes
+   nothing, ever, and `ArchitectureTests` says so.
+5. **Do not touch `PolicyTests`' scanner.** If a fifth project appears,
+   `The_scan_reads_every_assembly_the_factory_is_made_of` fails and that failure is the
+   answer: add the name to `TheFactory`, then decide deliberately whether the graph test
+   in `ArchitectureTests` needs a new edge.
 
 ## Hosting
 
