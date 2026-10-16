@@ -4,7 +4,7 @@ using AgentFactory.Application.Clock;
 using AgentFactory;
 using System.Reflection;
 
-using AgentFactory.Driving;
+using AgentFactory.Application.Driving;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application.Rounds;
@@ -13,7 +13,7 @@ using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
-using AgentFactory.Loop;
+using AgentFactory.Application.Loop;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Builder;

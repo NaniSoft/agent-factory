@@ -23,6 +23,15 @@
     -->
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <!--
+      `FactoryDriver` is the heartbeat: a `BackgroundService` whose whole body is one
+      `Task.Delay` and two calls into the policy core. It is the only hosted service in
+      `Application`, and `BackgroundService`/`IHostedService` live here. It is the same
+      kind of package as the logging abstractions — the framework's own contract for being
+      run and stopped, carrying no adapter and reaching nothing outside — not a transport,
+      a disk, a process or a credential.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
+    <!--
       `FactoryPaths` and `FactorySettings` read a configuration key before they resolve
       anything on a disk, so this project names `IConfiguration` and declares the
       abstractions for it. `Application` does not: `FactoryOptions` is the values, and

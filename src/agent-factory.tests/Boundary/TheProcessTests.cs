@@ -9,7 +9,7 @@ using AgentFactory.Application.Rounds;
 using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
-using AgentFactory.Loop;
+using AgentFactory.Application.Loop;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Builder;

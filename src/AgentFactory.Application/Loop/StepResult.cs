@@ -1,4 +1,4 @@
-namespace AgentFactory.Loop;
+namespace AgentFactory.Application.Loop;
 
 /// <summary>
 /// What one step of the machine made of itself. A step applies at most one transition, so

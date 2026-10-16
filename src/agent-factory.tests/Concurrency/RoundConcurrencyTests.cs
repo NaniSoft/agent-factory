@@ -7,7 +7,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Driving;
+using AgentFactory.Application.Driving;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Results;

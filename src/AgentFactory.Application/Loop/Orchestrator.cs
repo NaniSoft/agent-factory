@@ -1,4 +1,4 @@
-namespace AgentFactory.Loop;
+namespace AgentFactory.Application.Loop;
 
 using AgentFactory.Application.Clock;
 using AgentFactory.Application.Observability;

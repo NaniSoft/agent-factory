@@ -3,7 +3,6 @@ namespace AgentFactory.Api;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Loop;
 using AgentFactory.Pages;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
