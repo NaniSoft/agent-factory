@@ -13,9 +13,9 @@ The shape of this repository that the answer depends on was read from the checko
 `src/agent-factory/FactoryApp.cs` (the composition root),
 `src/agent-factory/FactoryOptions.cs`,
 `src/agent-factory/Observability/FactoryMetrics.cs`,
-`src/agent-factory.tests/Failures/PolicyTests.cs`,
-`src/agent-factory.tests/Boundary/TheProcessTests.cs`,
-`src/agent-factory.tests/Boundary/BoardPortTests.cs`, and
+`tests/agent-factory.tests/Failures/PolicyTests.cs`,
+`tests/agent-factory.tests/Boundary/TheProcessTests.cs`,
+`tests/agent-factory.tests/Boundary/BoardPortTests.cs`, and
 `src/agent-factory/GitHub/GitHubClient.cs`.
 
 ---
@@ -480,7 +480,7 @@ dashboard's — which belongs to another process.**
 ### 4.1 What the existing pin says
 
 `PolicyTests.The_observability_component_can_reach_nothing_the_factory_does_not_already_reach`
-(`src/agent-factory.tests/Failures/PolicyTests.cs:904-936`) asserts two things:
+(`tests/agent-factory.tests/Failures/PolicyTests.cs:904-936`) asserts two things:
 
 ```csharp
 Assert.Equal(["IMeterFactory", "Meter"], held);
@@ -509,7 +509,7 @@ replacement is real: the exporter is *outbound* to a loopback endpoint on anothe
 not a published port.
 
 `The_process_holds_exactly_one_http_client_and_the_merger_is_it`
-(`src/agent-factory.tests/Boundary/TheProcessTests.cs:164-191`) also survives: it reflects
+(`tests/agent-factory.tests/Boundary/TheProcessTests.cs:164-191`) also survives: it reflects
 over constructors **in this assembly** for an `HttpClient`/`IHttpClientFactory` parameter.
 The OTel exporter's `HttpClient`s live in the OTel assembly. `Assert.Equal(["GitHubClient"],
 holding)` is unaffected.

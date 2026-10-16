@@ -10,14 +10,14 @@ than guessing.
 
 ## The short answer
 
-**`openapi-typescript`, types only, into `admin/lib/generated/`. A generated client
+**`openapi-typescript`, types only, into `src/AgentFactory.Web/ClientApp/lib/generated/`. A generated client
 is not wanted here and should not be adopted.**
 
 Three findings decide it, and all three were observed rather than inferred:
 
 1. **The consumer gates do not object.** All seven gates stayed green with a full
    `openapi-typescript` output *and* a full Orval React Query client sitting inside
-   `admin/lib/generated/`, with the real lockfile carrying both generators'
+   `src/AgentFactory.Web/ClientApp/lib/generated/`, with the real lockfile carrying both generators'
    dependency trees. The gate kit is not the obstacle. That is the opposite of what
    the ticket was worried about, and it is worth saying plainly because the worry was
    reasonable.
@@ -32,7 +32,7 @@ Three findings decide it, and all three were observed rather than inferred:
    against it — a build writing to the store of record. There is a clean
    mitigation and it is one environment variable, but it has to be stated.
 
-The hand-written types are not wrong today. `admin/lib/decisions.ts`'s
+The hand-written types are not wrong today. `src/AgentFactory.Web/ClientApp/lib/decisions.ts`'s
 `DecisionResult` and `src/agent-factory/Api/DecisionView.cs`'s `DecisionResult` agree
 field for field, camel-cased name for camel-cased name. So the case for codegen is
 not "the hand-written types have drifted"; it is that a generator removes the
@@ -57,7 +57,7 @@ kiota generate -l TypeScript -d openapi.json -o kiota-ts -n agent-factory
 
 # 3. drop the output into the Board and run the gates
 pnpm add -D openapi-typescript orval && pnpm add @tanstack/react-query
-mkdir -p admin/lib/generated && cp the-outputs admin/lib/generated/
+mkdir -p src/AgentFactory.Web/ClientApp/lib/generated && cp the-outputs src/AgentFactory.Web/ClientApp/lib/generated/
 npx next build && node scripts/emit-route-aliases.mjs
 node node_modules/@nanisoft/prism-ui/gates/cli.mjs --json
 ```
@@ -242,7 +242,7 @@ export const getGetApiBoardUrl = () => { return `/api/board` }
 ```
 
 which is exactly what the Board's hand-written `fetchBoard` already does
-(`admin/lib/board.ts:169`) and exactly what a same-origin static export needs. The
+(`src/AgentFactory.Web/ClientApp/lib/board.ts:169`) and exactly what a same-origin static export needs. The
 docs also offer `baseUrl.runtime` for environment-driven resolution
 (<https://orval.dev/docs/guides/set-base-url>) — unnecessary here.
 
@@ -260,7 +260,7 @@ Against it, three concrete frictions, all observed:
   guessing.
 - **It installs into a pnpm 11 app, and pnpm writes into a gate's file.** `pnpm add -D
   orval` pulled `esbuild`, whose postinstall pnpm blocks by default, and pnpm
-  responded by writing into `admin/pnpm-workspace.yaml`:
+  responded by writing into `src/AgentFactory.Web/ClientApp/pnpm-workspace.yaml`:
 
   ```diff
   +allowBuilds:
@@ -276,7 +276,7 @@ Against it, three concrete frictions, all observed:
   what "kept out of the way of the consumer gates" is asking about.
 
 - Also: v8 is ESM-only and "Node.js 22.18 or higher required"
-  (<https://orval.dev/docs/versions/v8>), while `admin/package.json` declares only
+  (<https://orval.dev/docs/versions/v8>), while `src/AgentFactory.Web/ClientApp/package.json` declares only
   `"node": ">=22"`.
 
 Determinism: identical across two runs.
@@ -312,13 +312,13 @@ Two further observations:
   Same-origin is then something a caller configures rather than something generated.
 - **It writes two extra files into the output tree**: `kiota-lock.json` (1,375 B of
   generator state that has to be kept current) and `.kiota.log` (a run log). Both would
-  land inside `admin/lib/` and be read by the gates.
+  land inside `src/AgentFactory.Web/ClientApp/lib/` and be read by the gates.
 
 ## 3. The prism-gates collision risk — the heart of the ticket
 
 The laws live in `@nanisoft/prism-ui/gates`, not in this repository. The full source
 was read: `gates/laws.mjs`, `gates/run.mjs`, and all seven gate programs, from
-`admin/node_modules/@nanisoft/prism-ui/gates/`. What each one actually does, and what
+`src/AgentFactory.Web/ClientApp/node_modules/@nanisoft/prism-ui/gates/`. What each one actually does, and what
 a generated file does to it:
 
 | gate | what it reads | a file in `lib/generated/` |
@@ -332,7 +332,7 @@ a generated file does to it:
 | `pack-boundary` | `out/` for `[data-pack]` elements, resolved against `scripts/pack-map.json` | **Unaffected.** 10 documents, 0 boundaries, 0 findings. Note the map declares `regions: {}` and `secondPackRegions: []` — a map that says zero is a decision, so *any* element that ever rendered a second pack would be an `undeclared-region` finding. Nothing a generator emits renders one. |
 
 **All seven gates: green, with both a types-only output and a full Orval React Query
-client in `admin/lib/generated/`, and the real lockfile carrying both trees.**
+client in `src/AgentFactory.Web/ClientApp/lib/generated/`, and the real lockfile carrying both trees.**
 
 ### The retired-line graph half, specifically
 
@@ -341,7 +341,7 @@ Two independent walks of the real trees:
 
 - A traversal of `openapi-typescript` + `orval` + `@tanstack/react-query` over 130
   packages found **zero** `antd` / `@ant-design/*` packages.
-- `retired-line`'s own lockfile parser then read `admin/pnpm-lock.yaml` — the file as
+- `retired-line`'s own lockfile parser then read `src/AgentFactory.Web/ClientApp/pnpm-lock.yaml` — the file as
   it stood with those three installed — and reported 0 findings. The gate reads the
   lockfile as a graph rather than grepping it, because a base64 integrity hash
   contains the characters a package-specifier pattern admits; a grep here would have
@@ -379,10 +379,10 @@ graph three times the size, and found nothing.
 
 ### Where the generated output should live, and why it matters to the gates
 
-**`admin/lib/generated/`, and the reason is a gate one.** `runtime-token-read`'s
+**`src/AgentFactory.Web/ClientApp/lib/generated/`, and the reason is a gate one.** `runtime-token-read`'s
 `sourceRoots` is declared in `prism-gates.json` as `["app", "lib"]`, and
 `hidden-state`'s default is `["app", "components", "lib"]`. A top-level
-`admin/generated/` directory would be read by **neither**, and only by
+`src/AgentFactory.Web/ClientApp/generated/` directory would be read by **neither**, and only by
 `retired-line` (which walks the whole repository). Putting generated code inside a
 declared root keeps it inside the gate kit's sight, which is the same argument
 `gates/README.md` makes about what a consumer holds and what the package holds.
@@ -392,12 +392,12 @@ The cost is honest: 16 and 18 files read instead of 11 and 13, against floors of
 introduce a runtime token read would fail the build rather than passing unnoticed.
 
 One thing outside the gates entirely: `prism-gates` runs with `root = process.cwd()`,
-i.e. `admin/`. This note lives in repository-root `docs/research/`, which no gate in
+i.e. `src/AgentFactory.Web/ClientApp/`. This note lives in repository-root `docs/research/`, which no gate in
 this kit reads. That is a fact about where prose goes, not a loophole to rely on.
 
 ## 4. Types only, or a client?
 
-**Types only. `openapi-typescript`, into `admin/lib/generated/`, and the seven (five
+**Types only. `openapi-typescript`, into `src/AgentFactory.Web/ClientApp/lib/generated/`, and the seven (five
 files, ten functions) hand-written interfaces stay where they are.**
 
 The case, in the order the argument actually runs:
@@ -441,7 +441,7 @@ The case, in the order the argument actually runs:
 
 ### What codegen actually buys here, stated narrowly
 
-Not "the types are correct today" — they are; `admin/lib/decisions.ts` and
+Not "the types are correct today" — they are; `src/AgentFactory.Web/ClientApp/lib/decisions.ts` and
 `Api/DecisionView.cs` agree field for field. What it buys is that **the seven
 interfaces stop being a second copy that can drift, and become aliases of the
 factory's own schema**, so a rename on the .NET side is a `tsc` failure instead of a
@@ -463,7 +463,7 @@ functions stay exactly as they are.
 
 ### Where the output lives, and whether it is committed
 
-**Commit `admin/lib/generated/openapi.d.ts`. Do not generate it in `pnpm build`.**
+**Commit `src/AgentFactory.Web/ClientApp/lib/generated/openapi.d.ts`. Do not generate it in `pnpm build`.**
 
 Against generating in the build:
 
@@ -494,7 +494,7 @@ The check that fits this repository is the one the deriver already demonstrates:
 regenerate and diff, in CI, and fail on any difference.
 
 ```jsonc
-// admin/package.json
+// src/AgentFactory.Web/ClientApp/package.json
 {
   "scripts": {
     "openapi": "dotnet build ../src/agent-factory/agent-factory.csproj && openapi-typescript ../src/agent-factory/obj/agent-factory.json -o lib/generated/openapi.d.ts",
@@ -517,7 +517,7 @@ specific defect this ticket will otherwise create, an endpoint someone added wit
 
 ### The vitest fixtures
 
-`admin/test/*.tsx` render against `admin/test/fixtures/*.json`, and `board.test.tsx`
+`src/AgentFactory.Web/ClientApp/test/*.tsx` render against `src/AgentFactory.Web/ClientApp/test/fixtures/*.json`, and `board.test.tsx`
 says the fixture "mirrors the real `GET /api/board` response". Today nothing enforces
 that: a fixture is `unknown` to `tsc`, so a renamed field is a runtime `undefined` in
 a passing test suite.
@@ -538,7 +538,7 @@ copy-a-test-hopes-is-right into a checked claim. The fixtures stay as data; the
 
 Two things to watch:
 
-- `admin/tsconfig.json` has `"resolveJsonModule": true` and includes `**/*.ts`, so a
+- `src/AgentFactory.Web/ClientApp/tsconfig.json` has `"resolveJsonModule": true` and includes `**/*.ts`, so a
   fixture import already typechecks. No config change needed.
 - The observed build already typechecks generated files: `next build` ran TypeScript
   over `lib/generated/**` with the Orval client present and passed, with `strict`,
@@ -555,7 +555,7 @@ Two things to watch:
    the Web project and `AddOpenApi()`. Do **not** `MapOpenApi()`.
 3. Pin `Factory__DatabasePath` to a temporary path wherever the document is
    generated, and say so in the script that does it.
-4. Add `openapi-typescript` as a devDependency; commit `admin/lib/generated/openapi.d.ts`.
+4. Add `openapi-typescript` as a devDependency; commit `src/AgentFactory.Web/ClientApp/lib/generated/openapi.d.ts`.
 5. Convert the seven hand-written interfaces to aliases over `components['schemas']`,
    keeping the prose.
 6. Add the drift check, and a test asserting every route has a response schema.
@@ -568,7 +568,7 @@ Steps 1 and 3 are the ones that will be skipped and should not be.
 Stated rather than guessed:
 
 - **The gate kit is a private-ish package.** Everything in §3 was read from
-  `admin/node_modules/@nanisoft/prism-ui/gates/*.mjs` at the pinned 1.1.0, which is
+  `src/AgentFactory.Web/ClientApp/node_modules/@nanisoft/prism-ui/gates/*.mjs` at the pinned 1.1.0, which is
   the authoritative source the laws live in — but a future release may change a law
   or a gate's surface. `gateKit: 1` is the generation this app is held to; a law
   rewritten in a later release is a version this app has not moved to, which is
