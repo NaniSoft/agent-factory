@@ -7,6 +7,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Application.Loop;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Results;
@@ -184,26 +185,16 @@ public class PolicyTests
             property => property.Name.Contains("Budget", StringComparison.OrdinalIgnoreCase)
                 || property.Name.Contains("Concurrent", StringComparison.OrdinalIgnoreCase));
 
-        // The loop is the only component in store-only mode that asks for a round, and the
-        // workflow's round activities are the only callers in workflow mode — so the whole
-        // of the process's round-starting is three methods in two components, all named.
-        // This is the structural half of "the concurrency is what bounds
-        // it": a fourth caller of the agent seam would be a second way to start a
-        // round, and nothing that counts could see it. Checked by caller
-        // rather than by grep, for the reason the rest of this file is.
-        //
-        // The loop's one caller is its own escape hatch rather than the method that decides
-        // to start a round: AskForTheRound is the single place a call to the agent can be
-        // made, so an agent that throws before it has a task to hand back becomes a round
-        // that came back without a result rather than a fault in the middle of a step. The
-        // activities' two are the workflow's own: a route round and a build round, each one
-        // activity, each bounded by the engine's own retry policy and concurrency.
+        // There is exactly one place the factory asks for a round, and it is the policy
+        // core both drivers call (#64): the in-process loop reaches it through its step,
+        // and the workflow's two round activities reach it through their activities. The
+        // claim this pins did not weaken — it *strengthened*: the three callers that used
+        // to exist (the loop's own escape hatch and the workflow's two activities) are now
+        // one method, because a rule that existed three times is a rule that can drift into
+        // three answers. A fourth caller anywhere would still be a second way to start a
+        // round that nothing counting rounds could see.
         Assert.Equal(
-            [
-                "Orchestrator.AskForTheRound",
-                "TicketActivities.BuildRoundAsync",
-                "TicketActivities.RouteRoundAsync",
-            ],
+            ["TicketPolicy.RunRoundAsync"],
             CallsMadeBy(TheFactory.Assemblies)
                 .Where(call => call.Called.DeclaringType == typeof(INOpenCode)
                     && call.Called.Name == "RunRoundAsync")
@@ -655,6 +646,15 @@ public class PolicyTests
         // The availability claim this test exists for is untouched. A reviewer reads a diff
         // long after a routing round filed whatever its verdict asked for, and the diff is
         // still git, on this host, against a directory on this machine.
+        // **And a fifth name for the policy core, deliberately and visibly (#64).**
+        // `TicketPolicy` is where the loop and the workflow's landing, park, answer and
+        // merge rules now live, and it reaches GitHub exactly where the loop used to:
+        // the conversation a round travels with and the answer that unblocks a Grill. It
+        // is the loop's own policy one layer in, not a new thing that may reach the
+        // network — the availability claim below is untouched, because a reviewer still
+        // reads a diff that is git on this host, generated from a tree already on this
+        // machine, and never asked of the API.
+        //
         // Named by owner and method rather than by declaring type: an async method's body
         // compiles into a state machine, so the caller is `<Approve>d__18` and the method
         // is `MoveNext` unless it is recovered the way `Method` recovers it.
@@ -670,8 +670,10 @@ public class PolicyTests
                 caller.StartsWith("Poller.", StringComparison.Ordinal)
                     || caller.StartsWith("Orchestrator.", StringComparison.Ordinal)
                     || caller.StartsWith("IssuePublisher.", StringComparison.Ordinal)
-                    || caller.StartsWith("TicketActivities.", StringComparison.Ordinal),
-                $"only intake, the loop, the issue publisher and the workflow activities may ask GitHub anything, and {caller} does: a round's diff is "
+                    || caller.StartsWith("TicketActivities.", StringComparison.Ordinal)
+                    || caller.StartsWith("TicketPolicy.", StringComparison.Ordinal),
+                $"only intake, the loop, the issue publisher, the workflow activities and their shared policy core may ask "
+                    + $"GitHub anything, and {caller} does: a round's diff is "
                     + "generated on the host from the tree the round left, and a board that fetched one from the API would be showing a "
                     + "second opinion from the service that produced the change (ADR-0006)"));
 
@@ -1025,6 +1027,39 @@ public class PolicyTests
         // for itself: no credential reader, no HTTP client, no second
         // seam. Those would be a second opinion about a repository, and this list is the
         // check that they cannot arrive.
+        //
+        // **And the list was redistributed for the policy core (#64), deliberately and
+        // visibly, and the redistribution is why the assertion below this one exists.** The
+        // loop's four seams — the agent, GitHub, the merger and the publisher — moved into
+        // `TicketPolicy`, which both drivers call, so the loop's own list shortened by four
+        // and gained one name: the core. That would be a weakening if it were the whole
+        // claim, and so the claim is made in two halves rather than one: the loop reaches
+        // the store, the core, the clock, a logger, the counters and the options, and the
+        // core reaches exactly the four seams the loop used to hold. Between them nothing
+        // was deleted and nothing new arrived — the same nine collaborators, one layer in.
+        // What would be a breach, and is what both lists are for, is a container runtime,
+        // an `HttpClient`, a `DockerCli` or a second seam, and neither list has one.
+        Assert.Equal(
+            [
+                "IWorkItemStore",
+                "TicketPolicy",
+                "IClock",
+                "ILogger`1",
+                "FactoryMetrics",
+                "FactoryOptions",
+            ],
+            typeof(Orchestrator)
+                .GetConstructors()
+                .Single()
+                .GetParameters()
+                .Select(parameter => parameter.ParameterType.Name));
+
+        // The core's own world, and the half of the claim above that keeps its width: the
+        // agent, GitHub, the merger and the publisher are still the loop's four seams, now
+        // held by the one component that decides what a landing, a park and a merge mean.
+        // It holds no clock, no store of its own beyond the port it was handed, no
+        // credential reader and no transport: everything it can reach, the loop could
+        // already reach.
         Assert.Equal(
             [
                 "IWorkItemStore",
@@ -1032,12 +1067,8 @@ public class PolicyTests
                 "IGitHub",
                 "IMergePolicy",
                 "IIssuePublisher",
-                "IClock",
-                "ILogger`1",
-                "FactoryMetrics",
-                "FactoryOptions",
             ],
-            typeof(Orchestrator)
+            typeof(TicketPolicy)
                 .GetConstructors()
                 .Single()
                 .GetParameters()

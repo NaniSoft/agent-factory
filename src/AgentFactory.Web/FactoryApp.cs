@@ -7,6 +7,7 @@ using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Application.Routing;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
@@ -168,6 +169,12 @@ public static class FactoryApp
         // container runtime — the agent seam it asks for a round through is a component
         // that has one — and the merge is one call on the one GitHub seam, so the loop
         // learns whether a change shipped without learning what a pull request is.
+        //
+        // What each transition *means* is `TicketPolicy`, which both this loop and the
+        // durable workflow call (#64): the loop is the in-process driver of the same rules
+        // the workflow drives from its history, so the two cannot come to disagree about
+        // a landing, a park or a merge.
+        builder.Services.AddSingleton<TicketPolicy>();
         builder.Services.AddSingleton<Orchestrator>();
 
         // The poller is intake: it reads the open issues of the projects being served and

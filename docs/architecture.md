@@ -61,6 +61,24 @@ inside says what it needs, the outside says how it gets it.
 it, so it is declared inside and implemented by the driver. That is the same shape
 as an HTTP endpoint — the caller is outside, the contract is the inside's.
 
+### One policy core, two drivers
+
+The factory steps the same transitions two ways: the in-process loop locally, the
+per-ticket workflow when durable execution is configured. The rules exist once, in
+`Tickets/TicketPolicy` (in `Application`), which both drivers call — running a round,
+landing a build or a routing round, parking, handing back, reading the conversation a
+round travels with, and merging. What each driver keeps is only *how* it is stepped and
+*how* it is made durable: the loop its step order, in-flight budget, round timeout and
+retry backoff, the workflow its history, durable waits and engine retry policy. Decided
+in [#64](https://github.com/NaniSoft/agent-factory/issues/64).
+
+The two drivers still disagree about six things, and each is a policy change rather than
+a move and so is left alone: how a routing round spends the reviewer's ceiling, what a
+transient merge failure does, whether applying a decision marks it applied, the
+acceptance guard, how silence past the feedback threshold is handled, and the wording a
+parked routing round carries. Those are reported with the ticket rather than quietly
+resolved here.
+
 ### Cross-cutting types
 
 - `Failures/` → **`Domain`.** A classification of what happened to a round is the

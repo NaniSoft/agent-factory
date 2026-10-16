@@ -6,6 +6,7 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Routing;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
@@ -27,13 +28,15 @@ public class MinimalEnvTest
         var agent = new FakeNOpenCode().RoutingAs(WorkItemKind.Build, "names the change");
         var activities = new TicketActivities(
             store,
-            agent,
-            new IssuePublisher(github, NullLogger<IssuePublisher>.Instance),
-            github,
-            // The fake answers IMergePolicy as well, the way the real client answers
-            // IMerger. Nothing in this test merges, so what it answers with is the
-            // refusing default.
-            github,
+            new TicketPolicy(
+                store,
+                agent,
+                github,
+                // The fake answers IMergePolicy as well, the way the real client answers
+                // IMerger. Nothing in this test merges, so what it answers with is the
+                // refusing default.
+                github,
+                new IssuePublisher(github, NullLogger<IssuePublisher>.Instance)),
             NullLogger<TicketActivities>.Instance);
 
         var workItem = store.Intake("nexus", "https://github.com/NaniSoft/nexus", 42, "t", "b", "main").WorkItem;

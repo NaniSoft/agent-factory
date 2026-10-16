@@ -7,6 +7,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Application.Loop;
 using AgentFactory.Application.Rounds;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Application.WorkItems;
 using System.Xml.Linq;
@@ -315,13 +316,17 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // loop held a type from the far side of the boundary; it names the port
         // `IIssuePublisher` now, declared in `Application` and implemented in
         // `Infrastructure` (docs/architecture.md, rule 1). Same eight, same order, same claim.
+        //
+        // **And the four seams were redistributed into `TicketPolicy` for the policy core
+        // (#64), so the loop's own list is the store, the core, the clock, a logger, the
+        // counters and the options.** That is the pin working and not the pin relaxing: the
+        // claim is made in two halves now — this list and the core's own, beside it in
+        // `PolicyTests` — and between them they name exactly what the loop could reach
+        // before. What is checked here is unchanged: no container runtime, by any route.
         Assert.Equal(
             [
                 "IWorkItemStore",
-                "INOpenCode",
-                "IGitHub",
-                "IMergePolicy",
-                "IIssuePublisher",
+                "TicketPolicy",
                 "IClock",
                 "ILogger`1",
                 "FactoryMetrics",

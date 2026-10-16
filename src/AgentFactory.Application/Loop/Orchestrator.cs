@@ -2,10 +2,8 @@ namespace AgentFactory.Application.Loop;
 
 using AgentFactory.Application.Clock;
 using AgentFactory.Application.Observability;
-using AgentFactory.Application.Rounds;
-using AgentFactory.Application.Routing;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Application;
-using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
@@ -15,11 +13,12 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The orchestrator: a hand-rolled deterministic state machine over the work item store,
-/// and the whole of the factory's policy about what runs next. It asks
-/// <see cref="INOpenCode"/> for one round and receives one result, reads a work item's
-/// conversation through <see cref="IGitHub"/>, and asks <see cref="IMergePolicy"/> for
-/// one merge and learns whether it landed. It has no concept of a container, an image, a
-/// process, or a pull request behind either call (ADR-0004, ADR-0005, ADR-0006).
+/// and the in-process driver of the factory's own transitions. What each transition
+/// *means* lives once, in <see cref="TicketPolicy"/>, which the durable workflow calls
+/// too (#64); what stays here is how this driver is stepped — the step order, the
+/// in-flight budget, the round timeout and the retry backoff — and the records it writes
+/// about them. It has no concept of a container, an image, a process, or a pull request
+/// (ADR-0004, ADR-0005, ADR-0006).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,10 +51,7 @@ using Microsoft.Extensions.Logging;
 public sealed class Orchestrator
 {
     private readonly IWorkItemStore _store;
-    private readonly INOpenCode _agent;
-    private readonly IGitHub _github;
-    private readonly IMergePolicy _merger;
-    private readonly IIssuePublisher _publisher;
+    private readonly TicketPolicy _policy;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
     private readonly FactoryMetrics _metrics;
@@ -112,20 +108,14 @@ public sealed class Orchestrator
 
     public Orchestrator(
         IWorkItemStore store,
-        INOpenCode agent,
-        IGitHub github,
-        IMergePolicy merger,
-        IIssuePublisher publisher,
+        TicketPolicy policy,
         IClock clock,
         ILogger<Orchestrator> logger,
         FactoryMetrics metrics,
         FactoryOptions options)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        _github = github ?? throw new ArgumentNullException(nameof(github));
-        _merger = merger ?? throw new ArgumentNullException(nameof(merger));
-        _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
+        _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
@@ -213,13 +203,10 @@ public sealed class Orchestrator
         foreach (var item in _store.List().Where(item =>
             item.Swimlane == Swimlane.Waiting && item.RoutingIssue is { }))
         {
-            IReadOnlyList<IssueComment> conversation;
+            bool answered;
             try
             {
-                conversation = await _github.ReadCommentsAsync(
-                    item.RepoUrl,
-                    item.RoutingIssue!.Value,
-                    CancellationToken.None).ConfigureAwait(false);
+                answered = await _policy.AnswerArrivedAsync(item, CancellationToken.None);
             }
             catch (Exception refused)
             {
@@ -233,13 +220,13 @@ public sealed class Orchestrator
                 continue;
             }
 
-            if (!conversation.Any(comment => comment.CreatedUtc > item.UpdatedUtc))
+            if (!answered)
             {
                 continue;
             }
 
             using var trace = _logger.ForWorkItem(item.Id, item.Project, item.IssueNumber);
-            _store.RecordHandBack(item.Id);
+            _policy.HandBack(item.Id);
             _logger.LogInformation(
                 "{Project}#{Issue} was answered in the conversation on #{Question}; it is handed back to "
                     + "routing to be read whole, answers included.",
@@ -479,7 +466,7 @@ public sealed class Orchestrator
     {
         try
         {
-            await _merger.MergeAsync(workItem, CancellationToken.None);
+            await _policy.MergeAsync(workItem, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -591,7 +578,7 @@ public sealed class Orchestrator
 
         try
         {
-            await _merger.MergeAsync(parked, CancellationToken.None);
+            await _policy.MergeAsync(parked, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -728,7 +715,7 @@ public sealed class Orchestrator
 
         try
         {
-            await _merger.MergeAsync(ignored, CancellationToken.None);
+            await _policy.MergeAsync(ignored, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -906,17 +893,7 @@ public sealed class Orchestrator
         IReadOnlyList<IssueComment> conversation;
         try
         {
-            var all = new List<IssueComment>();
-            all.AddRange(await _github.ReadCommentsAsync(
-                next.RepoUrl, next.IssueNumber, CancellationToken.None).ConfigureAwait(false));
-
-            if (next.RoutingIssue is { } question && question != next.IssueNumber)
-            {
-                all.AddRange(await _github.ReadCommentsAsync(
-                    next.RepoUrl, question, CancellationToken.None).ConfigureAwait(false));
-            }
-
-            conversation = all.OrderBy(comment => comment.CreatedUtc).ToList();
+            conversation = await _policy.ConversationAsync(next, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -955,7 +932,7 @@ public sealed class Orchestrator
 
         var inFlight = new InFlight(
             next.Id, next.Project, next.IssueNumber, roundNumber, _clock.UtcNow, purpose, conversation);
-        inFlight.Pending = AskForTheRound(RoundFor(inFlight), inFlight.Token);
+        inFlight.Pending = _policy.RunRoundAsync(RoundFor(inFlight), inFlight.Token);
 
         _inFlight.Add(next.Id, inFlight);
         Volatile.Write(ref _roundsInFlight, _inFlight.Count);
@@ -1139,27 +1116,12 @@ public sealed class Orchestrator
             return await LandTheRoute(run, result).ConfigureAwait(false);
         }
 
-        var round = _store.RecordRound(
-            run.WorkItemId,
-            result.Outcome,
-            result.ResultPayload,
-            result.AgentNote,
-            run.StartedUtc,
-            run.Attempts,
-            result.Failure,
-            result.Log,
-            // Kept beside the payload and passed straight through. The loop's opinion is
-            // the swimlane and the retry decision; what the round produced is what the
-            // round produced, and the loop adds nothing to it and takes nothing away.
-            result.Diff);
-
         // A round that came back with a result is what a reviewer judges, so it goes to
         // Review. A round that did not is not merged over: it parks in Escalated, which a
         // human can still merge or reject (ADR-0008). That is the answer for a permanent
-        // failure, for a timeout, and for a transient one that has spent its attempts.
-        _store.Move(
-            run.WorkItemId,
-            result.Outcome == RoundOutcome.Produced ? Swimlane.Review : Swimlane.Escalated);
+        // failure, for a timeout, and for a transient one that has spent its attempts —
+        // and it is the same landing the durable workflow asks `TicketPolicy` for.
+        var round = _policy.LandTheBuild(run.WorkItemId, result, run.StartedUtc, run.Attempts);
 
         // The two counters, and the reason they are recorded here rather than anywhere
         // else: this is the one place a round is both *over* and *on the record*. Counting
@@ -1214,19 +1176,11 @@ public sealed class Orchestrator
     /// and it is still inside the budget: the cost is bounded even though the count is not.
     /// </para>
     /// <para>
-    /// <strong>The questions are filed before the verdict is recorded, and that order is the
-    /// point.</strong> A verdict of <c>Grill</c> recorded without the question issue existing
-    /// would leave a work item in Waiting with nothing to answer and nothing pointing at
-    /// where to answer it — a card saying the factory needs something from somebody and giving
-    /// that somebody nowhere to give it. So the publication comes first, and a publication
-    /// that fails turns the verdict into a park carrying the refusal.
-    /// </para>
-    /// <para>
-    /// A round that did not run to completion parks rather than being retried. The retry
-    /// policy has already spent itself on whatever the failure was — three attempts, holding
-    /// the slot — and the work item still has a reviewer's click available, which is a
-    /// different and better answer than the same routing round being asked for again
-    /// (ADR-0008).
+    /// The rule — park, do not guess a verdict, and file what a human has to be given before
+    /// the verdict is recorded — is <see cref="TicketPolicy.LandTheRouteAsync"/>'s, and this
+    /// method is the driver's half: the work item's identity scope and the records a person
+    /// reads. The one thing the loop supplies that the workflow does not is its own three-case
+    /// wording for a round that could not answer.
     /// </para>
     /// </remarks>
     private async Task<bool> LandTheRoute(InFlight run, RoundResult result)
@@ -1248,81 +1202,37 @@ public sealed class Orchestrator
             return true;
         }
 
-        if (result.Outcome != RoundOutcome.Produced)
+        var landing = await _policy.LandTheRouteAsync(
+            workItem,
+            result,
+            DescribeARoundThatCouldNotAnswer(result),
+            CancellationToken.None).ConfigureAwait(false);
+
+        if (landing.ParkedBecause is { } because)
         {
-            Park(workItem, DescribeARoundThatCouldNotAnswer(result));
+            // The park's own warning, which the workflow's activity does not write: the
+            // workflow's card carries the same reason in its own record, and the log here is
+            // the loop's account of a transition it made.
+            _logger.LogWarning(
+                "{Project}#{Issue} is parked: {Because}",
+                workItem.Project,
+                workItem.IssueNumber,
+                because);
 
             return true;
         }
-
-        // The reader's own words for why, carried through unchanged. A round that wrote
-        // nothing readable and a round that wrote something wrong are both "the factory
-        // cannot act on this", and the distinction is the reader's to draw rather than this
-        // method's.
-        if (result.Routing is not { } outcome)
-        {
-            Park(
-                workItem,
-                "the routing round came back with no verdict at all, so nothing has said what kind of work this is");
-
-            return true;
-        }
-
-        if (outcome is not { IsReadable: true, Proposal: { } proposal })
-        {
-            Park(workItem, outcome.UnreadableBecause ?? "the routing round's verdict could not be read");
-
-            return true;
-        }
-
-        int? filedAs;
-        try
-        {
-            filedAs = await _publisher.PublishAsync(workItem, proposal, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-        catch (FactoryFailure refused)
-        {
-            // The questions were not filed, so the verdict cannot be acted on and is not
-            // recorded. The reason names the refusal, because a project whose credential can
-            // push but cannot write issues will hit this on every routing round, and the card
-            // has to say that rather than showing a work item waiting on a question that is
-            // nowhere.
-            Park(workItem, $"the factory could not file what {proposal.Verdict} asks for: {refused.Message}");
-
-            return true;
-        }
-
-        _store.RecordRoute(workItem.Id, proposal.Verdict, proposal.Because, filedAs);
 
         _logger.LogInformation(
             "{Project}#{Issue} was routed {Verdict}: {Because}{Filed}",
             workItem.Project,
             workItem.IssueNumber,
-            proposal.Verdict,
-            proposal.Because,
-            filedAs is { } issue ? $". Its questions or map are in #{issue}" : string.Empty);
+            landing.Kind,
+            landing.Reason,
+            landing.QuestionsIssue is { } issue ? $". Its questions or map are in #{issue}" : string.Empty);
 
         _metrics.RoundCameBack(workItem.Project, RoundOutcome.Produced);
 
         return true;
-    }
-
-    /// <summary>
-    /// Parks a work item whose routing round could not answer, keeping the round's own
-    /// account of why on the card. Deliberately <em>not</em> through the merge-failure path
-    /// and not through a decision: neither of those is what happened, and borrowing either
-    /// would put a counter on the work item that a later merge would then inherit.
-    /// </summary>
-    private void Park(WorkItem workItem, string because)
-    {
-        _store.RecordRoute(workItem.Id, WorkItemKind.Unrouted, because);
-
-        _logger.LogWarning(
-            "{Project}#{Issue} is parked: {Because}",
-            workItem.Project,
-            workItem.IssueNumber,
-            because);
     }
 
     /// <summary>
@@ -1385,7 +1295,7 @@ public sealed class Orchestrator
         using var trace = _logger.ForWorkItem(
             run.WorkItemId, run.Project, run.IssueNumber, run.RoundNumber);
 
-        run.Pending = AskForTheRound(RoundFor(run), run.Token);
+        run.Pending = _policy.RunRoundAsync(RoundFor(run), run.Token);
 
         _logger.LogInformation(
             "Round {Round} of {Project}#{Issue} is being asked for again, on attempt {Attempt}.",
@@ -1407,7 +1317,9 @@ public sealed class Orchestrator
     /// The round carries its own number and attempt and the loop is the only thing that
     /// knows either, because the round runner has to name a directory the round's files
     /// land in — and one directory per work item put round 2's tree inside round 1's, so
-    /// the board and the merger then read round 1's change for round 2 (#22).
+    /// the board and the merger then read round 1's change for round 2 (#22). The shape of
+    /// the round itself is <see cref="TicketPolicy.ComposeRound"/>'s, so the loop's round
+    /// and the workflow's round cannot come to differ about a field.
     /// </remarks>
     private Round RoundFor(InFlight run)
     {
@@ -1418,37 +1330,13 @@ public sealed class Orchestrator
         // number the agent would have to go and look up (Round, RoundBrief). Reconstructing
         // the brief from the issue number instead would mean the agent's brief and the
         // board's card could be two different things, and only one of them is the record.
-        return new Round(
-            workItem.Id,
-            workItem.Project,
-            workItem.RepoUrl,
-            workItem.IssueNumber,
-            workItem.IssueTitle,
-            workItem.IssueBody,
-            workItem.BaseBranch,
-            BriefFor(run.WorkItemId),
+        return TicketPolicy.ComposeRound(
+            workItem,
+            run.Purpose,
             run.RoundNumber,
             run.Attempts,
-            run.Purpose,
+            BriefFor(run.WorkItemId),
             run.Conversation);
-    }
-
-    /// <summary>
-    /// Asks the agent for the round, and never lets the call escape: an agent that throws
-    /// before it has a task to hand back is a round that came back without a result, and
-    /// the machine has to survive that in order to record it. The classification is the
-    /// throwing exception's own — see <see cref="Read"/>.
-    /// </summary>
-    private Task<RoundResult> AskForTheRound(Round round, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return _agent.RunRoundAsync(round, cancellationToken);
-        }
-        catch (Exception failure)
-        {
-            return Task.FromException<RoundResult>(failure);
-        }
     }
 
     private RoundResult TimedOut(InFlight run)

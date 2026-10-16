@@ -8,6 +8,7 @@ using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.Issues;
+using AgentFactory.Application.Tickets;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
@@ -58,13 +59,15 @@ public class TicketWorkflowTests
             .Producing("src/Index.cs +12 -3", "Built the change.");
         var activities = new TicketActivities(
             store,
-            agent,
-            new IssuePublisher(github, NullLogger<IssuePublisher>.Instance),
-            github,
-            // The fake answers IMergePolicy as well, the way the real client answers
-            // IMerger. Nothing in these tests merges, so what it answers with is the
-            // refusing default.
-            github,
+            new TicketPolicy(
+                store,
+                agent,
+                github,
+                // The fake answers IMergePolicy as well, the way the real client answers
+                // IMerger. Nothing in these tests merges, so what it answers with is the
+                // refusing default.
+                github,
+                new IssuePublisher(github, NullLogger<IssuePublisher>.Instance)),
             NullLogger<TicketActivities>.Instance);
 
         var workItem = store.Intake(
@@ -133,13 +136,15 @@ public class TicketWorkflowTests
             .Producing("src/Hello.cs +8 -1", "Built against the answers.");
         var activities = new TicketActivities(
             store,
-            agent,
-            new IssuePublisher(github, NullLogger<IssuePublisher>.Instance),
-            github,
-            // The fake answers IMergePolicy as well, the way the real client answers
-            // IMerger. Nothing in these tests merges, so what it answers with is the
-            // refusing default.
-            github,
+            new TicketPolicy(
+                store,
+                agent,
+                github,
+                // The fake answers IMergePolicy as well, the way the real client answers
+                // IMerger. Nothing in these tests merges, so what it answers with is the
+                // refusing default.
+                github,
+                new IssuePublisher(github, NullLogger<IssuePublisher>.Instance)),
             NullLogger<TicketActivities>.Instance);
 
         var workItem = store.Intake(

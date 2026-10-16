@@ -1,15 +1,11 @@
 namespace AgentFactory.Durability;
 
-using AgentFactory.Application.Credentials;
-using AgentFactory.Application.GitHub;
-using AgentFactory.Application.Rounds;
-using AgentFactory.Application.Routing;
+using AgentFactory.Application.Tickets;
+using AgentFactory.Application.WorkItems;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Rounds;
-using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 using Temporalio.Activities;
 using Temporalio.Common;
@@ -64,78 +60,58 @@ public record BuildLanded(bool Produced, string Outcome);
 public record MergeLanded(bool Merged, string? ParkedBecause);
 
 /// <summary>
-/// The activities' implementation: the factory's own components, composed per ticket. The
-/// work item id travels as an argument to every activity, because a workflow's history is
-/// replayed and an ambient context would be a guess at where the replay was.
+/// The activities' implementation: the factory's own transition rules, composed per
+/// ticket. The work item id travels as an argument to every activity, because a workflow's
+/// history is replayed and an ambient context would be a guess at where the replay was.
 /// </summary>
 /// <remarks>
-/// It holds both GitHub seams and they are both still about the same repository:
-/// <c>IGitHub</c> for the conversation a round travels with and for the issue writes the
-/// publisher makes, and <c>IMergePolicy</c> for shipping what a reviewer approved. One
-/// class answers both, and there is still one place in the process that knows what a
-/// repository is.
+/// <para>
+/// It is a thin adapter over <see cref="TicketPolicy"/> (#64), the same policy core the
+/// in-process loop calls: the workflow decides the order, the activities do the work, and
+/// the rules about what a landing, a park or a merge *means* exist once. What is left here
+/// is the workflow's own half — the durable waits, the reviewer's updates and the store
+/// operations the loop applies through a decision, which it does differently (see the
+/// divergences noted beside <see cref="TicketPolicy"/>).
+/// </para>
+/// <para>
+/// A store operation that is a *decision* rather than a transition stays here: the
+/// workflow records a decision and moves the work item, where the loop applies the decision
+/// so the record says it was applied. That difference is reported rather than resolved,
+/// because resolving it would change what one of the two drivers does.
+/// </para>
 /// </remarks>
 public sealed class TicketActivities(
     IWorkItemStore store,
-    INOpenCode agent,
-    IIssuePublisher publisher,
-    IGitHub github,
-    IMergePolicy merger,
+    TicketPolicy policy,
     ILogger<TicketActivities> logger) : ITicketActivities
 {
     public async Task<RouteLanded> RouteRoundAsync(Guid workItemId, int roundNumber)
     {
         var round = await ComposeAsync(workItemId, RoundPurpose.Route, roundNumber, feedback: null);
-        var result = await agent.RunRoundAsync(round, CancellationToken.None);
+        var result = await policy.RunRoundAsync(round, CancellationToken.None);
 
         var workItem = store.Get(workItemId)
             ?? throw new KeyNotFoundException($"no work item {workItemId}");
 
-        if (result.Outcome != RoundOutcome.Produced)
-        {
-            var because = result.Outcome == RoundOutcome.TimedOut
-                ? "the routing round ran past its timeout and was ended; nothing has said what kind of work this is"
-                : "a routing round failed transiently without saying what kind of work this is";
-            Park(workItem, because);
-            return new RouteLanded("Unrouted", null, because, because);
-        }
+        var landing = await policy.LandTheRouteAsync(
+            workItem,
+            result,
+            UnfinishedBecause(result),
+            CancellationToken.None);
 
-        if (result.Routing is not { } outcome)
+        if (landing.ParkedBecause is { } because)
         {
-            const string because = "the routing round came back with no verdict at all, so nothing has said what kind of work this is";
-            Park(workItem, because);
-            return new RouteLanded("Unrouted", null, because, because);
+            return new RouteLanded(landing.Kind.ToString(), landing.QuestionsIssue, landing.Reason, because);
         }
-
-        if (outcome is not { IsReadable: true, Proposal: { } proposal })
-        {
-            var unreadable = outcome.UnreadableBecause ?? "the routing round's verdict could not be read";
-            Park(workItem, unreadable);
-            return new RouteLanded("Unrouted", null, unreadable, unreadable);
-        }
-
-        int? filedAs;
-        try
-        {
-            filedAs = await publisher.PublishAsync(workItem, proposal, CancellationToken.None);
-        }
-        catch (FactoryFailure refused)
-        {
-            var because = $"the factory could not file what {proposal.Verdict} asks for: {refused.Message}";
-            Park(workItem, because);
-            return new RouteLanded("Unrouted", null, because, because);
-        }
-
-        store.RecordRoute(workItem.Id, proposal.Verdict, proposal.Because, filedAs);
 
         logger.LogInformation(
             "{Project}#{Issue} was routed as {Kind}: {Reason}",
             workItem.Project,
             workItem.IssueNumber,
-            proposal.Verdict,
-            proposal.Because);
+            landing.Kind,
+            landing.Reason);
 
-        return new RouteLanded(proposal.Verdict.ToString(), filedAs, proposal.Because, null);
+        return new RouteLanded(landing.Kind.ToString(), landing.QuestionsIssue, landing.Reason, null);
     }
 
     public bool AnswerArrived(Guid workItemId)
@@ -148,9 +124,8 @@ public sealed class TicketActivities(
 
         try
         {
-            var conversation = github.ReadCommentsAsync(workItem.RepoUrl, question, CancellationToken.None)
+            return policy.AnswerArrivedAsync(workItem, CancellationToken.None)
                 .ConfigureAwait(false).GetAwaiter().GetResult();
-            return conversation.Any(comment => comment.CreatedUtc > workItem.UpdatedUtc);
         }
         catch (Exception refused)
         {
@@ -163,7 +138,7 @@ public sealed class TicketActivities(
         }
     }
 
-    public void HandBack(Guid workItemId) => store.RecordHandBack(workItemId);
+    public void HandBack(Guid workItemId) => policy.HandBack(workItemId);
 
     public void BeginBuild(Guid workItemId) => store.Move(workItemId, Swimlane.Frontier);
 
@@ -171,22 +146,9 @@ public sealed class TicketActivities(
     {
         var round = await ComposeAsync(workItemId, RoundPurpose.Build, roundNumber, feedback);
         store.Move(workItemId, Swimlane.InProgress);
-        var result = await agent.RunRoundAsync(round, CancellationToken.None);
+        var result = await policy.RunRoundAsync(round, CancellationToken.None);
 
-        store.RecordRound(
-            workItemId,
-            result.Outcome,
-            result.ResultPayload,
-            result.AgentNote,
-            DateTimeOffset.UtcNow,
-            attempts: 1,
-            failure: result.Failure,
-            log: result.Log,
-            diff: result.Diff);
-
-        store.Move(
-            workItemId,
-            result.Outcome == RoundOutcome.Produced ? Swimlane.Review : Swimlane.Escalated);
+        policy.LandTheBuild(workItemId, result, DateTimeOffset.UtcNow, attempts: 1);
 
         logger.LogInformation(
             "Round {Round} of the ticket returned {Outcome}.",
@@ -202,7 +164,7 @@ public sealed class TicketActivities(
 
         try
         {
-            await merger.MergeAsync(item, CancellationToken.None);
+            await policy.MergeAsync(item, CancellationToken.None);
         }
         catch (PermanentFailure refused)
         {
@@ -240,16 +202,13 @@ public sealed class TicketActivities(
         // The conversation travels with the round: the issue's comments, and — when one
         // exists — its questions issue's comments, in the order they were said. An answer
         // a human left is the thing this round may be riding on, so it is quoted whole.
-        var conversation = new List<IssueComment>();
+        // The read and the ordering are `TicketPolicy`'s; what is here is the workflow's own
+        // words for a read that failed, because a round with less to go on is not a reason
+        // to spend a container finding that out again.
+        IReadOnlyList<IssueComment> conversation;
         try
         {
-            conversation.AddRange(await github.ReadCommentsAsync(
-                workItem.RepoUrl, workItem.IssueNumber, CancellationToken.None));
-            if (workItem.RoutingIssue is { } question && question != workItem.IssueNumber)
-            {
-                conversation.AddRange(await github.ReadCommentsAsync(
-                    workItem.RepoUrl, question, CancellationToken.None));
-            }
+            conversation = await policy.ConversationAsync(workItem, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -259,30 +218,28 @@ public sealed class TicketActivities(
                 workItem.RepoUrl,
                 workItem.IssueNumber,
                 refused.Message);
+            conversation = [];
         }
 
-        conversation.Sort((left, right) => left.CreatedUtc.CompareTo(right.CreatedUtc));
-
-        return new Round(
-            workItem.Id,
-            workItem.Project,
-            workItem.RepoUrl,
-            workItem.IssueNumber,
-            workItem.IssueTitle,
-            workItem.IssueBody,
-            workItem.BaseBranch,
-            feedback ?? string.Empty,
-            roundNumber,
-            1,
+        return TicketPolicy.ComposeRound(
+            workItem,
             purpose,
+            roundNumber,
+            attempt: 1,
+            feedback ?? string.Empty,
             conversation);
     }
 
-    private void Park(WorkItem workItem, string because)
-    {
-        store.RecordRoute(workItem.Id, WorkItemKind.Unrouted, because);
-        store.Move(workItem.Id, Swimlane.Escalated);
-    }
+    /// <summary>
+    /// The workflow's own words for a routing round that could not answer. The policy core
+    /// carries whatever the driver says; the loop tells a timeout, a transient failure and
+    /// any other unfinished round apart, and this does not. That difference is reported
+    /// beside <see cref="TicketPolicy"/> rather than resolved here.
+    /// </summary>
+    private static string UnfinishedBecause(RoundResult result) =>
+        result.Outcome == RoundOutcome.TimedOut
+            ? "the routing round ran past its timeout and was ended; nothing has said what kind of work this is"
+            : "a routing round failed transiently without saying what kind of work this is";
 }
 
 /// <summary>The workflow's view of one ticket. Carried once, at start, and never changed.</summary>
