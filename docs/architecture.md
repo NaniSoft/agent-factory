@@ -515,16 +515,49 @@ four calls become one and a half here, and each exclusion has its argument at th
   two new anonymous inbound routes on the listener loopback is the authorisation for, and it
   is a route table pinned at exactly eight templates.
 
+### The launch profile, and the dashboard's address
+
+`src/AgentFactory.AppHost/Properties/launchSettings.json` is the file that makes the
+dashboard *served* rather than merely started. Without a profile Aspire allocates the
+dashboard's address per run — the first run of this AppHost logged *"Generating a dynamic
+url for dashboard. If you want a consistent url, configure `ASPNETCORE_URLS`"* — and
+nothing opens a browser and nothing tells a reader where to look, because there is no
+`launchBrowser` and no stable address to bookmark. That is the whole failure a person
+reports as *"the AppHost is not serving the dashboard"*: the process is fine, the URL is a
+different one every run, and nobody opened it.
+
+The profile is the Aspire template's, resolved to `localhost`, and its two profiles are the
+two ways to run the AppHost:
+
+| Profile | Dashboard | OTLP/gRPC | Transport |
+| --- | --- | --- | --- |
+| `https` (default, listed first) | `https://localhost:17000` | `https://localhost:21000` | HTTPS, the `dotnet dev-certs` certificate |
+| `http` | `http://localhost:15000` | `http://localhost:19000` | plaintext |
+
+Both set `launchBrowser`, `ASPNETCORE_ENVIRONMENT`/`DOTNET_ENVIRONMENT`, and
+`ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL` (`:22000`/`:20000`). Two things are worth saying
+beside them. The `https` profile needs a **trusted** development certificate or the browser
+refuses the address — `dotnet dev-certs https --trust` is the one command that fixes that,
+and the `http` profile is the way to sidestep TLS entirely. And the `http` profile is the
+one place this file departs from the template it is copied from: it adds
+`ASPIRE_ALLOW_UNSECURED_TRANSPORT=true`, **without which Aspire refuses to start at all**
+(*"The 'applicationUrl' setting must be an https address unless the
+'ASPIRE_ALLOW_UNSECURED_TRANSPORT' environment variable is set to true"*) — the template's
+published `http` profile omits the variable, so a plain `dotnet run --launch-profile http`
+against it fails before the dashboard exists.
+
 ### Telemetry always on, precisely
 
 The SDK and the instrumentation are registered unconditionally; the **exporter** is
 registered when the process has been told where to send, through
 `OTEL_EXPORTER_OTLP_ENDPOINT` — Aspire's own design, and the property that keeps `dotnet
 test` hermetic, since `dotnet test` starts the real factory several hundred times and none
-of those runs has a collector. Under the AppHost the variable is always set. Measured from a
-running AppHost rather than taken from the docs, which are internally inconsistent about
-this: the factory process is handed `OTEL_EXPORTER_OTLP_ENDPOINT=https://localhost:56897`
-(HTTPS, a dynamically allocated port — not 4317/4318, not 18889/18890),
+of those runs has a collector. Under the AppHost the variable is always set, and since the
+launch profile above pins the dashboard's OTLP receiver, the address it names is the same
+one every run. Measured from a running AppHost rather than taken from the docs, which are
+internally inconsistent about this: under the `https` profile the factory process is handed
+`OTEL_EXPORTER_OTLP_ENDPOINT=https://localhost:21000` (HTTPS, the profile's pinned gRPC
+port — not 4317/4318, not 18889/18890),
 `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, `OTEL_SERVICE_NAME=agent-factory`,
 `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=…`, the dashboard's API key in
 `OTEL_EXPORTER_OTLP_HEADERS`, and `ASPNETCORE_URLS=http://127.0.0.1:5000`. So "always on" is
@@ -563,7 +596,7 @@ Six things it could not verify, and where each stands after this ticket:
 | --- | --- |
 | `UseUrls` vs `ASPNETCORE_URLS` precedence | **Checked.** `UseUrls` wins; a probe that sets both binds the `UseUrls` address. |
 | Does an unreachable OTLP endpoint throw into the application? | **Not checked.** No collector was made to disappear while the factory ran. The exporter is registered only when a destination is configured, so what remains unknown is the behaviour of a *configured but unreachable* endpoint. |
-| Which OTLP port the AppHost injects | **Checked.** HTTPS on a dynamically allocated port, with the API key in `OTEL_EXPORTER_OTLP_HEADERS`; measured off a running resource. |
+| Which OTLP port the AppHost injects | **Checked.** Aspire allocates one dynamically by default; the AppHost's `https` launch profile pins it to `https://localhost:21000` (the `http` profile `:19000`), and the API key arrives in `OTEL_EXPORTER_OTLP_HEADERS`. Measured off a running resource. |
 | Does the Aspire CLI need a container runtime? | **Not checked.** This machine has Docker, and the graph uses it for Temporal, so there is no container-runtime-free case here to measure. |
 | Does this repository have `Restore`-attached MSBuild targets? | **Checked.** None: the only custom target in the repository hangs off `AssignTargetPaths` for the Board export, and Aspire's coordinated restore is unaffected. |
 | Temporal dev-server readiness under `WaitFor` | **Not checked.** `WaitFor(temporal)` is in the graph and the container comes up; what was not established is what readiness signal the wait is actually gated on for a gRPC endpoint with no HTTP health check. |

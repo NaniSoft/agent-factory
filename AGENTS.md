@@ -23,13 +23,20 @@ dotnet test  agent-factory.slnx          # run the whole suite
 dotnet test  tests/agent-factory.unit-tests  # the fast layer alone: no Temporal, no Docker
 
 dotnet run --project src/AgentFactory.Web        # the factory alone; the board is on :5000
-dotnet run --project src/AgentFactory.AppHost    # the factory under Aspire, with telemetry
+dotnet run --project src/AgentFactory.AppHost    # the factory under Aspire; dashboard on :17000
 ```
 
 The board is at <http://127.0.0.1:5000>. It is bound to loopback on purpose: the machine
 is the trust boundary. The AppHost does **not** proxy it — a proxy would take the port and
 leave the process unable to bind it, and it would add a hop that loopback-as-authorisation
 never accounted for.
+
+The AppHost's launch profile is `src/AgentFactory.AppHost/Properties/launchSettings.json`.
+Its `https` profile — the default, and the one an IDE starts — puts the Aspire dashboard at
+<https://localhost:17000> and **opens it**, and its `http` profile puts the dashboard at
+<http://localhost:15000> for a machine with no trusted development certificate. Without the
+profile Aspire hands the dashboard a fresh port on every run and opens nothing, which is
+what "the AppHost is not serving the dashboard" looks like from the outside.
 
 The durable half needs a Temporal server. Either `docker compose up temporal`, or the
 AppHost's own `temporal` resource.
