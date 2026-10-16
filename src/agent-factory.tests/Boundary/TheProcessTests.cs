@@ -187,6 +187,12 @@ public class TheProcessTests
         // `Infrastructure` in this restructure and this scan went on reading `Web`, where it
         // found nothing and would have reported "no component holds a transport" — the exact
         // inversion of what it exists to say.
+        //
+        // **#63 gave the process a second way out to the network and this claim is
+        // deliberately unchanged.** The OTLP exporter connects out to the collector, and its
+        // `HttpClient` is the OpenTelemetry SDK's own, inside that package's assembly. The
+        // claim here is about *components* — a type in one of these four assemblies whose
+        // constructor takes a transport — and adding one is still a failing test.
         var holding = TheFactory.Assemblies
             .SelectMany(assembly => assembly.GetTypes())
             .Where(type => type.GetConstructors()
@@ -197,5 +203,80 @@ public class TheProcessTests
             .ToList();
 
         Assert.Equal(["GitHubClient"], holding);
+    }
+
+    [Fact]
+    public void The_github_clients_pipeline_carries_no_second_retry_policy()
+    {
+        // **The pin for the most dangerous thing in #63, and it is about the pipeline that
+        // actually exists rather than about which line somebody remembered not to write.**
+        //
+        // Aspire's `AddServiceDefaults()` installs the standard resilience handler on *every*
+        // named and typed `HttpClient` through `ConfigureHttpClientDefaults`, and the GitHub
+        // client is a named one — so adopting the template wholesale would put Polly between
+        // the merger and the wire. Three failures follow, and the first is the one this
+        // repository cannot tolerate: its attempt timeout is 10 seconds, it signals by throwing
+        // `TimeoutRejectedException`, and `GitHubClient.AskAsync` catches
+        // `OperationCanceledException`/`TimeoutException` and `HttpRequestException` — neither
+        // of which is that. The exception would therefore leave the seam unclassified, which is
+        // precisely the failure `GitHubResponse` and `Failures.Classify` exist to prevent:
+        // `GitHubResponse.Unclassifiable` already names "an answer this client cannot read as
+        // the API's shape" as a thing to be decided rather than guessed at, and an unclassified
+        // escape is worse than a wrong answer. The other two are retries on non-idempotent
+        // calls (create, merge, close) and a second retry policy stacked on the deliberate one
+        // in `Orchestrator.Approve`.
+        //
+        // The prevention is structural in two places, and this is the one that reads the
+        // running process. The package is not a `PackageReference` of any project —
+        // `ArchitectureTests.No_project_takes_the_http_resilience_package` is that half — so the
+        // line is not something a later edit can reach for by accident. This is the other half:
+        // resolve the handler chain the factory really builds for `github` and assert that
+        // nothing in it comes from the resilience package or from Polly, and that the bound on
+        // a request is still the factory's own rather than a handler's attempt timeout. It
+        // fires if the handler is installed by any route at all, including one this repository
+        // did not write. It was proved to fire by adding the handler and watching it fail.
+        using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
+        using var app = FactoryApp.Create(
+            WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                ApplicationName = typeof(FactoryApp).Assembly.GetName().Name,
+                ContentRootPath = root.Path,
+                EnvironmentName = Environments.Development,
+            }),
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")));
+
+        var pipeline = app.Services
+            .GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(GitHubClient.HttpClientName);
+
+        var handlers = new List<Type>();
+        for (var handler = pipeline; handler is not null; handler = (handler as DelegatingHandler)?.InnerHandler)
+        {
+            handlers.Add(handler.GetType());
+        }
+
+        // The positive control, and the reason the negative assertions below are not vacuous:
+        // a reader that walked nothing at all would satisfy them. The chain is real — it is
+        // several handlers — and it ends in an actual transport.
+        Assert.True(handlers.Count > 1, "the github client's handler chain was empty: the walk read nothing");
+        Assert.Contains(handlers, type => type == typeof(SocketsHttpHandler) || type == typeof(HttpClientHandler));
+
+        // And nothing from the two packages that would mean a second retry policy. Checked by
+        // assembly rather than by type name, because the handler itself is internal to the
+        // resilience package and a name-based check would be a check on something a patch
+        // release could rename.
+        Assert.DoesNotContain(
+            handlers,
+            type => type.Assembly.GetName().Name is { } assembly
+                && (assembly.StartsWith("Microsoft.Extensions.Http.Resilience", StringComparison.Ordinal)
+                    || assembly.StartsWith("Polly", StringComparison.Ordinal)));
+
+        // The bound on a call is the factory's own, and it is not the 10 seconds the standard
+        // handler's attempt timeout would impose. `GitHubClient.RequestTimeout` is the one place
+        // that number lives, and `PolicyTests.The_merger_is_the_first_component_with_a_timeout_
+        // and_it_bought_none` is where the claim that it exists at all is made.
+        Assert.Equal(
+            GitHubClient.RequestTimeout,
+            app.Services.GetRequiredService<IHttpClientFactory>().CreateClient(GitHubClient.HttpClientName).Timeout);
     }
 }

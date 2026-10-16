@@ -24,6 +24,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
 
 /// <summary>
 /// The application boundary: the real factory, started in-process. Config loading, the
@@ -365,6 +367,30 @@ public sealed class FactoryHost : IAsyncDisposable
             new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
             new TestSubstitutions(clock, Agent: null, github, processes, metrics, log));
 
+    /// <summary>
+    /// Starts the factory with a reader inside its OpenTelemetry pipeline (#63). That is the
+    /// only way to see what the process's own providers actually collected: a
+    /// <see cref="RecordedMeasurements"/> listener observes the <c>Meter</c> itself and would
+    /// see an instrument whether or not any provider was told about its meter, so it cannot
+    /// answer "was this pipeline subscribed to this factory's meter".
+    /// </summary>
+    /// <remarks>
+    /// The reader is contributed to the service collection *before* the composition root runs,
+    /// which is what makes it part of the single provider the factory builds rather than a
+    /// second provider beside it — <c>AddOpenTelemetry</c> is safe to call more than once and a
+    /// <see cref="MeterProviderBuilder"/> accumulates readers.
+    /// </remarks>
+    public static Task<FactoryHost> ObservingTelemetryAsync(
+        FactoryRoot root,
+        MetricReader reader,
+        TestClock? clock = null,
+        FakeNOpenCode? agent = null,
+        FakeGitHub? github = null) =>
+        StartAsync(
+            root,
+            new FactoryOptions(root.FactoriesDirectory, root.DatabasePath, new Uri("http://127.0.0.1:0")),
+            new TestSubstitutions(clock, agent, github, Telemetry: reader));
+
     private static async Task<FactoryHost> StartAsync(
         FactoryRoot root,
         FactoryOptions options,
@@ -384,6 +410,13 @@ public sealed class FactoryHost : IAsyncDisposable
         });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.Services.AddSingleton<IClock>(testClock);
+
+        // The telemetry reader, before the composition root runs, so the reader is part of the
+        // one provider the factory builds rather than a second provider beside it.
+        if (seams.Telemetry is { } telemetry)
+        {
+            builder.Services.AddOpenTelemetry().WithMetrics(metrics => metrics.AddReader(telemetry));
+        }
 
         // The counters, before the composition root runs, so its `TryAdd` finds one already
         // there. A test that wanted its own meter has to get in first: the root's own
@@ -467,7 +500,8 @@ public sealed class FactoryHost : IAsyncDisposable
         IGitHub? GitHub,
         IProcessCli? Processes = null,
         FactoryMetrics? Metrics = null,
-        RecordedLog? Log = null);
+        RecordedLog? Log = null,
+        MetricReader? Telemetry = null);
 
     public async ValueTask DisposeAsync()
     {

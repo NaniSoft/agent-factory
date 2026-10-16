@@ -139,12 +139,17 @@ resolved here.
 - `Observability/WorkItemScope`, `Observability/ProjectScope` → **`Application`.**
   The scope vocabulary is the factory's own ("this record is about work item 4,
   project nexus, issue 42, round 2") and a record is written from inside.
-- `Observability/FactoryMetrics` → **`Application`.** It is four instruments on the
-  platform's own `System.Diagnostics.Metrics`, and `Orchestrator` and `Poller` both take
+- `Observability/FactoryMetrics` → **`Application`.** It is three instruments on the
+  platform's own `System.Diagnostics.Metrics` (the design's four counters, with builds
+  succeeded and builds failed sharing one instrument and an outcome tag), and `Orchestrator`
+  and `Poller` both take
   it as a concrete type — so putting it in `Infrastructure` would make `Application`
   depend on `Infrastructure`, which is the one cardinal violation this rule has. What
-  belongs in `Infrastructure` is the **OpenTelemetry exporter registration**, which is
-  what turns instruments into signals and is [#63](#63)'s, not this file's. **This
+  belongs on the outside is the **OpenTelemetry pipeline**, which is what turns
+  instruments into signals — and it landed in [#63](#63) in `AgentFactory.Web`'s
+  `Composition/ServiceDefaults`, the outermost project, rather than in `Infrastructure`:
+  the pipelines instrument ASP.NET Core, which only `Web` has, and `FactoryMetrics` is
+  untouched by it (see **Hosting**, and the note there about `AddMeter`). **This
   corrects the placement this document first gave it**, and the correction is the
   layering rather than a preference: the instruments describe outcomes, which are
   `Domain`'s, and `RoundOutcome` moved to `Domain` with them so the reference is legal
@@ -320,23 +325,177 @@ Mechanical, and the same every time:
    `The_scan_reads_every_assembly_the_factory_is_made_of` fails and that failure is the
    answer: add the name to `TheFactory`, then decide deliberately whether the graph test
    in `ArchitectureTests` needs a new edge.
+   **And #63 is the counter-example that proves the rule is about the *assembly set* rather
+   than about counting to five.** A fifth project did appear — the Aspire AppHost — and it
+   was **not** added to `TheFactory`, because the four names are "the assemblies the factory
+   is made of" and the AppHost is the host: it holds no policy, names no factory type but the
+   one it launches, and every pin in `PolicyTests` is about what the factory may do. What
+   keeps that honest rather than convenient is where it was put: outside `src/`, so
+   `ArchitectureTests.TheFactoryProjects()`'s four-name assertion and the
+   `AgentFactory.*.dll`-beside-the-tests check both stayed true and neither was edited. A
+   fifth assembly *of the factory's own* is still a failure of that test, and the answer is
+   still to add it.
 
 ## Hosting
 
-The factory is four projects and one process. A .NET Aspire AppHost composes the
-web application and Temporal, and carries telemetry. Decided in
-[#63](https://github.com/NaniSoft/agent-factory/issues/63); the shape is in
-`docs/research/aspire.md`.
+**The factory is four projects and one process, and it is hosted by a fifth project that is
+not part of the factory.** Decided in
+[#63](https://github.com/NaniSoft/agent-factory/issues/63); researched in
+`docs/research/aspire.md` and the parts of that research this build disagrees with are
+called out below.
 
-**What the AppHost will see, and what Web owns, were decided in
-[#81](https://github.com/NaniSoft/agent-factory/issues/81).** It sees this project's
-`Program` and its `FactoryApp.Create(WebApplicationBuilder, FactoryOptions, bool)`, and
-nothing else. Web owns the process's composition — the two things a host is told before it
-is built, the three registration modules under `src/AgentFactory.Web/Composition/`, the
-eight route templates of the JSON surface, the Board export served at the root beside them,
-and the API's own document — and the AppHost will own the lifetime, the orchestration of
-the two processes, and the telemetry exporter. Nothing in Web may need to know that an
-AppHost exists.
+### The AppHost, and why it is not under `src/`
+
+`apphost/AgentFactory.AppHost` is an Aspire AppHost: `Aspire.AppHost.Sdk`, **pinned at
+13.6.1** in its `<Project Sdk="…">` attribute, which is the only place the version lives
+because an `Sdk=` attribute is invisible to `dotnet add package`. That version is a
+decision rather than a default: Aspire ships a minor a month and each minor ends support of
+the previous one, so every 9.x release has been unsupported since 2025-11-11. The SDK
+implicitly adds `Aspire.Hosting.AppHost` at the same number, and the runtime version check
+reads the *SDK* number, so the two must move together. One warning is suppressed there
+(`ASPIRE010`, the Aspire CLI bundle) with its argument in the project file, and one
+transitive package is lifted to its patched release (`MessagePack` 2.5.303, for
+`GHSA-qhrr-8q5h-9q3h`) with its argument in `Directory.Packages.props`.
+
+**It is outside `src/` because `src/` is the factory.** The four projects there are what
+the dependency rule above draws, what `ArchitectureTests` asserts the edges of, and what
+`Boundary/TheFactory` names as the four assemblies every structural pin in `PolicyTests`
+reads. The AppHost names no factory type but the one it launches, holds no policy, and is
+the outermost thing in the repository; putting it in `src/` would have made it a fifth
+assembly inside every scan and a fifth edge in the graph for no gain. **`TheFactory`'s scan
+set is untouched.** The one thing the AppHost *is* in is `src/agent-factory.slnx`, by a
+path that reaches out of `src/`, so that `dotnet build src/agent-factory.slnx` builds and
+verifies it like everything else.
+
+### The resource graph
+
+Two resources, and the graph is the whole of `apphost/AgentFactory.AppHost/Program.cs`:
+
+| Resource | What it is | Why |
+| --- | --- | --- |
+| `temporal` | `temporalio/server:1.28.0` as an Aspire container, entrypoint overridden to `temporal server start-dev`, endpoints `grpc` (7233) and `ui` (8233) | The AppHost owns the durable server's lifetime — that is what "orchestrates the Web app and Temporal" means. Image, tag, command and ports are `docker-compose.yml`'s temporal service, kept in step deliberately: that file is the other way to get a server, the way `dotnet test`'s durable tests and a bare `dotnet run --project src/AgentFactory.Web` use. DCP assigns the container's host ports, so an AppHost run and a compose run coexist. |
+| `agent-factory` | `AddProject<Projects.AgentFactory_Web>`, which is `src/AgentFactory.Web` as a project reference rather than a path | The whole factory, launched as its own process. `Program` reads `FactorySettings` and calls `FactoryApp.Create` — the AppHost never composes it. |
+
+**The one environment variable is Temporal's address, and its form is load-bearing.**
+`Factory__Temporal__Endpoint` is the factory's own `Factory:Temporal:Endpoint` key, and it
+ends up in `Temporalio`'s `TargetHost`. `TargetHost` **rejects a URI** —
+`http://localhost:7233` throws `ArgumentException: TargetHost cannot have ://` — so the
+wiring is the endpoint's `HostAndPort` (`localhost:56898` under a run of this AppHost) and
+not the endpoint itself. Handing over the endpoint's URL, which is the obvious wiring, is a
+factory that cannot start its worker; measured, not assumed.
+
+**The board is not proxied, and that line is what makes the graph work at all.** DCP puts a
+proxy in front of a project resource by default: the declared host port belongs to the
+proxy and the project is told to listen elsewhere. The factory does not obey that
+instruction — `FactoryApp.Create` calls `UseUrls(options.BoardUrl)`, and **`UseUrls` beats
+`ASPNETCORE_URLS`** (measured; the two documented-possible outcomes of that precedence were
+"the app binds 5000 and the proxy cannot get it" and "the proxy binds 5000 and the app binds
+a random port", and the second is what happens). So the first run of this AppHost had the
+proxy holding 5000 with a dead web process behind it, and `http://127.0.0.1:5000/api/board`
+timed out. `WithEndpoint("http", endpoint => endpoint.IsProxied = false)` is the fix, and it
+is also the right answer rather than merely the working one: ADR-0005 and ADR-0012 make
+loopback the authorisation, and a hop in front of the listener is a hop those documents did
+not account for.
+
+### What the AppHost owns, and what Web owns
+
+**What was decided in [#81](https://github.com/NaniSoft/agent-factory/issues/81) is now
+true, with one addition.** The AppHost sees this project's `Program` and its
+`FactoryApp.Create(WebApplicationBuilder, FactoryOptions, bool)`, and nothing else. Web owns
+the process's composition — the two things a host is told before it is built, **the
+telemetry pipeline**, the three registration modules under
+`src/AgentFactory.Web/Composition/`, the eight route templates of the JSON surface, the
+Board export served at the root beside them, and the API's own document. The AppHost owns
+the lifetime, the orchestration of the two processes, the dashboard, and the OTLP endpoint
+it hands over. **Nothing in Web needs to know that an AppHost exists**, and nothing in Web
+does: the pipeline is registered from the process's own configuration, which the AppHost
+happens to fill in.
+
+The addition is that **the telemetry pipeline is `Web`'s and is not the Aspire template's**.
+`Composition/ServiceDefaults` is deliberately not `AddServiceDefaults()`; the template's
+four calls become one and a half here, and each exclusion has its argument at the code:
+
+- **`ConfigureOpenTelemetry`** — kept: the OTel providers, ASP.NET Core / HttpClient /
+  Runtime instrumentation, and **`AddMeter("AgentFactory")`**. That last one is the line the
+  factory cannot do without. An OTel `MeterProvider` does not implement `IMeterFactory` — it
+  collects through its own listener and filters by *meter name* — so `FactoryMetrics` is
+  untouched (its constructor is still exactly `["IMeterFactory", "Meter"]`, as `PolicyTests`
+  pins) and an instrument on a meter the provider was not told about is dropped with no
+  error at all. `Observability/TelemetryPipelineTests` observes a real measurement through
+  the production pipeline, with a control proving the assertion can see an absence.
+- **`AddStandardResilienceHandler`** — **removed, and its package is not referenced.** This
+  is the most dangerous thing in the ticket. `ConfigureHttpClientDefaults` applies to every
+  named client, including the GitHub one: the handler's *attempt* timeout is 10 seconds
+  where `GitHubClient.RequestTimeout` is 30, it signals by throwing
+  `TimeoutRejectedException` (not a `TimeoutException`, not an `HttpRequestException`, so
+  `GitHubClient.AskAsync` catches neither and the exception escapes the seam unclassified),
+  it retries non-idempotent calls — merge, pull-request create, issue close — by default,
+  and those retries are a second retry policy stacked on `Orchestrator.Approve`'s. Two pins
+  hold it, and both were proved to fire by installing the handler and watching them fail:
+  `ArchitectureTests.No_project_takes_the_http_resilience_package` (the compile-time half)
+  and `Boundary/TheProcessTests.The_github_clients_pipeline_carries_no_second_retry_policy`,
+  which walks the handler chain the running process really builds.
+- **`AddServiceDiscovery`** — removed: nothing in this factory names a service. GitHub is an
+  absolute URL a project file states and Temporal arrives as `host:port`.
+- **`MapDefaultEndpoints`** — not called: it maps `/health` and `/alive` *only* in
+  Development, which is the environment the test host and every `dotnet run` use, so it is
+  two new anonymous inbound routes on the listener loopback is the authorisation for, and it
+  is a route table pinned at exactly eight templates.
+
+### Telemetry always on, precisely
+
+The SDK and the instrumentation are registered unconditionally; the **exporter** is
+registered when the process has been told where to send, through
+`OTEL_EXPORTER_OTLP_ENDPOINT` — Aspire's own design, and the property that keeps `dotnet
+test` hermetic, since `dotnet test` starts the real factory several hundred times and none
+of those runs has a collector. Under the AppHost the variable is always set. Measured from a
+running AppHost rather than taken from the docs, which are internally inconsistent about
+this: the factory process is handed `OTEL_EXPORTER_OTLP_ENDPOINT=https://localhost:56897`
+(HTTPS, a dynamically allocated port — not 4317/4318, not 18889/18890),
+`OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, `OTEL_SERVICE_NAME=agent-factory`,
+`OTEL_RESOURCE_ATTRIBUTES=service.instance.id=…`, the dashboard's API key in
+`OTEL_EXPORTER_OTLP_HEADERS`, and `ASPNETCORE_URLS=http://127.0.0.1:5000`. So "always on" is
+a property of the AppHost: it always supplies a destination, and the factory exports
+whenever one is supplied. The OTel *logging* provider is registered under the same
+condition, and for a second reason: it is another `ILoggerProvider`, and a host with more
+than one is a host whose providers are not handed the external scope that
+`Observability/RecordedLog` reads.
+
+### The retired property, and what replaced it
+
+**The factory opens sockets now.** The dashboard is a real listener (another process's), and
+the OTLP exporter is a real outbound client, so the "this process opens no socket of any
+kind" claim is retired **here, deliberately, on the record**. Three comments said it and all
+three were rewritten rather than deleted quietly: `FactoryMetrics`' class remarks, the
+counters' comment in `Composition/TheSeams`, and
+`PolicyTests.The_observability_component_can_reach_nothing_the_factory_does_not_already_reach`.
+
+**The assertions did not change, because they were always narrower than the comment.**
+`PolicyTests`' two `Assert.Empty` scans over the factory's four assemblies still hold and
+still mean something: no line in the factory's own code constructs an `HttpListener` or a
+`TcpListener`. That is the narrower form the property survives in — Kestrel's listener is
+the framework's, the dashboard's belongs to another process, and the exporter is a client —
+and it is exactly as strong as it is asked to be. **The Board itself stays bound to
+loopback**, which `Boundary/BoardPortTests.One_process_serves_the_board_on_port_5000`
+asserts, and the AppHost made that *more* true rather than less by not proxying it.
+`TheProcessTests.The_process_holds_exactly_one_http_client_and_the_merger_is_it` also
+survives unchanged: the OTel exporter's `HttpClient` is the SDK's, inside the SDK's
+assembly, and the claim is about components in the factory's four.
+
+### What the research left open
+
+Six things it could not verify, and where each stands after this ticket:
+
+| Open question | Status |
+| --- | --- |
+| `UseUrls` vs `ASPNETCORE_URLS` precedence | **Checked.** `UseUrls` wins; a probe that sets both binds the `UseUrls` address. |
+| Does an unreachable OTLP endpoint throw into the application? | **Not checked.** No collector was made to disappear while the factory ran. The exporter is registered only when a destination is configured, so what remains unknown is the behaviour of a *configured but unreachable* endpoint. |
+| Which OTLP port the AppHost injects | **Checked.** HTTPS on a dynamically allocated port, with the API key in `OTEL_EXPORTER_OTLP_HEADERS`; measured off a running resource. |
+| Does the Aspire CLI need a container runtime? | **Not checked.** This machine has Docker, and the graph uses it for Temporal, so there is no container-runtime-free case here to measure. |
+| Does this repository have `Restore`-attached MSBuild targets? | **Checked.** None: the only custom target in the repository hangs off `AssignTargetPaths` for the Board export, and Aspire's coordinated restore is unaffected. |
+| Temporal dev-server readiness under `WaitFor` | **Not checked.** `WaitFor(temporal)` is in the graph and the container comes up; what was not established is what readiness signal the wait is actually gated on for a gRPC endpoint with no HTTP health check. |
+
+### `AgentFactory.Web`'s namespace
 
 **`AgentFactory.Web`'s root namespace stays `AgentFactory`, and #81 owns that rather than
 inheriting it.** The convention the slices established is namespace = project name, and
@@ -346,8 +505,3 @@ would spread the project's own names across three (`AgentFactory`, `AgentFactory
 and the global `Program`); and `FactoryApp`/`BoardExport` are the *process's* names, not a
 slice's. Everything a slice moved out of this project has a namespace that says where it
 went.
-
-One consequence is already decided and is not a discovery: **the factory now
-opens sockets.** The Aspire dashboard and an OpenTelemetry exporter both listen,
-which retires the "this process opens no socket of any kind" property deliberately.
-The Board itself stays bound to loopback.

@@ -16,19 +16,33 @@ using System.Diagnostics.Metrics;
 /// reference at all** — which matters here more than it would in a smaller codebase,
 /// because the process's whole architecture argument is that it holds three seams and one
 /// <c>HttpClient</c>, and every dependency it does not take is a boundary it cannot
-/// accidentally grow. The obvious alternative, an OpenTelemetry SDK with a Prometheus
-/// exporter, is the right answer to a *deployment* question — where the numbers go, who
-/// scrapes them — and deployment is #14's, not this ticket's. Choosing the exporter here
-/// would have put a published HTTP port into a ticket whose acceptance criteria are about
-/// what the factory says about itself, and this process publishes no ports and binds its
-/// board to loopback on purpose (story 64, ADR-0012).
+/// accidentally grow. The obvious alternative, an OpenTelemetry SDK, is the right answer to a
+/// *deployment* question — where the numbers go, who scrapes them — and deployment is #14's,
+/// not this ticket's. **The exporter arrived with #63 and it landed on the far side of the
+/// boundary**, in `Web`'s `Composition/ServiceDefaults`: what this class needs is still the
+/// platform's own API, and nothing in it changed when a pipeline started listening to it.
 /// </para>
 /// <para>
-/// The API is also a <em>push</em> API, which is the property that keeps that true. Nothing
-/// here opens a socket; a consumer attaches to the <see cref="Meter"/> in whatever process
-/// it happens to share. A factory that had to expose its own numbers over HTTP would have a
-/// second surface with a second set of access rules, and it would be reachable by anything
-/// that could reach the board.
+/// The API is also a <em>push</em> API, and that is still the property that keeps the
+/// boundary small: **this class opens nothing.** It creates instruments, and a consumer
+/// attaches to the <see cref="Meter"/> in whatever process it shares. A factory that had to
+/// expose its own numbers over HTTP would have a second surface with a second set of access
+/// rules, reachable by anything that could reach the board. What #63 changed is the
+/// *process's* half of that sentence rather than this one: the process now runs an OTLP
+/// exporter, which is an <em>outbound</em> connection to a collector on loopback, and an
+/// Aspire dashboard — another process — listens. Neither is a surface this class owns, and
+/// the decision, and what replaced the retired "publishes no measurement over a socket of any
+/// kind", is in `docs/architecture.md`'s Hosting section.
+/// </para>
+/// <para>
+/// <strong>One consequence of that pipeline is worth stating here, because it is a silence
+/// this class cannot detect.</strong> An OpenTelemetry <c>MeterProvider</c> collects through
+/// its own listener and filters instruments by <em>meter name</em>, so it sees only the meters
+/// it was told about — and an instrument on any other meter is dropped with no error at all.
+/// So the pipeline must be given <c>AddMeter(<see cref="MeterName"/>)</c>, which it is, in
+/// `Composition/ServiceDefaults`, and `Observability/TelemetryPipelineTests` observes a real
+/// measurement through it rather than trusting the line. A meter that nothing collects is a
+/// remainder that looks exactly like a factory that did nothing.
 /// </para>
 /// <para>
 /// <strong>Why the labels are the ones they are.</strong> A tag on a metric is a dimension

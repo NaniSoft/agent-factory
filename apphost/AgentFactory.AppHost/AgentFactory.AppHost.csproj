@@ -1,0 +1,75 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
+
+  <!--
+    **The factory's host, and the one place in this repository where Aspire's version
+    lives (#63).**
+
+    `Aspire.AppHost.Sdk` is an MSBuild SDK rather than a `PackageReference`, and that is
+    the whole reason this file is worth a comment: `dotnet add package` cannot update an
+    `Sdk=` attribute, so the version is pinned here, in one place, at the version the
+    research found current — **13.6.1** (released 2026-10-07; Aspire ships a minor a month
+    and each minor ends support of the previous one, so every 9.x release has been
+    unsupported since 2025-11-11). The SDK implicitly adds `Aspire.Hosting.AppHost` at the
+    same number, so there is deliberately no `PackageReference` for it: adding one is the
+    documented way to make the two disagree, and the runtime version check reads the *SDK*
+    number, so a skew fails at launch with "Newer version of Aspire.Hosting.AppHost
+    required". Raising Aspire is `aspire update`, or an edit here and a look at the
+    packages the next build resolves.
+
+    **Why this project is not under `src/`.** The four projects under `src/` are the
+    factory: `Domain`, `Application`, `Infrastructure`, `Web`. They are what
+    `docs/architecture.md` calls the dependency rule's graph, what `ArchitectureTests`
+    asserts the edges of, and what `Boundary/TheFactory` names as the four assemblies
+    `PolicyTests`' IL scans read. This project is none of those — it names no factory type
+    but the one it launches, holds no policy, and is the outermost thing in the
+    repository. Putting it in `src/` would have made it a fifth assembly inside every
+    structural scan (and a fifth edge in the graph) for no gain, where leaving it out
+    says the true thing: the AppHost is the host, and the factory is four assemblies.
+    See the Hosting section of `docs/architecture.md`.
+
+    **`ASPIRE010` is suppressed, deliberately and visibly.** The warning says this project
+    is configured with `AspireUseCliBundle=false` and that "some Aspire features require
+    the Aspire CLI bundle". Nothing this AppHost uses is one of them: the orchestration
+    (DCP) and the dashboard come from the RID-specific `Aspire.Hosting.Orchestration.*` and
+    `Aspire.Dashboard.Sdk.*` packages the SDK restores, which is the documented default.
+    Turning the bundle on is only possible with the `aspire` CLI installed — standalone
+    tooling this repository does not add to the machine — so `true` would fail the build
+    with a missing tool rather than fix anything. This repository builds with zero
+    warnings, so the honest form of "not applicable here" is a suppression with this
+    sentence beside it rather than a warning everyone learns to ignore.
+
+    `MessagePack` is lifted to its patched release by the `<PackageVersion>` in
+    `Directory.Packages.props` together with the central transitive pinning below — **not**
+    by a `PackageReference` here; the reason, and why suppressing the audit instead would be
+    wrong, is in that file.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <!--
+      **Central transitive pinning, so the package lifted in `Directory.Packages.props` can be
+      lifted without being referenced.** `MessagePack` is Aspire's, not this project's, and a
+      direct `PackageReference` to a package an AppHost never names would be a dependency nobody is
+      reviewing — the same shape as the `YamlDotNet` reference `Web` carried for a project
+      loader that had already moved away. This property is the documented way to say "pin the
+      transitive version" instead: the `PackageVersion` in `Directory.Packages.props` is the
+      whole mechanism, and it is scoped to this project rather than turned on for the
+      repository, because the four factory projects have no reason to pin transitives they do
+      not name.
+    -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!--
+    The one project reference, and it is what makes the resource graph a compile-time
+    fact rather than a string: the SDK's source generator turns it into
+    `Projects.AgentFactory_Web`, whose `ProjectPath` is this path. `Program` then asks for
+    `AddProject<Projects.AgentFactory_Web>(...)` with no path in sight, so a rename or a
+    move cannot leave the graph pointing at a project that is no longer there.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentFactory.Web\AgentFactory.Web.csproj" />
+  </ItemGroup>
+
+</Project>

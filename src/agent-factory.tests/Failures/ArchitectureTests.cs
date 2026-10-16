@@ -215,6 +215,41 @@ public class ArchitectureTests
         }
     }
 
+    [Fact]
+    public void No_project_takes_the_http_resilience_package()
+    {
+        // **The compile-time half of #63's prevention, and the reason it is a package pin
+        // rather than an IL scan.** Aspire's `AddServiceDefaults()` offers the standard
+        // resilience handler through `ConfigureHttpClientDefaults`, which applies to *every*
+        // named `HttpClient` — so the shape of the danger is a package arriving and one line
+        // being written beside it. The strongest available answer is that the package is not
+        // here at all: with no `PackageReference`, `AddStandardResilienceHandler` is not a name
+        // that compiles, and the fact is the compiler's rather than a reviewer's.
+        //
+        // This file is where a package reference is a claim, because it is where "what may a
+        // project name from a package" is already asserted — `Application`'s allowed set is
+        // three lines up. The behavioural half is
+        // `Boundary/TheProcessTests.The_github_clients_pipeline_carries_no_second_retry_policy`,
+        // which walks the handler chain the running process really builds; the two are
+        // deliberately not the same check, because a package can arrive transitively without
+        // any project file naming it.
+        //
+        // The whole argument for the exclusion — including the `TimeoutRejectedException` that
+        // `GitHubClient` cannot catch and would let escape the seam unclassified — is in
+        // `AgentFactory/Composition/ServiceDefaults`.
+        foreach (var project in TheFactoryProjects().Values)
+        {
+            Assert.DoesNotContain(
+                Names(project, "PackageReference"),
+                reference => reference.StartsWith("Microsoft.Extensions.Http.Resilience", StringComparison.Ordinal));
+        }
+
+        // The positive control: the same read over the same project files, for the packages
+        // `Web` does take, has to find them. A reader that returned nothing for every project
+        // would satisfy the assertion above for the wrong reason.
+        Assert.Contains("OpenTelemetry.Extensions.Hosting", Names(TheFactoryProjects()["AgentFactory.Web"], "PackageReference"));
+    }
+
     /// <summary>
     /// The factory's own four project files, by project name, read from the repository
     /// root. Walked up to rather than hard-coded, so a checkout at any depth finds them,

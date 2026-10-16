@@ -6,6 +6,7 @@ using AgentFactory.Application.Loop;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application.WorkItems;
+using AgentFactory.Composition;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Infrastructure.Projects;
@@ -75,6 +76,14 @@ public static class FactoryApp
 
         builder.WebHost.UseUrls(options.BoardUrl.ToString().TrimEnd('/'));
         builder.Services.AddSingleton(options);
+
+        // The process's own telemetry pipeline (#63): the OTel providers, the framework's and
+        // this factory's own instruments, and — when the process has been told where to send —
+        // the OTLP exporter. It is here rather than in an AppHost because it is the *process's*
+        // defaults: `AddFactoryServiceDefaults` is `Composition/ServiceDefaults`, and it is
+        // deliberately not Aspire's own `AddServiceDefaults`, which would put the standard
+        // resilience handler on the GitHub client. See that file for the whole argument.
+        builder.AddFactoryServiceDefaults();
 
         // The API's own account of what it returns (#80), registered here and served nowhere:
         // `MapOpenApi()` is deliberately not called, so this process answers no document route

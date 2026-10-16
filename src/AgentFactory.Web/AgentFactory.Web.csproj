@@ -57,6 +57,30 @@
   </ItemGroup>
 
   <!--
+    **The telemetry pipeline, and the reason it is `Web`'s rather than a shared
+    service-defaults project (#63).** The Aspire template's `AddServiceDefaults` lives in a
+    generated class library that every project resource references, and that library takes
+    `FrameworkReference Microsoft.AspNetCore.App` — which `Domain`, `Application` and
+    `Infrastructure` may not have, and which nothing but this project needs. So the template
+    is not used: `Composition/ServiceDefaults` is the same idea with the pieces this factory
+    actually has, and it is here because this is the project with an HTTP pipeline to
+    instrument and an ASP.NET Core host to instrument it in. A second project would have been
+    a sixth assembly in `src/`, i.e. a fifth edge in `ArchitectureTests`' graph and a fifth
+    name in `TheFactory`'s scan set, bought for one file.
+
+    What each package is for is in `Directory.Packages.props`, beside its version. What is
+    *not* here is `Microsoft.Extensions.Http.Resilience`, and that absence is load-bearing
+    rather than an oversight — `Composition/ServiceDefaults` says why.
+  -->
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+  </ItemGroup>
+
+  <!--
     **Generation is off on `Build`, and that is the whole of the store-of-record
     protection.** `Microsoft.Extensions.ApiDescription.Server` generates by
     launching the application's entry point with a mock server, and this

@@ -17,6 +17,17 @@
     <PackageReference Include="Temporalio" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <!--
+      The OpenTelemetry SDK, and the one piece of it a test needs to be able to *watch* the
+      process's telemetry pipeline rather than assert that a line of configuration exists
+      (#63). `Observability/ExportedMetrics` is a `BaseExportingMetricReader` over a collector,
+      contributed to the same `MeterProvider` the factory builds — so the assertion is about a
+      measurement that reached an exporter, not about a call somebody made. See
+      `Observability/TelemetryPipelineTests` for the claim and for the control that proves the
+      assertion can see an absence. `Web` already takes the rest of the SDK; this is the same
+      train, the same version, and it is a test-only reference.
+    -->
+    <PackageReference Include="OpenTelemetry" />
   </ItemGroup>
 
   <ItemGroup>

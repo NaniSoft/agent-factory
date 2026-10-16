@@ -967,12 +967,26 @@ public class PolicyTests
 
         Assert.Equal(["IMeterFactory", "Meter"], held);
 
-        // And the reason it is safe for this component to be a dependency of the loop and
-        // the poller at all: `System.Diagnostics.Metrics` is a push API. A consumer attaches
-        // to the meter in whatever process it shares, and this assembly publishes no
-        // measurement over a socket of any kind — so the counters cannot have quietly become
-        // a second inbound surface on a process that binds its board to loopback on purpose
-        // (story 64, ADR-0012). An empty list is the whole assertion.
+        // And the narrower half of what used to be the whole claim here. **This paragraph
+        // changed deliberately and visibly for #63, and the claim it makes is smaller than it
+        // was.**
+        //
+        // What it used to say was about the *process*: "this assembly publishes no measurement
+        // over a socket of any kind — so the counters cannot have quietly become a second
+        // inbound surface on a process that binds its board to loopback on purpose (story 64,
+        // ADR-0012)". The map's decision retires that. The factory runs under an Aspire AppHost
+        // now, the dashboard is a real listener and the OTLP exporter is a real client, so the
+        // process opens sockets — one outbound connection to a loopback collector, and nothing
+        // in this process listens that did not before. The decision, and the argument for it,
+        // is in `docs/architecture.md`'s Hosting section.
+        //
+        // The assertions below are *kept*, because what they actually check is still true and
+        // still worth checking: no line in the factory's own four assemblies constructs an
+        // `HttpListener` or a `TcpListener`. Kestrel's listener is the framework's, the
+        // dashboard's is another process's, and the exporter is a client — so "the factory's
+        // own code listens to nothing of its own making" survives as the narrower form of the
+        // retired claim. It is narrower on purpose: it would not notice a socket opened by a
+        // package, and it is not asked to.
         Assert.Empty(CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Net.HttpListener:..ctor"));
         Assert.Empty(CallersOf(CallsMadeBy(TheFactory.Assemblies), "System.Net.Sockets.TcpListener:..ctor"));
     }

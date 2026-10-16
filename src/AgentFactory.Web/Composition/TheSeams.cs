@@ -51,13 +51,17 @@ internal static class TheSeams
         // The real clock, unless a test has already put its own in the container.
         services.TryAddSingleton<IClock, SystemClock>();
 
-        // The counters, on the platform's own metrics API and with no exporter. That last
-        // half is the decision: this process publishes no port and binds its board to
-        // loopback, and a metrics endpoint would be a second surface with a second set of
-        // access rules to reach the same machine. `System.Diagnostics.Metrics` is a push
-        // API — a consumer attaches to the meter in whatever process it shares — so the
-        // factory can be measured without exposing anything, and *where* the numbers go is
-        // the deployment's business rather than this process's.
+        // The counters, on the platform's own metrics API. **The last half of this comment
+        // changed deliberately and visibly for #63**, and the change is a retirement rather
+        // than a correction: it used to say this process "publishes no port and binds its
+        // board to loopback", and that was the reason there was no exporter here. The map's
+        // decision is full Aspire — the AppHost starts the dashboard and DCP hands the
+        // process `OTEL_EXPORTER_OTLP_ENDPOINT` — so the exporter exists, in
+        // `Composition/ServiceDefaults`, and it is an *outbound* OTLP connection to a loopback
+        // collector rather than a metrics endpoint this process serves. What did not change is
+        // that nothing here names a transport: `FactoryMetrics` is still the same instruments
+        // on `System.Diagnostics.Metrics`, and the pipeline that collects them is registered
+        // beside this line rather than behind it.
         //
         // TryAdd, so a test can put its own in and read the counters its own factory
         // published rather than summing over the whole process.

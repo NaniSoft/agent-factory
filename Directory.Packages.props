@@ -93,6 +93,78 @@
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 
+  <!--
+    **The telemetry pipeline (#63), and the whole of it is `Web`'s.** `AddFactoryServiceDefaults`
+    is the one caller (`Composition/ServiceDefaults`), and the components behind these are the
+    process's outermost layer: they turn the factory's instruments, the framework's own and
+    the ASP.NET Core pipeline's into OTLP and hand them to the dashboard the AppHost starts.
+
+    **Every one of them is pinned to 1.20.0, and the research's `1.17.0` is superseded.**
+    `docs/research/aspire.md` read 1.17.0 as current on the same day this was written; the
+    registry's own index (`api.nuget.org/v3-flatcontainer/…`) answers 1.18.0, 1.19.0, 1.19.1
+    and **1.20.0** for every package below, so the version this repository pins is the one the
+    registry serves rather than the one the document recorded. The Aspire half of that research
+    (`Aspire.AppHost.Sdk` 13.6.1) is unaffected and still current.
+
+    OpenTelemetry versions on its own train — 1.x, independent of Aspire's 13.x and of
+    `Microsoft.Extensions.*`'s 10.x — and every package's `Microsoft.Extensions.*` floor is
+    10.0.0, below the 10.0.13 EF Core forced, so nothing here is a package downgrade
+    (`NU1605`).
+
+    **Two packages the Aspire service-defaults template carries are deliberately absent, and
+    both absences are the point of this ticket.** `Microsoft.Extensions.Http.Resilience` is the
+    standard resilience handler — `AddServiceDefaults()` puts it on *every* `HttpClient`,
+    including the GitHub one, where its 10-second attempt timeout throws a
+    `TimeoutRejectedException` that `GitHubClient` does not catch and which would therefore
+    escape the seam unclassified (see `Composition/ServiceDefaults` and the pins in
+    `PolicyTests`/`TheProcessTests`). `Microsoft.Extensions.ServiceDiscovery` resolves a
+    service *name* to an address, and nothing in this factory names a service: GitHub is an
+    absolute URL the project file states, and Temporal's address arrives as `host:port` from
+    the AppHost. A dependency that resolves nothing is a dependency nobody is reviewing.
+  -->
+  <ItemGroup Label="The telemetry pipeline">
+    <!-- `AddOpenTelemetry()`, the hosted service that builds the providers, and the provider builders. -->
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.0" />
+    <!-- The OTLP exporter: the one thing here that reaches outside the process. -->
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.0" />
+    <!--
+      The SDK itself, declared by `Web` for `AddOpenTelemetry` and by the test project for the
+      reader a test watches the pipeline with. Declared once here for both.
+    -->
+    <PackageVersion Include="OpenTelemetry" Version="1.20.0" />
+    <!-- The factory's own request handling: server spans and `http.server.*` metrics for the board. -->
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.0" />
+    <!-- The factory's own outbound requests, which is the GitHub client and nothing else. -->
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.0" />
+    <!-- GC, thread pool, exceptions: what the process costs, which no other signal reports. -->
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.0" />
+  </ItemGroup>
+
+  <!--
+    **The AppHost's packages, and one forced upgrade (#63).** Aspire arrives as an MSBuild
+    SDK rather than as a `PackageReference` (`apphost/AgentFactory.AppHost`), so it has no
+    version to pin here — see that project's own comment for the one place the version
+    lives. What *does* live here is the one package its dependency graph pulls in below a
+    patched version.
+  -->
+  <ItemGroup Label="The AppHost">
+    <!--
+      **A transitive package of Aspire's orchestration machinery, lifted to the patched
+      release, and the reason is `TreatWarningsAsErrors` telling the truth.** Aspire 13.6.1's
+      graph resolves `MessagePack` 2.5.302, which `NU1902` reports against
+      GHSA-qhrr-8q5h-9q3h/CVE-2026-92707 — and this repository's build treats a NuGet audit
+      warning as an error, so the AppHost does not build until the version is raised.
+      `2.5.303` is the patched release on the same line Aspire depends on, which is why the
+      fix is a bump here rather than a `NoWarn` on the project: suppressing the audit would
+      be the repository saying a known vulnerability in its own dependency graph is
+      acceptable, and nothing here has decided that. `MessagePack` is not reachable from any
+      factory code — it is Aspire's, on the other side of the host boundary — and it is not
+      referenced *by* anything here either: the version is applied through the AppHost's
+      central transitive pinning, so the fix costs no unreviewed direct reference.
+    -->
+    <PackageVersion Include="MessagePack" Version="2.5.303" />
+  </ItemGroup>
+
   <ItemGroup Label="The suite">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
