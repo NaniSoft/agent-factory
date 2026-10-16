@@ -11,7 +11,7 @@ namespace AgentFactory.Application.Durability;
 /// A port, declared inside for the same reason the other eight are: the policy core — the
 /// poller here — says it needs tickets started without knowing that a workflow engine is
 /// how that happens. The implementations (<c>TemporalTickets</c>, <c>NullTicketStarter</c>)
-/// stay with the rest of the composition root until the Durability slice moves.
+/// are in <c>Infrastructure</c>, beside the engine they adapt.
 /// </para>
 /// <para>
 /// The worker's activity concurrency is the round concurrency — the same

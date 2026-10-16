@@ -61,6 +61,21 @@ inside says what it needs, the outside says how it gets it.
 it, so it is declared inside and implemented by the driver. That is the same shape
 as an HTTP endpoint — the caller is outside, the contract is the inside's.
 
+**It is also the one port that drags a framework inward, and that is a correction to
+this rule rather than an oversight (#76).** The engine resolves every activity call
+from an `[Activity]` attribute on the very method the workflow invokes — the SDK's own
+`ActivityDefinition.NameFromMethodForCall` throws without one — so an inbound durable
+port cannot be declared without the engine's own vocabulary, and `Application` names
+`Temporalio` for this interface alone. Two alternatives were refused: an
+attribute-free port does not work at all, and moving the attributes to
+`TicketActivities` would make the workflow call the concrete adapter and leave the
+port decorative. The same shape already holds for `FactoryDriver`, which is a
+`BackgroundService` and is why `Application` names the hosting abstractions: when a
+driver *is* the framework's contract, the inside speaks the framework's words.
+Nothing in the policy core names a Temporalio type, and the engine's adapters —
+`TicketActivities`, `TicketWorkflow`, `TemporalTickets`, `NullTicketStarter` — are in
+`Infrastructure`.
+
 ### One policy core, two drivers
 
 The factory steps the same transitions two ways: the in-process loop locally, the
@@ -227,7 +242,11 @@ Mechanical, and the same every time:
    `Microsoft.NET.Sdk` and see no `Microsoft.Extensions.*` and no ASP.NET — verified, not
    assumed. `Application` and `Infrastructure` both take
    `Microsoft.Extensions.Logging.Abstractions` when they first need it; `Domain` takes
-   nothing, ever, and `ArchitectureTests` says so.
+   nothing, ever, and `ArchitectureTests` says so. The durable driver added two more of the
+   same kind — `Microsoft.Extensions.Hosting.Abstractions` for the `BackgroundService` and
+   `Microsoft.Extensions.DependencyInjection.Abstractions` for resolving the store, the
+   policy core and the logger — plus, for `Application`, the `Temporalio` reference the
+   inbound port above needs. Each is recorded beside the reference it justifies.
 5. **Do not touch `PolicyTests`' scanner.** If a fifth project appears,
    `The_scan_reads_every_assembly_the_factory_is_made_of` fails and that failure is the
    answer: add the name to `TheFactory`, then decide deliberately whether the graph test

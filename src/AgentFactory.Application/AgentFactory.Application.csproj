@@ -36,6 +36,20 @@
       running task, not an adapter — the driver reaches no transport, disk or process.
     -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <!--
+      `ITicketActivities` is the one inbound port in this project — the durable workflow
+      lives outside and drives the factory through it — and the engine requires its
+      `[Activity]` names on the very methods the workflow invokes (`ActivityDefinition.
+      NameFromMethodForCall` throws without one), so the port cannot be declared without
+      the engine's own vocabulary. Two alternatives were tried and refused: an
+      attribute-free port does not work at all, and moving the attributes to
+      `TicketActivities` would make the workflow call the concrete adapter and leave the
+      port decorative. **This is a correction to `docs/architecture.md`'s dependency rule
+      rather than an oversight** — `Application` takes the engine here for exactly one
+      interface and the same reason it already takes the hosting abstractions for
+      `FactoryDriver`; nothing in the policy core names a Temporalio type.
+    -->
+    <PackageReference Include="Temporalio" />
   </ItemGroup>
 
 </Project>

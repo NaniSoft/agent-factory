@@ -1,4 +1,4 @@
-namespace AgentFactory.Durability;
+namespace AgentFactory.Infrastructure.Durability;
 
 using AgentFactory.Application;
 using AgentFactory.Application.Durability;
@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 using Temporalio.Client;
 using Temporalio.Exceptions;
 using Temporalio.Worker;
-
 
 /// <summary>
 /// The connection to durable execution, implemented: a real Temporal endpoint, or the

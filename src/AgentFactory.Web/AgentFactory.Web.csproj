@@ -28,7 +28,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
-    <PackageReference Include="Temporalio" />
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 

@@ -32,6 +32,14 @@
     -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
     <!--
+      `TemporalTickets` resolves the store, the policy core and its own logger from the
+      container as it hosts the worker, so `Infrastructure` names `IServiceProvider`'s own
+      extension. The Web SDK carries this package implicitly and `Microsoft.NET.Sdk` does
+      not, so it is declared rather than assumed — the same kind of reference as the
+      hosting abstractions above, and declared with it for the same reason.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <!--
       `FactoryPaths` and `FactorySettings` read a configuration key before they resolve
       anything on a disk, so this project names `IConfiguration` and declares the
       abstractions for it. `Application` does not: `FactoryOptions` is the values, and

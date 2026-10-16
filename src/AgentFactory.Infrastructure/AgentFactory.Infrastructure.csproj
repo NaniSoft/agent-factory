@@ -40,4 +40,24 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The Temporal driver: `TicketActivities` (the activities' implementation),
+      `TicketWorkflow` (the durable state machine and its own input/response shapes),
+      `TemporalTickets` (the starter and the worker host) and `NullTicketStarter` (the
+      no-op for store-only mode). Adapters over the engine and over the policy core, which
+      is why they are here and `ITicketActivities`/`ITicketStarter` are in `Application`.
+    -->
+    <PackageReference Include="Temporalio" />
+    <!--
+      `TemporalTickets` is a `BackgroundService` and resolves the store, the policy core
+      and its own logger from the container as it hosts the worker. Both are the same kind
+      of reference `Application` takes: the framework's own contract for being run and
+      stopped, and the container's own abstraction for being asked for something — not a
+      transport, a disk, a process or a credential.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
 </Project>

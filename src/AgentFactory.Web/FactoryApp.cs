@@ -16,6 +16,7 @@ using AgentFactory.Application.Driving;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Clock;
 using AgentFactory.Infrastructure.Credentials;
+using AgentFactory.Infrastructure.Durability;
 using AgentFactory.Infrastructure.Projects;
 using AgentFactory.Infrastructure.Results;
 using AgentFactory.Infrastructure.Rounds;
@@ -217,13 +218,13 @@ public static class FactoryApp
         // test host gets, unless it substitutes its own.
         if (!string.IsNullOrWhiteSpace(options.TemporalEndpoint))
         {
-            builder.Services.AddSingleton<ITicketStarter, Durability.TemporalTickets>();
+            builder.Services.AddSingleton<ITicketStarter, TemporalTickets>();
             builder.Services.AddHostedService(services =>
-                (Durability.TemporalTickets)services.GetRequiredService<ITicketStarter>());
+                (TemporalTickets)services.GetRequiredService<ITicketStarter>());
         }
         else
         {
-            builder.Services.TryAddSingleton<ITicketStarter, Durability.NullTicketStarter>();
+            builder.Services.TryAddSingleton<ITicketStarter, NullTicketStarter>();
         }
 
         var app = builder.Build();
