@@ -15,7 +15,9 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "check:prism-gates": "prism-gates",
-    "check": "pnpm check:prism-gates"
+    "check": "pnpm check:prism-gates",
+    "openapi": "node scripts/generate-openapi-types.mjs",
+    "check:openapi": "pnpm openapi && git diff --exit-code -- lib/generated"
   },
   "dependencies": {
     "@nanisoft/prism-ui": "1.1.0",

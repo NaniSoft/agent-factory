@@ -1,30 +1,23 @@
+import type { components } from './generated/openapi';
+
 /**
  * The Credentials surface's view model and the three calls that drive it.
  *
- * The shape mirrors `AgentFactory.Api.CredentialsView`: a name and whether it has a
- * value, camel-cased by name on both sides and pinned there rather than left to a
- * serialiser's naming policy. There is deliberately no value on the read — the surface
- * is write-only, and the factory never sends one back — and no codegen between the two.
+ * Every type here is an alias over `generated/openapi.d.ts`, generated from the factory's
+ * `AgentFactory.Api.CredentialsView`, so the shape is written down once. There is
+ * deliberately no value on the read — the surface is write-only, and the factory never
+ * sends one back.
  *
  * `llmProviders` is the factory's own table of the providers a model reference may
  * name and the canonical environment variable each one's tooling reads, offered so the
  * set-a-credential form can fill a name from the measured fact rather than from a copy
  * this app would have to keep agreeing with.
  */
-export type CredentialView = {
-  name: string;
-  set: boolean;
-};
+export type CredentialView = components['schemas']['CredentialView'];
 
-export type LlmProvider = {
-  id: string;
-  canonicalEnvironmentVariable: string;
-};
+export type LlmProvider = components['schemas']['LlmProviderView'];
 
-export type CredentialsView = {
-  credentials: CredentialView[];
-  llmProviders: LlmProvider[];
-};
+export type CredentialsView = components['schemas']['CredentialsView'];
 
 /**
  * Read the credential names the factory can use.

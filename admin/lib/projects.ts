@@ -1,51 +1,28 @@
+import type { components } from './generated/openapi';
+
 /**
  * The Projects surface's view model and the calls that read and write it.
  *
- * The shape mirrors `AgentFactory.Api.ProjectsView`: the served set with the load
- * state the loader decided for each project, and the files it refused with its own
- * reason and message. Camel-cased by name on both sides and pinned there rather than
- * left to a serialiser's naming policy. There is deliberately no codegen between the
- * two: the C# records are the contract on the factory side and a fixture that
- * mirrors the endpoint's own response is what keeps them in step.
+ * Every type here is an alias over `generated/openapi.d.ts`, generated from the factory's
+ * `AgentFactory.Api.ProjectsView`: the served set with the load state the loader decided for
+ * each project, and the files it refused with its own reason and message. The shape is
+ * written down once — on the factory's own records — so a rename there fails `tsc` here
+ * rather than reading undefined at runtime.
  *
  * Nothing here validates: the factory's loader is the only judge of a project file,
  * and a refusal it writes is rendered as it wrote it.
  */
-export type ProjectView = {
-  name: string;
-  repoUrl: string;
-  llmModel: string;
-  githubKeyName: string;
-  llmKeyName: string;
-  sourceFile: string;
-  state: string;
-};
+export type ProjectView = components['schemas']['ProjectView'];
 
-export type ProjectRejectionView = {
-  fileName: string;
-  reason: string;
-  message: string;
-};
+export type ProjectRejectionView = components['schemas']['ProjectFileRejectionView'];
 
-export type ProjectsView = {
-  projects: ProjectView[];
-  rejections: ProjectRejectionView[];
-};
+export type ProjectsView = components['schemas']['ProjectsView'];
 
 /** The five values a project file states, exactly as the form fills them. */
-export type ProjectWrite = {
-  name: string;
-  repoUrl: string;
-  llmModel: string;
-  githubKeyName: string;
-  llmKeyName: string;
-};
+export type ProjectWrite = components['schemas']['ProjectWriteRequest'];
 
 /** A write's outcome: whether it took, and the factory's words when it did not. */
-export type WriteResult = {
-  ok: boolean;
-  error: string | null;
-};
+export type WriteResult = components['schemas']['ProjectWriteResult'];
 
 /**
  * Read the factory's served projects and its refusals.

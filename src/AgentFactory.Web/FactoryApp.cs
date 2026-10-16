@@ -65,6 +65,13 @@ public static class FactoryApp
         builder.WebHost.UseUrls(options.BoardUrl.ToString().TrimEnd('/'));
         builder.Services.AddSingleton(options);
 
+        // The API's own account of what it returns (#80), registered here and served nowhere:
+        // `MapOpenApi()` is deliberately not called, so this process answers no document route
+        // and the document exists only as the build artefact the Board's generation script
+        // reads. `TheApiDocument.Configure` is where the one correction the endpoints cannot
+        // state for themselves lives.
+        builder.Services.AddOpenApi(AgentFactory.OpenApi.TheApiDocument.Configure);
+
         // The real clock, unless a test has already put its own in the container.
         builder.Services.TryAddSingleton<IClock, SystemClock>();
 

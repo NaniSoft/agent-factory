@@ -1,20 +1,15 @@
+import type { components } from './generated/openapi';
+
 /**
  * The Decisions view model and the one call that posts one.
  *
- * The shape mirrors `AgentFactory.Api.DecisionResult`: whether the loop applied the
- * decision, the factory's own words when it did not, and the lane the work item is
- * in afterwards. Camel-cased by name on both sides and pinned there rather than left
- * to a serialiser's naming policy. Nothing here decides anything: `applied` and
- * `refusal` are the loop's answer, and a refusal is rendered as it was written.
+ * `DecisionResult` is an alias over `generated/openapi.d.ts` — the factory's own
+ * `AgentFactory.Api.DecisionResult`, carried into that document by the endpoint's
+ * `.Produces<T>()` — so the shape is written down once. Nothing here decides anything:
+ * `applied` and `refusal` are the loop's answer, and a refusal is rendered as it was
+ * written.
  */
-export type DecisionResult = {
-  /** Whether the loop applied a transition for the decision. */
-  applied: boolean;
-  /** The factory's own words for why nothing was applied, or null when it was. */
-  refusal: string | null;
-  /** The lane the work item is in after the attempt, from the factory's own store. */
-  resultingLane: string;
-};
+export type DecisionResult = components['schemas']['DecisionResult'];
 
 /**
  * Post one decision about one work item, and read the factory's answer.

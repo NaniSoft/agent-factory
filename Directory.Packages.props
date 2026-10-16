@@ -72,6 +72,24 @@
     -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Temporalio" Version="1.20.0" />
+    <!--
+      The Board's generated types come from the document this package's generator
+      produces, and the generator is what turns the endpoints' own metadata — the
+      `.Produces<T>()` annotations in `FactoryApp` — into the schemas `admin/lib`
+      is aliased over (#78, #80). It registers the generator and nothing else:
+      `MapOpenApi()` is deliberately never called, so the process serves no
+      document endpoint and the document is a build artefact read by the
+      generation script in `admin/scripts/`.
+    -->
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+    <!--
+      The build-time half of the pair above: this is what runs the document
+      generator. It launches the application's entry point to do it, which is why
+      `AgentFactory.Web.csproj` turns generation off on `Build` and the generation
+      script invokes the target itself with the store pointed at a temporary path
+      (#80, the store of record over ADR-0009).
+    -->
+    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.13" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 

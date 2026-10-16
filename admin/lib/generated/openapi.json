@@ -1,0 +1,1183 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "AgentFactory.Web | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/board": {
+      "get": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/work-items/{id}/decisions": {
+      "post": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/work-items/{id}/accept": {
+      "post": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptanceResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/work-items/{id}": {
+      "get": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemDetailView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectsView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWriteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWriteResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{name}": {
+      "delete": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWriteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWriteResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/credentials": {
+      "get": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/credentials/{name}": {
+      "put": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AgentFactory.Web"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcceptanceResult": {
+        "required": [
+          "applied",
+          "refusal"
+        ],
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "refusal": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BoardView": {
+        "required": [
+          "autoMerge",
+          "lanes",
+          "projects",
+          "rejections",
+          "filterProjects",
+          "intake"
+        ],
+        "type": "object",
+        "properties": {
+          "autoMerge": {
+            "type": "boolean"
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LaneView"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectView"
+            }
+          },
+          "rejections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectFileRejectionView"
+            }
+          },
+          "filterProjects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "intake": {
+            "$ref": "#/components/schemas/IntakeView"
+          }
+        }
+      },
+      "CardView": {
+        "required": [
+          "id",
+          "project",
+          "issueNumber",
+          "title",
+          "lane",
+          "laneLabel",
+          "roundCount",
+          "roundCeiling",
+          "ending",
+          "decisions",
+          "autoMergeAt",
+          "kind",
+          "kindLabel",
+          "routeReason",
+          "routingIssue",
+          "offersAcceptance"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "issueNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "lane": {
+            "type": "string"
+          },
+          "laneLabel": {
+            "type": "string"
+          },
+          "roundCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "roundCeiling": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ending": {
+            "type": "string"
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "autoMergeAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "kindLabel": {
+            "type": "string"
+          },
+          "routeReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "routingIssue": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "offersAcceptance": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CredentialsView": {
+        "required": [
+          "credentials",
+          "llmProviders"
+        ],
+        "type": "object",
+        "properties": {
+          "credentials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CredentialView"
+            }
+          },
+          "llmProviders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmProviderView"
+            }
+          }
+        }
+      },
+      "CredentialView": {
+        "required": [
+          "name",
+          "set"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "set": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DecisionMadeView": {
+        "required": [
+          "sequence",
+          "decision",
+          "feedback",
+          "decidedUtc",
+          "appliedTo",
+          "appliedToLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "feedback": {
+            "type": "string"
+          },
+          "decidedUtc": {
+            "type": "string"
+          },
+          "appliedTo": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "appliedToLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "DecisionRequest": {
+        "required": [
+          "decision",
+          "feedback"
+        ],
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "feedback": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "DecisionResult": {
+        "required": [
+          "applied",
+          "refusal",
+          "resultingLane"
+        ],
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "refusal": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resultingLane": {
+            "type": "string"
+          }
+        }
+      },
+      "DiffFileView": {
+        "required": [
+          "path",
+          "previousPath",
+          "change",
+          "added",
+          "removed",
+          "binary",
+          "open",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "previousPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "change": {
+            "type": "string"
+          },
+          "added": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "DiffOnTheBoardView": {
+        "required": [
+          "state",
+          "files",
+          "omittedFiles",
+          "omittedLines",
+          "totalFiles",
+          "totalLines",
+          "tree",
+          "unavailableBecause",
+          "boundedElsewhere",
+          "saysAboutAnUnchangedDisk",
+          "whatIsLeftOff"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffFileView"
+            }
+          },
+          "omittedFiles": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "omittedLines": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalFiles": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalLines": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tree": {
+            "type": "string"
+          },
+          "unavailableBecause": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "boundedElsewhere": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "saysAboutAnUnchangedDisk": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "whatIsLeftOff": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "IntakeRowView": {
+        "required": [
+          "project",
+          "repoUrl",
+          "status",
+          "openIssues",
+          "failure",
+          "because",
+          "atUtc",
+          "failures",
+          "againAfterUtc",
+          "again",
+          "says"
+        ],
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "openIssues": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "because": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "atUtc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "againAfterUtc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "again": {
+            "type": "string"
+          },
+          "says": {
+            "type": "string"
+          }
+        }
+      },
+      "IntakeView": {
+        "required": [
+          "status",
+          "summary",
+          "projects",
+          "polled",
+          "neverPolled",
+          "failing",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "polled": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "neverPolled": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failing": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IntakeRowView"
+            }
+          }
+        }
+      },
+      "LaneView": {
+        "required": [
+          "lane",
+          "label",
+          "cards"
+        ],
+        "type": "object",
+        "properties": {
+          "lane": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CardView"
+            }
+          }
+        }
+      },
+      "LlmProviderView": {
+        "required": [
+          "id",
+          "canonicalEnvironmentVariable"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "canonicalEnvironmentVariable": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectFileRejectionView": {
+        "required": [
+          "fileName",
+          "reason",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectsView": {
+        "required": [
+          "projects",
+          "rejections"
+        ],
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectView"
+            }
+          },
+          "rejections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectFileRejectionView"
+            }
+          }
+        }
+      },
+      "ProjectView": {
+        "required": [
+          "name",
+          "repoUrl",
+          "llmModel",
+          "githubKeyName",
+          "llmKeyName",
+          "sourceFile",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          },
+          "llmModel": {
+            "type": "string"
+          },
+          "githubKeyName": {
+            "type": "string"
+          },
+          "llmKeyName": {
+            "type": "string"
+          },
+          "sourceFile": {
+            "type": "string"
+          },
+          "state": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProjectWriteRequest": {
+        "required": [
+          "name",
+          "repoUrl",
+          "llmModel",
+          "githubKeyName",
+          "llmKeyName"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "repoUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "llmModel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "githubKeyName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "llmKeyName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProjectWriteResult": {
+        "required": [
+          "ok",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RoundOnTheBoardView": {
+        "required": [
+          "roundNumber",
+          "outcome",
+          "failure",
+          "attempts",
+          "startedUtc",
+          "completedUtc",
+          "payload",
+          "agentNote",
+          "log",
+          "diff"
+        ],
+        "type": "object",
+        "properties": {
+          "roundNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startedUtc": {
+            "type": "string"
+          },
+          "completedUtc": {
+            "type": "string"
+          },
+          "payload": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "agentNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "log": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "diff": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DiffOnTheBoardView"
+              }
+            ]
+          }
+        }
+      },
+      "RouteView": {
+        "required": [
+          "say",
+          "offersAcceptance",
+          "kind",
+          "reason",
+          "issue"
+        ],
+        "type": "object",
+        "properties": {
+          "say": {
+            "type": "string"
+          },
+          "offersAcceptance": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "issue": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "WorkItemDetailView": {
+        "required": [
+          "workItem",
+          "rounds",
+          "decisions",
+          "offeredDecisions",
+          "ending",
+          "route"
+        ],
+        "type": "object",
+        "properties": {
+          "workItem": {
+            "$ref": "#/components/schemas/WorkItemHeaderView"
+          },
+          "rounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoundOnTheBoardView"
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionMadeView"
+            }
+          },
+          "offeredDecisions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ending": {
+            "type": "string"
+          },
+          "route": {
+            "$ref": "#/components/schemas/RouteView"
+          }
+        }
+      },
+      "WorkItemHeaderView": {
+        "required": [
+          "id",
+          "project",
+          "repoUrl",
+          "issueNumber",
+          "title",
+          "body",
+          "baseBranch",
+          "lane",
+          "laneLabel",
+          "roundCount",
+          "roundCeiling",
+          "createdUtc",
+          "updatedUtc",
+          "reviewStartedUtc",
+          "mergeAttempts"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "repoUrl": {
+            "type": "string"
+          },
+          "issueNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "baseBranch": {
+            "type": "string"
+          },
+          "lane": {
+            "type": "string"
+          },
+          "laneLabel": {
+            "type": "string"
+          },
+          "roundCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "roundCeiling": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdUtc": {
+            "type": "string"
+          },
+          "updatedUtc": {
+            "type": "string"
+          },
+          "reviewStartedUtc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mergeAttempts": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "AgentFactory.Web"
+    }
+  ]
+}

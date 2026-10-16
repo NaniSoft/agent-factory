@@ -1,93 +1,27 @@
+import type { components } from './generated/openapi';
+
 /**
  * The Board's view model and the one call that fetches it.
  *
- * The shape mirrors `AgentFactory.Api.BoardView`: the auto-merge mode, the lanes
- * and the work-item cards in them, the projects the
- * factory serves and the files it refused. Every field is camel-cased by name on
- * both sides and pinned there rather than left to a serialiser's naming policy.
- * There is deliberately no codegen between the two — the design system's gate kit
- * is the contract on this side and the C# records are the contract on the other —
- * so a fixture that mirrors the endpoint's own response (asserted by the renderer
- * test) is what keeps them in step.
+ * Every type here is an alias over `generated/openapi.d.ts`, which `pnpm openapi` generates
+ * from the factory's own OpenAPI document — the `AgentFactory.Api.BoardView` shape, carried
+ * into that document by the endpoint's `.Produces<T>()`. So the factory is the only place
+ * the shape is written down: a field renamed there fails `tsc` here rather than reading
+ * `undefined` on a reviewer's screen, and the field-level notes that used to be on these
+ * types now live on the records in `src/AgentFactory.Application/Api/`.
  */
 
 /** One work item as a card: the factory's own judgement, drawn and not re-decided. */
-export type CardView = {
-  id: string;
-  project: string;
-  issueNumber: number;
-  title: string;
-  /** The lane's slug, matching the column the card stands in. */
-  lane: string;
-  /** The lane's words, matching the column's label. */
-  laneLabel: string;
-  roundCount: number;
-  /** The ceiling the count is read against, from the factory's own constant. */
-  roundCeiling: number;
-  /** Why the work item ended where it did, or empty for a lane that is a stage. */
-  ending: string;
-  /** The decision slugs a reviewer may still post, from the factory's own set. */
-  decisions: string[];
-  /**
-   * When this card's silence would merge it, as ISO-8601, or null. The factory sends it
-   * only for a card in Review with auto-merge on, because a countdown a reviewer cannot
-   * see per work item is one they cannot act on while it still matters.
-   */
-  autoMergeAt: string | null;
-  /**
-   * The kind the routing round decided this issue is: `Unrouted`, `Build`, `Grill` or
-   * `Wayfinder`. The renderer draws the kind's own words and never works out a kind from a
-   * lane, because a Backlog card is either waiting to be routed or waiting to be accepted
-   * and the two must not read alike.
-   */
-  kind: string;
-  /** The kind's words for a reader, from the factory (`needs grilling`, and so on). */
-  kindLabel: string;
-  /**
-   * The one sentence for this work item's routing kind, from `HowToReadTheRoute.Say`: what
-   * the routing round found and what happens next. It is never null — a work item nobody
-   * has looked at has a sentence of its own — so the card never leaves the reader to infer
-   * a state.
-   */
-  routeReason: string;
-  /**
-   * The issue the factory filed for this verdict (a map's tracker, or the question a Grill
-   * asked), or null when the verdict filed nothing. It is how a reviewer reaches the thing
-   * the factory is waiting on.
-   */
-  routingIssue: number | null;
-  /**
-   * Whether the card should carry the acceptance control at all, from
-   * `HowToReadTheRoute.OffersAcceptance`: a work item waiting in Backlog that is a build
-   * ticket. The app gates its control on this rather than on the lane alone, because an
-   * issue nobody has looked at is not a build ticket.
-   */
-  offersAcceptance: boolean;
-};
+export type CardView = components['schemas']['CardView'];
 
 /** One lane, as a column: its slug, its words, and the cards standing in it. */
-export type LaneView = {
-  lane: string;
-  label: string;
-  cards: CardView[];
-};
+export type LaneView = components['schemas']['LaneView'];
 
 /** One project the factory serves. Credentials are names and never values. */
-export type ProjectView = {
-  name: string;
-  repoUrl: string;
-  llmModel: string;
-  githubKeyName: string;
-  llmKeyName: string;
-  sourceFile: string;
-};
+export type ProjectView = components['schemas']['ProjectView'];
 
 /** One project file the loader refused, and why. A refusal is reported, not swallowed. */
-export type RejectionView = {
-  fileName: string;
-  reason: string;
-  message: string;
-};
+export type RejectionView = components['schemas']['ProjectFileRejectionView'];
 
 /**
  * One project's intake as the factory judged it: the state, what was found or what was
@@ -95,28 +29,7 @@ export type RejectionView = {
  * judgement — the state's slug, the failure's classification, the moment — so the
  * renderer draws the row and composes nothing.
  */
-export type IntakeRowView = {
-  project: string;
-  repoUrl: string;
-  /** The state's slug: `never-polled`, `polled` or `failing`. */
-  status: string;
-  /** How many open issues the last successful read found, or null where there was none. */
-  openIssues: number | null;
-  /** The failure's classification, or null when the read succeeded. */
-  failure: string | null;
-  /** What the failed turn said, in GitHub's own words. */
-  because: string | null;
-  /** When the last turn finished, either way, as ISO-8601, or null. */
-  atUtc: string | null;
-  /** How many times in a row this project has failed. */
-  failures: number;
-  /** When this project will next be read, as ISO-8601, or null. */
-  againAfterUtc: string | null;
-  /** `never` for a permanent failure, a moment for a transient one, `next-pass` otherwise. */
-  again: string;
-  /** The row's sentence, in the reviewer's words. */
-  says: string;
-};
+export type IntakeRowView = components['schemas']['IntakeRowView'];
 
 /**
  * The whole of intake, from the factory's own judgement: the section's worst state, the
@@ -124,38 +37,12 @@ export type IntakeRowView = {
  * served project. It is not narrowed by the project filter — a filter that could hide the
  * reason there is nothing on the board could make a broken factory look like a working one.
  */
-export type IntakeView = {
-  /** The worst state of any project: `never-polled`, `polled` or `failing`. */
-  status: string;
-  /** The one line above the rows, from the factory's own summary. */
-  summary: string;
-  projects: number;
-  polled: number;
-  neverPolled: number;
-  failing: number;
-  rows: IntakeRowView[];
-};
+export type IntakeView = components['schemas']['IntakeView'];
 
-export type BoardView = {
-  autoMerge: boolean;
-  lanes: LaneView[];
-  /** The set the factory is serving — what the board header and intake are about. */
-  projects: ProjectView[];
-  /**
-   * The projects the filter offers: the served set plus any project that still has work
-   * items from a file that has since been removed. A removed project's history is still a
-   * reviewer's to judge, so the filter has to reach it.
-   */
-  filterProjects: string[];
-  rejections: RejectionView[];
-  intake: IntakeView;
-};
+export type BoardView = components['schemas']['BoardView'];
 
 /** What accepting a Backlog work item came to: whether the loop moved it, and its refusal. */
-export type AcceptanceResult = {
-  applied: boolean;
-  refusal: string | null;
-};
+export type AcceptanceResult = components['schemas']['AcceptanceResult'];
 
 /**
  * Read the factory's board.

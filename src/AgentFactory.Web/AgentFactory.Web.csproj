@@ -28,7 +28,34 @@
 
   <ItemGroup>
     <PackageReference Include="YamlDotNet" />
+    <!--
+      The OpenAPI document the Board's generated types are read from (#78, #80).
+      The generator is registered here and *served* nowhere: `MapOpenApi()` is not
+      called, so the process answers no document route and the document exists
+      only as the build artefact `admin/scripts/generate-openapi-types.mjs` reads.
+      The endpoints' own `.Produces<T>()` annotations are the schemas; this pair
+      of packages is what turns them into a file.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" />
   </ItemGroup>
+
+  <!--
+    **Generation is off on `Build`, and that is the whole of the store-of-record
+    protection.** `Microsoft.Extensions.ApiDescription.Server` generates by
+    launching the application's entry point with a mock server, and this
+    application's entry point opens the SQLite store and reconciles orphaned
+    rounds against it — against `data/agent-factory.db`, the record of record
+    (ADR-0009), on every `dotnet build`. Turning it off here means a build cannot
+    reach `data/` at all: the generation script invokes the target itself and is
+    the one place `Factory__DatabasePath` is pointed at a temporary path, so the
+    only thing that ever launches the entry point for a document is the step that
+    has said where the store is. A build that quietly created or moved work items
+    in the record of record is the failure this setting exists to make impossible.
+  -->
+  <PropertyGroup>
+    <OpenApiGenerateDocumentsOnBuild>false</OpenApiGenerateDocumentsOnBuild>
+  </PropertyGroup>
 
   <ItemGroup>
     <!--
