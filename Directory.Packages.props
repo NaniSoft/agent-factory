@@ -75,11 +75,11 @@
     <!--
       The Board's generated types come from the document this package's generator
       produces, and the generator is what turns the endpoints' own metadata — the
-      `.Produces<T>()` annotations in `FactoryApp` — into the schemas `admin/lib`
-      is aliased over (#78, #80). It registers the generator and nothing else:
-      `MapOpenApi()` is deliberately never called, so the process serves no
+      `.Produces<T>()` annotations in `FactoryApp` — into the schemas
+      `ClientApp/lib` is aliased over (#78, #80). It registers the generator and nothing
+      else: `MapOpenApi()` is deliberately never called, so the process serves no
       document endpoint and the document is a build artefact read by the
-      generation script in `admin/scripts/`.
+      generation script in `ClientApp/scripts/`.
     -->
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
     <!--
@@ -142,7 +142,7 @@
 
   <!--
     **The AppHost's packages, and one forced upgrade (#63).** Aspire arrives as an MSBuild
-    SDK rather than as a `PackageReference` (`apphost/AgentFactory.AppHost`), so it has no
+    SDK rather than as a `PackageReference` (`src/AgentFactory.AppHost`), so it has no
     version to pin here — see that project's own comment for the one place the version
     lives. What *does* live here is the one package its dependency graph pulls in below a
     patched version.

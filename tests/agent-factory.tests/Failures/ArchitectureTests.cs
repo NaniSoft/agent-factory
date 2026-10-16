@@ -262,12 +262,19 @@ public class ArchitectureTests
     /// with a recursive glob so that a file under <c>bin/</c> or <c>obj/</c> cannot be
     /// read in place of the real one.
     /// <para>
-    /// <c>agent-factory.tests</c> is deliberately not among them. Its own project
-    /// references are not part of the factory's layering, and
-    /// <c>docs/architecture.md</c>'s Testing section asks for unit tests over `Domain`
-    /// and `Application`, which will add edges *out of* the test project. Those are a
-    /// decision about the tests; pinning them here would forbid the thing the same
-    /// document asks for.
+    /// <c>AgentFactory.AppHost</c> is deliberately not among them: it is the host rather
+    /// than a project the factory is made of. It names no factory type but the one it
+    /// launches, holds no policy, and is the fifth <em>project</em> beside the factory's
+    /// four — see the Hosting section of <c>docs/architecture.md</c>. It is skipped by
+    /// name so it cannot quietly become a fifth edge in the graph or a fifth assembly
+    /// <c>Boundary/TheFactory</c> scans.
+    /// </para>
+    /// <para>
+    /// The test projects are not among them either, and now not even by directory: they
+    /// live under <c>tests/</c>, and their own project references are not part of the
+    /// factory's layering. The unit layer's edges *out of* its project are a decision
+    /// about the tests, and pinning them here would forbid the thing
+    /// <c>docs/architecture.md</c>'s Testing section asks for.
     /// </para>
     /// </remarks>
     private static SortedDictionary<string, XDocument> TheFactoryProjects()
@@ -277,7 +284,7 @@ public class ArchitectureTests
         foreach (var directory in Directory.GetDirectories(SourceDirectory()))
         {
             var name = Path.GetFileName(directory);
-            if (name == "agent-factory.tests")
+            if (name == "AgentFactory.AppHost")
             {
                 continue;
             }

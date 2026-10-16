@@ -49,12 +49,16 @@ record and the implementation.
 - [`docs/research/`](docs/research/) — the findings behind three decisions that were
   made from evidence rather than assumption: Aspire, EF Core on SQLite, and OpenAPI
   codegen. Kept because the corrections in them are still the record.
-- [`agent-factory.unit-tests/`](agent-factory.unit-tests/) — the fast test layer over
-  `Domain` and `Application` alone: no Temporal, no Docker, under a second.
-- [`src/`](src/) — the .NET solution: four projects, one process, holding the config
-  loader, the work item store, the orchestrator, intake, the merger and the board.
-- [`apphost/`](apphost/) — the Aspire AppHost that runs the process with its
-  dashboard and telemetry.
+- [`agent-factory.slnx`](agent-factory.slnx) — the solution, at the repository root, with
+  the Aspire AppHost as its default startup project.
+- [`src/`](src/) — the source: the .NET factory's four projects, one process, holding the
+  config loader, the work item store, the orchestrator, intake, the merger and the board,
+  the Aspire AppHost that runs the process with its dashboard and telemetry, and the
+  `ClientApp` Board rendered alongside `AgentFactory.Web`.
+- [`tests/`](tests/) — both test projects. [`tests/agent-factory.unit-tests/`](tests/agent-factory.unit-tests/)
+  is the fast layer over `Domain` and `Application` alone: no Temporal, no Docker, under a
+  second. [`tests/agent-factory.tests/`](tests/agent-factory.tests/) is the in-process
+  harness over the real composition.
 - [`factories/`](factories/) — one file per project, and **this repository commits
   none**: a file there is served, not sampled. The examples are in
   read [`factories/README.md`](factories/README.md) before adding one.

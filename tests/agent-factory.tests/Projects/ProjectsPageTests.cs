@@ -8,7 +8,7 @@ using System.Text.Json;
 
 /// <summary>
 /// The projects surface, exercised through the running factory: a repository is added
-/// through the endpoint the admin app posts to, a credential is written through it, and
+/// through the endpoint the Board app posts to, a credential is written through it, and
 /// what lands is the file the loader would have written — with the secret never rendered
 /// anywhere.
 /// </summary>

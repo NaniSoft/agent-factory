@@ -11,7 +11,7 @@ using Microsoft.OpenApi;
 /// <para>
 /// The document is not served — <c>MapOpenApi()</c> is deliberately never called — and it is
 /// not a feature the process offers anybody at runtime. It is the API's account of what it
-/// returns, produced at build time and turned into <c>admin/lib/generated/openapi.d.ts</c>,
+/// returns, produced at build time and turned into <c>ClientApp/lib/generated/openapi.d.ts</c>,
 /// which the Board's own view model is aliased over. So the document is a contract on this
 /// side of the wall and the Board is the consumer on the other.
 /// </para>

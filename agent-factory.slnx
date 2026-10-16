@@ -1,0 +1,46 @@
+<Solution>
+  <!--
+    The solution lives at the repository root, so opening the repository opens the
+    solution, exactly as a template generated with the Aspire AppHost selected does.
+    One `src/` holds every project the factory is made of and the host that runs it;
+    one `tests/` holds both test projects. `docs/architecture.md` is the architecture
+    of record for what the four factory projects are and why the AppHost is not one
+    of them.
+  -->
+
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+
+  <Folder Name="/src/">
+    <!--
+      **`DefaultStartup="true"` is what makes F5 run the factory, not the Web project.**
+      It is the same attribute the Aspire templates' `.slnx` carries: an IDE that reads
+      the solution starts the AppHost, so opening this repository and pressing run gives
+      the factory under Aspire — the resource graph, the dashboard and the OTLP pipeline
+      — with no per-machine startup project to remember. The AppHost is under `src/` with
+      the factory rather than beside it, and `ArchitectureTests.TheFactoryProjects` skips
+      it by name: it is a fifth *project* but not a fifth assembly the factory is made of.
+    -->
+    <Project Path="src/AgentFactory.AppHost/AgentFactory.AppHost.csproj" DefaultStartup="true" />
+    <Project Path="src/AgentFactory.Application/AgentFactory.Application.csproj" />
+    <Project Path="src/AgentFactory.Domain/AgentFactory.Domain.csproj" />
+    <Project Path="src/AgentFactory.Infrastructure/AgentFactory.Infrastructure.csproj" />
+    <Project Path="src/AgentFactory.Web/AgentFactory.Web.csproj" />
+  </Folder>
+
+  <Folder Name="/tests/">
+    <!--
+      Everything whose truth depends on the real composition, plus the fast layer over
+      `Domain` and `Application` alone (#86). Which layer a test belongs to is decided by
+      what its truth depends on; see `docs/architecture.md`'s Testing section.
+    -->
+    <Project Path="tests/agent-factory.tests/agent-factory.tests.csproj" />
+    <Project Path="tests/agent-factory.unit-tests/agent-factory.unit-tests.csproj" />
+  </Folder>
+</Solution>

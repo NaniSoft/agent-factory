@@ -251,7 +251,7 @@ fast layer underneath it.
 
 ### Unit — decidable without a host
 
-`agent-factory.unit-tests/` is the fast layer, and it references `Domain` and
+`tests/agent-factory.unit-tests/` is the fast layer, and it references `Domain` and
 `Application` and nothing else. A unit test is a rule of `Domain` or `Application` that
 can be decided without a host, a clock, a database, a socket or a process:
 
@@ -280,7 +280,7 @@ can be decided without a host, a clock, a database, a socket or a process:
 It is fast enough that nobody has a reason not to run it, and **it is the only layer
 that runs with no Temporal server and no Docker at all** — measured, with the container
 stopped: 94 tests in under a second. It is how "run the fast tests" becomes a thing a
-person can type: `dotnet test agent-factory.unit-tests`.
+person can type: `dotnet test tests/agent-factory.unit-tests`.
 
 ### Architecture — the shape of the projects
 
@@ -292,7 +292,7 @@ compiler can be made to enforce. Decided in
 
 ### The harness — the real composition
 
-`src/agent-factory.tests`, the real factory started in-process with `IClock`,
+`tests/agent-factory.tests`, the real factory started in-process with `IClock`,
 `INOpenCode` and `IGitHub` substituted and everything else real. It is what makes
 "nothing waits, defers or times out anywhere in the policy" a fact about the whole
 assembly rather than about one project, and it is **end-to-end by construction and that
@@ -300,7 +300,7 @@ is its value**: persistence, the HTTP surface, the heartbeat, retries across ste
 the board are all only true of the real composition. Its tests are not moved down a
 layer, and a unit test does not re-decide through a host what it can decide without one.
 
-### Why the unit layer is its own project, and why it is outside `src/`
+### Why the unit layer is its own project, and why it sits under `tests/`
 
 Three things justify the separate project, and the first is not tidiness:
 
@@ -312,14 +312,15 @@ Three things justify the separate project, and the first is not tidiness:
   `Infrastructure`, no Temporal, no SQLite. The reference graph is the enforcement.
 - **It is how the fast layer becomes a command** rather than an aspiration.
 
-It sits **outside `src/`**, exactly as `apphost/` does, because `src/` is the factory and
-`ArchitectureTests.TheFactoryProjects` asserts the set of projects in it is exactly the
-factory's four. It is in `src/agent-factory.slnx` by a path that reaches out of `src/`, so
-`dotnet build src/agent-factory.slnx` builds and verifies it like everything else.
-`Application` grants it `InternalsVisibleTo`, because `Pages/` is `internal` — the `Api/`
-records are the process's public surface and the judgement behind them is not — and the
-judgement is exactly what this layer tests. A compile-time visibility change on one
-assembly is not a surface.
+It sits under **`tests/`**, beside `agent-factory.tests`, because the solution keeps one
+`src/` for the projects and one `tests/` for the test projects. `src/` is the factory and
+its host, and `ArchitectureTests.TheFactoryProjects` asserts the set of *factory* projects
+in it is exactly the four — the AppHost is skipped by name. Both test projects are in the
+root `agent-factory.slnx`, so `dotnet build agent-factory.slnx` builds and verifies them
+like everything else. `Application` grants it `InternalsVisibleTo`, because `Pages/` is
+`internal` — the `Api/` records are the process's public surface and the judgement behind
+them is not — and the judgement is exactly what this layer tests. A compile-time
+visibility change on one assembly is not a surface.
 
 **What already existed under another name stays where it is and is not duplicated.**
 `Results/RoundResultDeriverTests.cs` and `Routing/RoutingReaderTests.cs` are already
@@ -413,9 +414,9 @@ not part of the factory.** Decided in
 `docs/research/aspire.md` and the parts of that research this build disagrees with are
 called out below.
 
-### The AppHost, and why it is not under `src/`
+### The AppHost, and why it is not one of the factory's four
 
-`apphost/AgentFactory.AppHost` is an Aspire AppHost: `Aspire.AppHost.Sdk`, **pinned at
+`src/AgentFactory.AppHost` is an Aspire AppHost: `Aspire.AppHost.Sdk`, **pinned at
 13.6.1** in its `<Project Sdk="…">` attribute, which is the only place the version lives
 because an `Sdk=` attribute is invisible to `dotnet add package`. That version is a
 decision rather than a default: Aspire ships a minor a month and each minor ends support of
@@ -426,19 +427,23 @@ reads the *SDK* number, so the two must move together. One warning is suppressed
 transitive package is lifted to its patched release (`MessagePack` 2.5.303, for
 `GHSA-qhrr-8q5h-9q3h`) with its argument in `Directory.Packages.props`.
 
-**It is outside `src/` because `src/` is the factory.** The four projects there are what
-the dependency rule above draws, what `ArchitectureTests` asserts the edges of, and what
-`Boundary/TheFactory` names as the four assemblies every structural pin in `PolicyTests`
-reads. The AppHost names no factory type but the one it launches, holds no policy, and is
-the outermost thing in the repository; putting it in `src/` would have made it a fifth
-assembly inside every scan and a fifth edge in the graph for no gain. **`TheFactory`'s scan
-set is untouched.** The one thing the AppHost *is* in is `src/agent-factory.slnx`, by a
-path that reaches out of `src/`, so that `dotnet build src/agent-factory.slnx` builds and
+**It is not one of the factory's four, and it is under `src/` all the same.** The four are
+what the dependency rule above draws, what `ArchitectureTests` asserts the edges of, and
+what `Boundary/TheFactory` names as the four assemblies every structural pin in
+`PolicyTests` reads. The AppHost names no factory type but the one it launches, holds no
+policy, and is the outermost thing in the repository. It sits in `src/` beside them
+because this repository keeps one source folder and one test folder at the root — the
+layout a solution generated with the Aspire AppHost selected has — and
+`ArchitectureTests.TheFactoryProjects` skips it **by name**, so it stays a fifth *project*
+and never becomes a fifth assembly inside a scan or a fifth edge in the graph.
+**`TheFactory`'s scan set is untouched.** The AppHost is in the root `agent-factory.slnx`
+with `DefaultStartup="true"`, so an IDE that opens the solution runs it — the same
+mechanism the Aspire templates use — and `dotnet build agent-factory.slnx` builds and
 verifies it like everything else.
 
 ### The resource graph
 
-Two resources, and the graph is the whole of `apphost/AgentFactory.AppHost/Program.cs`:
+Two resources, and the graph is the whole of `src/AgentFactory.AppHost/Program.cs`:
 
 | Resource | What it is | Why |
 | --- | --- | --- |

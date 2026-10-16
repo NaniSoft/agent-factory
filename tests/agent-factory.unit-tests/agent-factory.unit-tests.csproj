@@ -11,13 +11,14 @@
     "run the fast tests" a thing a person can type, and it runs with no Temporal server and no Docker
     — see docs/architecture.md's Testing section, "The three layers".
 
-    **It sits outside `src/` on purpose.** `src/` is the factory, and
-    `ArchitectureTests.TheFactoryProjects` reads one project per directory there and asserts the set
-    is exactly the factory's four. A test project inside `src/` would have to be named in that
-    assertion's skip list, which is a file rule 1 of #86 forbids touching; the AppHost solved the
-    same problem the same way (#63), so this does too. It is in `src/agent-factory.slnx` by a path
-    that reaches out of `src/`, so `dotnet build src/agent-factory.slnx` builds and verifies it like
-    everything else.
+    **It sits in `tests/` and not in `src/`.** `src/` holds the five projects that are the
+    factory and its host, and `ArchitectureTests.TheFactoryProjects` reads one project per
+    directory there and asserts the set is exactly the factory's four — the AppHost is
+    skipped by name because it is the host and not one of the four. A test project belongs
+    with the other test project, under the one `tests/` folder at the root, so this shares
+    `agent-factory.tests`' home and neither becomes a directory inside `src/`. It is in the
+    root `agent-factory.slnx`, so `dotnet build agent-factory.slnx` builds and verifies it
+    like everything else.
   -->
 
   <PropertyGroup>
@@ -36,8 +37,8 @@
     arrives transitively from `Application`, which is the contract `NullLogger<T>` is written against.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\src\AgentFactory.Domain\AgentFactory.Domain.csproj" />
-    <ProjectReference Include="..\src\AgentFactory.Application\AgentFactory.Application.csproj" />
+    <ProjectReference Include="..\..\src\AgentFactory.Domain\AgentFactory.Domain.csproj" />
+    <ProjectReference Include="..\..\src\AgentFactory.Application\AgentFactory.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

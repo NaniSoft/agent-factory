@@ -1,5 +1,5 @@
 /**
- * Regenerate `admin/lib/generated` from the factory's own OpenAPI document.
+ * Regenerate `ClientApp/lib/generated` from the factory's own OpenAPI document.
  *
  * The document is the API's account of what it returns — the Board's view records, named
  * by the `.Produces<T>()` annotations in `FactoryApp` — and `openapi-typescript` turns it
@@ -36,11 +36,11 @@ const GENERATOR = 'openapi-typescript@7.13.0';
 const COMPILER = 'typescript@5.9.3';
 
 const scripts = import.meta.dirname;
-const admin = resolve(scripts, '..');
-const root = resolve(admin, '..');
+const clientApp = resolve(scripts, '..');
+const root = resolve(clientApp, '..', '..', '..');
 const project = join(root, 'src', 'AgentFactory.Web', 'AgentFactory.Web.csproj');
 const documentName = 'AgentFactory.Web.json';
-const output = join(admin, 'lib', 'generated');
+const output = join(clientApp, 'lib', 'generated');
 
 /** Run a command with its output shown, and fail loudly rather than carrying on. */
 function run(command, args, environment) {

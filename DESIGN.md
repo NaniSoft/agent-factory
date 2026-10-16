@@ -288,7 +288,7 @@ so the factory itself has no container and needs no daemon. One deployment serve
 every configured project; there is no per-project deployment.
 
 Two ways to run it. `dotnet run --project src/AgentFactory.Web` runs the process
-alone. `dotnet run --project apphost/AgentFactory.AppHost` hosts it under an
+alone. `dotnet run --project src/AgentFactory.AppHost` hosts it under an
 Aspire AppHost, which owns the process's lifetime, starts the Temporal server as
 a resource beside it, and carries the dashboard and the telemetry export. With no
 Temporal endpoint configured the factory runs in store-only mode without the

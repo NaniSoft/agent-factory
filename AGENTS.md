@@ -17,13 +17,13 @@ this repository is the implementation of record.
 .NET 10. Every command runs from the repository root.
 
 ```bash
-dotnet build src/agent-factory.slnx      # build the factory and its tests
-dotnet test  src/agent-factory.slnx      # run the whole suite
+dotnet build agent-factory.slnx          # build the factory and its tests
+dotnet test  agent-factory.slnx          # run the whole suite
 
-dotnet test  agent-factory.unit-tests    # the fast layer alone: no Temporal, no Docker
+dotnet test  tests/agent-factory.unit-tests  # the fast layer alone: no Temporal, no Docker
 
 dotnet run --project src/AgentFactory.Web        # the factory alone; the board is on :5000
-dotnet run --project apphost/AgentFactory.AppHost # the factory under Aspire, with telemetry
+dotnet run --project src/AgentFactory.AppHost    # the factory under Aspire, with telemetry
 ```
 
 The board is at <http://127.0.0.1:5000>. It is bound to loopback on purpose: the machine
@@ -36,10 +36,10 @@ AppHost's own `temporal` resource.
 
 ```bash
 dotnet tool restore                      # `dotnet-ef` is a local tool
-cd admin && pnpm install                 # the Board
-cd admin && pnpm build                   # Next static export into admin/out
-cd admin && pnpm check                   # the Prism consumer gate kit
-cd admin && pnpm check:openapi           # regenerate the Board's types and diff them
+cd src/AgentFactory.Web/ClientApp && pnpm install       # the Board
+cd src/AgentFactory.Web/ClientApp && pnpm build         # Next static export into ClientApp/out
+cd src/AgentFactory.Web/ClientApp && pnpm check         # the Prism consumer gate kit
+cd src/AgentFactory.Web/ClientApp && pnpm check:openapi # regenerate the Board's types and diff them
 ```
 
 ## The architecture
@@ -51,27 +51,31 @@ One copy is the point.
 
 In one paragraph: `AgentFactory.Domain` → `.Application` → `.Infrastructure` →
 `.Web`, dependencies inward only, `Domain` referencing nothing at all. The factory is
-four projects and one process, hosted by an Aspire AppHost in `apphost/`. Ports are
-declared in `Application` and implemented in `Infrastructure`. A test asserts that
-`Application` may name logging and hosting *abstractions* and nothing infrastructural.
+four projects and one process, hosted by an Aspire AppHost in `src/AgentFactory.AppHost`.
+Ports are declared in `Application` and implemented in `Infrastructure`. A test asserts
+that `Application` may name logging and hosting *abstractions* and nothing
+infrastructural.
 
-The AppHost is a fifth *project* but not a fifth assembly the factory is made of: the
-structural scans read the four, and adding the AppHost to them would be wrong.
+The repository keeps one `src/` and one `tests/` at the root, with the solution
+(`agent-factory.slnx`) beside them: `src/` holds the five projects (the factory's four and
+the AppHost) and `tests/` holds the two test projects. The AppHost is a fifth *project* but
+not a fifth assembly the factory is made of: the structural scans read the four, and adding
+the AppHost to them would be wrong.
 
 ## The test suite
 
-Two projects. `agent-factory.unit-tests/` is the fast layer and references only
-`Domain` and `Application`; `src/agent-factory.tests` is everything whose truth depends
+Two projects. `tests/agent-factory.unit-tests/` is the fast layer and references only
+`Domain` and `Application`; `tests/agent-factory.tests` is everything whose truth depends
 on the real composition. Which layer a test belongs to is decided by **what its truth
 depends on**, not by what it looks like — **`docs/architecture.md`'s Testing section**
 states it in full. The layers:
 
-- **Unit** (`agent-factory.unit-tests/`) — a rule of `Domain` or `Application` decidable
+- **Unit** (`tests/agent-factory.unit-tests/`) — a rule of `Domain` or `Application` decidable
   without a host, a clock, a database, a socket or a process: `MergePolicy` with a fake
   `IMerger` and a fake `IWorkItemStore`, `BranchName` and `PullRequestText`, the closed
   vocabularies, `Failures.Classify` and `RoundResult.IsRetryable`, `GitDiff` and
-  `DiffDocument`, and the `Pages/` judgement. `dotnet test agent-factory.unit-tests` runs
-  it alone in under a second, **with no Temporal server and no Docker** — and it cannot
+  `DiffDocument`, and the `Pages/` judgement. `dotnet test tests/agent-factory.unit-tests`
+  runs it alone in under a second, **with no Temporal server and no Docker** — and it cannot
   reach a host, because the project it references does not contain one.
 - **Architecture tests** (`Failures/ArchitectureTests.cs`) read the csproj graph and
   assert the reference edges, that `Domain` points nowhere, that only `Web` takes the

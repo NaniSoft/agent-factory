@@ -16,16 +16,18 @@
     required". Raising Aspire is `aspire update`, or an edit here and a look at the
     packages the next build resolves.
 
-    **Why this project is not under `src/`.** The four projects under `src/` are the
-    factory: `Domain`, `Application`, `Infrastructure`, `Web`. They are what
-    `docs/architecture.md` calls the dependency rule's graph, what `ArchitectureTests`
-    asserts the edges of, and what `Boundary/TheFactory` names as the four assemblies
-    `PolicyTests`' IL scans read. This project is none of those — it names no factory type
-    but the one it launches, holds no policy, and is the outermost thing in the
-    repository. Putting it in `src/` would have made it a fifth assembly inside every
-    structural scan (and a fifth edge in the graph) for no gain, where leaving it out
-    says the true thing: the AppHost is the host, and the factory is four assemblies.
-    See the Hosting section of `docs/architecture.md`.
+    **Why this project is under `src/` and is still not one of the factory's four.** The
+    four projects that are the factory — `Domain`, `Application`, `Infrastructure`, `Web`
+    — are what `docs/architecture.md` calls the dependency rule's graph, what
+    `ArchitectureTests` asserts the edges of, and what `Boundary/TheFactory` names as the
+    four assemblies `PolicyTests`' IL scans read. This project is none of those: it names
+    no factory type but the one it launches, holds no policy, and is the outermost thing
+    in the repository. It sits in `src/` beside them because `src/` is where this
+    repository's source lives — one source folder and one test folder at the root, the
+    layout a solution generated with the Aspire AppHost selected has — and
+    `ArchitectureTests.TheFactoryProjects` skips it by name, so it stays a fifth *project*
+    and never becomes a fifth assembly a structural scan absorbs. See the Hosting section
+    of `docs/architecture.md`.
 
     **`ASPIRE010` is suppressed, deliberately and visibly.** The warning says this project
     is configured with `AspireUseCliBundle=false` and that "some Aspire features require
@@ -69,7 +71,7 @@
     move cannot leave the graph pointing at a project that is no longer there.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AgentFactory.Web\AgentFactory.Web.csproj" />
+    <ProjectReference Include="..\AgentFactory.Web\AgentFactory.Web.csproj" />
   </ItemGroup>
 
 </Project>

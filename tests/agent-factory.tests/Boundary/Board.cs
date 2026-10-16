@@ -7,7 +7,7 @@ using System.Text;
 
 /// <summary>
 /// The Board, read back over the process's own HTTP surface — the `/api/*` JSON the
-/// admin app renders — and the reviewer's hand on it.
+/// Board app renders — and the reviewer's hand on it.
 /// </summary>
 /// <remarks>
 /// <para>

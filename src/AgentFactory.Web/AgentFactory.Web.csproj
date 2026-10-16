@@ -48,7 +48,7 @@
       The OpenAPI document the Board's generated types are read from (#78, #80).
       The generator is registered here and *served* nowhere: `MapOpenApi()` is not
       called, so the process answers no document route and the document exists
-      only as the build artefact `admin/scripts/generate-openapi-types.mjs` reads.
+      only as the build artefact `ClientApp/scripts/generate-openapi-types.mjs` reads.
       The endpoints' own `.Produces<T>()` annotations are the schemas; this pair
       of packages is what turns them into a file.
     -->
@@ -97,6 +97,19 @@
     <OpenApiGenerateDocumentsOnBuild>false</OpenApiGenerateDocumentsOnBuild>
   </PropertyGroup>
 
+  <!--
+    **The Board's own directories are excluded from this project's item globs, and the
+    exclusion is what lets `ClientApp` sit inside the Web project rather than beside it.**
+    `ClientApp` is a Next app: `node_modules` alone is tens of thousands of files, and
+    `.next` and `out` are its build output. The .NET SDK's default globs would enumerate
+    every one of them on every build — as `None` items, compiled by nothing and copied
+    nowhere, but walked all the same. This is the same shape as `bin/` and `obj/`, which
+    the SDK's own `DefaultItemExcludes` already drops.
+  -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);ClientApp\node_modules\**;ClientApp\.next\**;ClientApp\out\**</DefaultItemExcludes>
+  </PropertyGroup>
+
   <ItemGroup>
     <!--
       Anything already under `wwwroot` — the project's own content, copied to the output
@@ -115,12 +128,13 @@
     The Board app's static export, put into this project's `wwwroot` cone as an explicit
     build step.
 
-    The app is a flat Next export at the repository root (`../../admin`), built with
-    `pnpm build` into `admin/out`; `FactoryApp` serves everything under
-    AppContext.BaseDirectory/wwwroot. `Link` maps each exported file to the root of
-    wwwroot (its `admin/out` cone is stripped), and the two copy flags put it in the
-    output and in the published output, because a file that is served but not published
-    is a file that exists in development and 404s in production.
+    The app is a flat Next export in `ClientApp` beside this project — the folder a
+    solution generated with a client app has — built with `pnpm build` into
+    `ClientApp/out`; `FactoryApp` serves everything under AppContext.BaseDirectory/wwwroot.
+    `Link` maps each exported file to the root of wwwroot (its `ClientApp/out` cone is
+    stripped), and the two copy flags put it in the output and in the published output,
+    because a file that is served but not published is a file that exists in development
+    and 404s in production.
 
     **It is a target rather than a bare `Content Include` glob, and the difference is
     the point.** A glob is evaluated silently: a checkout that has not run `pnpm build`
@@ -133,11 +147,11 @@
   -->
   <Target Name="CopyTheBoardsExport" BeforeTargets="AssignTargetPaths">
     <ItemGroup>
-      <BoardExport Include="$(MSBuildThisFileDirectory)..\..\admin\out\**" />
+      <BoardExport Include="$(MSBuildThisFileDirectory)ClientApp\out\**" />
     </ItemGroup>
 
     <Warning Condition="'@(BoardExport)' == ''"
-             Text="The Board app's static export was not found under admin/out, so the factory will serve no Board. Run `pnpm build` in admin/ and build again; this build continues without one." />
+             Text="The Board app's static export was not found under ClientApp/out, so the factory will serve no Board. Run `pnpm build` in ClientApp/ and build again; this build continues without one." />
 
     <ItemGroup>
       <Content Include="@(BoardExport)"

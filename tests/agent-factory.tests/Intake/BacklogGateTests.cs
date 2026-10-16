@@ -140,7 +140,7 @@ public class BacklogGateTests
         // offering a reviewer a click that the loop is about to refuse.
         //
         // The board here is the factory's own judgement read back over `/api/board` — the
-        // same read the admin app makes — so `data-build` is the factory's `offersAcceptance`
+        // same read the Board app makes — so `data-build` is the factory's `offersAcceptance`
         // and not a renderer's guess about a lane.
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundOutcome.Produced, "src/Index.cs +12 -3", "First attempt.");
