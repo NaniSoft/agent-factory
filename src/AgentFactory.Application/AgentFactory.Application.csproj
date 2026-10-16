@@ -22,6 +22,19 @@
 
   <ItemGroup>
     <!--
+      The unit tests over this project's own judgement. `Pages/` is `internal` because the
+      `Api/` records are the process's public surface and the judgement behind them is not —
+      but the judgement is exactly what `docs/architecture.md`'s Testing section asks the fast
+      layer to test, and a separate test project can only reach it from outside. This is the
+      seam the C# language provides for that, and it changes no surface and no behaviour.
+
+      It grants access to `Pages/HowItEnded`, `Pages/HowToReadTheDiff` and
+      `Pages/HowToReadIntake` (their siblings are already `public` or reached through the
+      `Api/` projections). It is a compile-time visibility change on one assembly and names
+      one test project; nothing in the factory can see it.
+    -->
+    <InternalsVisibleTo Include="agent-factory.unit-tests" />
+    <!--
       `WorkItemScope` and `ProjectScope` put a work item's or a project's identity on every
       record written inside them, and `ILogger<T>` is the only way this factory expresses
       that. The Web SDK carries this package implicitly and `Microsoft.NET.Sdk` does not, so

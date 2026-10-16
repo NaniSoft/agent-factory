@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The fast layer: unit tests over `Domain` and `Application`, and nothing else. TargetFramework,
+    Nullable, ImplicitUsings and IsPackable are in Directory.Build.props; `IsTestProject` is this
+    project's alone. Package versions are in Directory.Packages.props.
+
+    **It references two projects and it deliberately cannot reach a third.** No Web, no
+    Infrastructure, no Temporal, no SQLite, no Aspire: the reference graph is the enforcement, so a
+    unit test physically cannot reach a host, a database, a socket or a git process. It is what makes
+    "run the fast tests" a thing a person can type, and it runs with no Temporal server and no Docker
+    — see docs/architecture.md's Testing section, "The three layers".
+
+    **It sits outside `src/` on purpose.** `src/` is the factory, and
+    `ArchitectureTests.TheFactoryProjects` reads one project per directory there and asserts the set
+    is exactly the factory's four. A test project inside `src/` would have to be named in that
+    assertion's skip list, which is a file rule 1 of #86 forbids touching; the AppHost solved the
+    same problem the same way (#63), so this does too. It is in `src/agent-factory.slnx` by a path
+    that reaches out of `src/`, so `dotnet build src/agent-factory.slnx` builds and verifies it like
+    everything else.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>AgentFactory.UnitTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <!--
+    The whole dependency of the layer: the inside's own two projects. `Microsoft.Extensions.Logging.Abstractions`
+    arrives transitively from `Application`, which is the contract `NullLogger<T>` is written against.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\src\AgentFactory.Domain\AgentFactory.Domain.csproj" />
+    <ProjectReference Include="..\src\AgentFactory.Application\AgentFactory.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

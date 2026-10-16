@@ -20,6 +20,8 @@ this repository is the implementation of record.
 dotnet build src/agent-factory.slnx      # build the factory and its tests
 dotnet test  src/agent-factory.slnx      # run the whole suite
 
+dotnet test  agent-factory.unit-tests    # the fast layer alone: no Temporal, no Docker
+
 dotnet run --project src/AgentFactory.Web        # the factory alone; the board is on :5000
 dotnet run --project apphost/AgentFactory.AppHost # the factory under Aspire, with telemetry
 ```
@@ -58,9 +60,19 @@ structural scans read the four, and adding the AppHost to them would be wrong.
 
 ## The test suite
 
-One project, `src/agent-factory.tests`, organised by slice. Three layers, and the
-honest state of each:
+Two projects. `agent-factory.unit-tests/` is the fast layer and references only
+`Domain` and `Application`; `src/agent-factory.tests` is everything whose truth depends
+on the real composition. Which layer a test belongs to is decided by **what its truth
+depends on**, not by what it looks like — **`docs/architecture.md`'s Testing section**
+states it in full. The layers:
 
+- **Unit** (`agent-factory.unit-tests/`) — a rule of `Domain` or `Application` decidable
+  without a host, a clock, a database, a socket or a process: `MergePolicy` with a fake
+  `IMerger` and a fake `IWorkItemStore`, `BranchName` and `PullRequestText`, the closed
+  vocabularies, `Failures.Classify` and `RoundResult.IsRetryable`, `GitDiff` and
+  `DiffDocument`, and the `Pages/` judgement. `dotnet test agent-factory.unit-tests` runs
+  it alone in under a second, **with no Temporal server and no Docker** — and it cannot
+  reach a host, because the project it references does not contain one.
 - **Architecture tests** (`Failures/ArchitectureTests.cs`) read the csproj graph and
   assert the reference edges, that `Domain` points nowhere, that only `Web` takes the
   ASP.NET SDK, and that `Application` names no infrastructure. Each has a positive
@@ -77,18 +89,22 @@ honest state of each:
   `drivingTheMachine: false` and substitutes `IClock`, `INOpenCode` and `IGitHub`. Most
   of the suite is this, and it is hermetic: no Docker, no network, no sleeps.
 
-**There are no unit tests over `Domain` and `Application`.** That was the third part of
-the decision that produced the restructure above, and it was not delivered — every slice
-moved code and nothing added the tests the moves made possible. A component in
-`Application` can now be constructed directly instead of reached through a host, and
-nobody has done it. It is filed, not forgotten.
+**What already existed under another name is left where it is and is not duplicated.**
+`Results/RoundResultDeriverTests.cs` and `Routing/RoutingReaderTests.cs` are already
+hermetic and file-based, and are nearly the unit layer already — but the components they
+test, `RoundResultDeriver` and `RoutingReader`, live in `Infrastructure`, which the unit
+project deliberately cannot reference. The merge refusals are likewise exercised end to
+end in `GitHub/MergeTests.cs` against the real client and real git; the unit tests
+re-state them at the policy layer because that is the layer the restructure made
+constructible.
 
 **`docker compose up temporal` or the AppHost starts the durable server.** `TemporalFactAttribute`
 probes `localhost:7233` once and skips with the reason when nothing answers. Note the
 exception: `Durability/MinimalEnvTest.cs` is a plain `[Fact]`, so on a machine with no
 Temporal it **fails** rather than skipping.
 
-The suite count moves: 407 at the time of writing, with Temporal answering. Treat a
+The suite count moves: **407 in `agent-factory.tests` and 94 in
+`agent-factory.unit-tests`** at the time of writing, with Temporal answering. Treat a
 number *lower than the last one* as a failure to explain, never as a cleanup.
 
 ## Deliberate, load-bearing oddities

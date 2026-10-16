@@ -244,22 +244,91 @@ made without changing what the factory does, the slice is wrong, not the rule.
 
 ## Testing
 
-Policy is still tested the way it always was: the real factory, started in-process,
-with `IClock`, `INOpenCode` and `IGitHub` substituted and everything else real. That
-harness survives the split as the integration layer, because it is what makes
+Three layers, and the line between them is **what a test's truth depends on** rather
+than what it looks like. The restructure's test decision was layered — unit +
+architecture + keep the harness — and the durable half shipped first; #86 delivered the
+fast layer underneath it.
+
+### Unit — decidable without a host
+
+`agent-factory.unit-tests/` is the fast layer, and it references `Domain` and
+`Application` and nothing else. A unit test is a rule of `Domain` or `Application` that
+can be decided without a host, a clock, a database, a socket or a process:
+
+- `MergePolicy`, constructed directly with a fake `IMerger` and a fake `IWorkItemStore` —
+  the refusals are each a decision (an already-merged pull request is a *success* rather
+  than a second merge, a closed-unmerged one is a *permanent* decline, a branch that moved
+  on is refused because the commits are not the ones the reviewer judged, a round that
+  left work uncommitted is not shippable), and so is the *ordering* that puts every local
+  refusal before anything is sent.
+- `BranchName` and `PullRequestText`, which are pure and both encode rules with real
+  consequences: the slug is reduced to `[a-z0-9-]` because the branch is a git ref, an
+  HTTP path segment *and* a body; the branch must be deterministic because that
+  determinism is the idempotency; and the body carries no closing keyword, because the
+  issue is linked and never closed.
+- The closed vocabularies and the classification — `Decisions`, `Swimlanes`,
+  `WorkItemKinds`, `Failures.Classify`, `RoundResult.IsRetryable` — where the refusals
+  matter as much as the members, and an unclassified failure is **permanent**.
+- `GitDiff` and `DiffDocument`, the one reader of git's diff format, and
+  `DiffWindow.Showing`'s bound on **whole files** and never mid-hunk.
+- `Pages/` — `HowItEnded`, `HowToReadTheDiff`, `HowToReadTheRoute`, `HowToReadIntake` —
+  the board's judgement, where two states distinguished only by wording are tested both
+  ways: an empty diff that means "changed nothing" against one that means "did not
+  finish", and three intake states where an empty lane must not read as a project with
+  nothing to do.
+
+It is fast enough that nobody has a reason not to run it, and **it is the only layer
+that runs with no Temporal server and no Docker at all** — measured, with the container
+stopped: 94 tests in under a second. It is how "run the fast tests" becomes a thing a
+person can type: `dotnet test agent-factory.unit-tests`.
+
+### Architecture — the shape of the projects
+
+`Failures/ArchitectureTests`, over the project graph and the rules above, added beside
+the assembly-wide reflection scans rather than in place of them — the scans say what may
+call what, the graph says what may name what, and only the graph is something the
+compiler can be made to enforce. Decided in
+[#61](https://github.com/NaniSoft/agent-factory/issues/61).
+
+### The harness — the real composition
+
+`src/agent-factory.tests`, the real factory started in-process with `IClock`,
+`INOpenCode` and `IGitHub` substituted and everything else real. It is what makes
 "nothing waits, defers or times out anywhere in the policy" a fact about the whole
-assembly rather than about one project.
+assembly rather than about one project, and it is **end-to-end by construction and that
+is its value**: persistence, the HTTP surface, the heartbeat, retries across steps and
+the board are all only true of the real composition. Its tests are not moved down a
+layer, and a unit test does not re-decide through a host what it can decide without one.
 
-Around it, two layers are new:
+### Why the unit layer is its own project, and why it is outside `src/`
 
-- **Unit tests** over `Domain` and `Application`, which can now be constructed
-  directly rather than reached through a host. This is the "hard to test in
-  isolation" the restructure is for.
-- **Architecture tests** over the project graph and the rules above, added beside the
-  assembly-wide reflection scans rather than in place of them — the scans say what may
-  call what, the graph says what may name what, and only the graph is something the
-  compiler can be made to enforce. Decided in
-  [#61](https://github.com/NaniSoft/agent-factory/issues/61).
+Three things justify the separate project, and the first is not tidiness:
+
+- **The harness cannot run without Temporal.** `Durability/MinimalEnvTest` is a plain
+  `[Fact]`, so on a machine with no `temporal server` it *fails* rather than skipping. A
+  project over `Domain` and `Application` runs anywhere, always.
+- **It makes the layering structural rather than a convention.** A unit test *cannot*
+  reach a host, because the project it references does not contain one — no `Web`, no
+  `Infrastructure`, no Temporal, no SQLite. The reference graph is the enforcement.
+- **It is how the fast layer becomes a command** rather than an aspiration.
+
+It sits **outside `src/`**, exactly as `apphost/` does, because `src/` is the factory and
+`ArchitectureTests.TheFactoryProjects` asserts the set of projects in it is exactly the
+factory's four. It is in `src/agent-factory.slnx` by a path that reaches out of `src/`, so
+`dotnet build src/agent-factory.slnx` builds and verifies it like everything else.
+`Application` grants it `InternalsVisibleTo`, because `Pages/` is `internal` — the `Api/`
+records are the process's public surface and the judgement behind them is not — and the
+judgement is exactly what this layer tests. A compile-time visibility change on one
+assembly is not a surface.
+
+**What already existed under another name stays where it is and is not duplicated.**
+`Results/RoundResultDeriverTests.cs` and `Routing/RoutingReaderTests.cs` are already
+hermetic and file-based, and are nearly the unit layer already — but the components they
+test, `RoundResultDeriver` and `RoutingReader`, live in `Infrastructure`, which the unit
+project deliberately cannot reference. The same is true of the merge refusals: they are
+exercised end to end in `GitHub/MergeTests.cs` against the real client and real git, and
+the unit tests above re-state them at the policy layer because *that* is the layer the
+restructure made constructible.
 
 ## What replaces the eighteen reflection tests
 
