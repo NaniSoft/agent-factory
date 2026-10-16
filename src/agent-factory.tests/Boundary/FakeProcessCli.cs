@@ -14,6 +14,26 @@ using System.Diagnostics;
 public sealed class FakeProcessCli : IProcessCli
 {
     private readonly List<ProcessCall> _calls = [];
+
+    /// <summary>
+    /// The one thing in this fake that two rounds touch at once, and the reason it is guarded.
+    /// </summary>
+    /// <remarks>
+    /// <c>List&lt;T&gt;.Add</c> is not safe against a concurrent <c>Add</c>, and a round *is*
+    /// two threads here: <c>RoundConcurrencyTests.Two_rounds_running_at_once_each_get_a_tree_of_
+    /// their_own</c> starts two <c>RunRoundAsync</c> calls and awaits both, so this fake's
+    /// <see cref="InvokeAsync"/> is entered from two threads and both reach the record below.
+    /// The loss is silent — the round still runs, the invocation still happens, and only the
+    /// *list* comes back one short — which is how it was found: that test failed once in a run
+    /// with `Expected: 2, Actual: 1` on the opencode count while both rounds had come back
+    /// `Produced`, and the assertion after it (that each round got its own tree) had nothing to
+    /// do with the failure. The race is latent and pre-existing; #63 made it reproducible by
+    /// adding the telemetry pipeline to every test host, which changed the timing inside the
+    /// window. A fake that records calls has to record them all, so the read and the write are
+    /// under one lock.
+    /// </remarks>
+    private readonly object _callsGate = new();
+
     private readonly List<TaskCompletionSource> _holds = [];
     private bool _realGit;
     private Func<ProcessRequest, ProcessAnswer> _gitAnswer = _ => new ProcessAnswer(0, string.Empty);
@@ -21,7 +41,16 @@ public sealed class FakeProcessCli : IProcessCli
         (_, _) => Task.FromResult(new ProcessAnswer(0, string.Empty));
 
     /// <summary>Every invocation, in order, with the environment and token it was given.</summary>
-    public IReadOnlyList<ProcessCall> Calls => _calls;
+    public IReadOnlyList<ProcessCall> Calls
+    {
+        get
+        {
+            lock (_callsGate)
+            {
+                return [.. _calls];
+            }
+        }
+    }
 
     /// <summary>Every line the fake reported to the caller's progress channel, in order.</summary>
     public List<string> Lines { get; } = [];
@@ -40,7 +69,10 @@ public sealed class FakeProcessCli : IProcessCli
                 : new Dictionary<string, string>(StringComparer.Ordinal),
             output,
             cancellationToken);
-        _calls.Add(call);
+        lock (_callsGate)
+        {
+            _calls.Add(call);
+        }
 
         var answer = request.Executable switch
         {
@@ -65,11 +97,22 @@ public sealed class FakeProcessCli : IProcessCli
     }
 
     /// <summary>The nth invocation, which is usually the one under test.</summary>
-    public ProcessCall Call(int index) => _calls[index];
+    public ProcessCall Call(int index)
+    {
+        lock (_callsGate)
+        {
+            return _calls[index];
+        }
+    }
 
     /// <summary>Every invocation of one executable, in order.</summary>
-    public IReadOnlyList<ProcessCall> From(string executable) =>
-        _calls.Where(call => call.Executable == executable).ToList();
+    public IReadOnlyList<ProcessCall> From(string executable)
+    {
+        lock (_callsGate)
+        {
+            return [.. _calls.Where(call => call.Executable == executable)];
+        }
+    }
 
     /// <summary>The single invocation of one executable, or a failure saying there was not exactly one.</summary>
     public ProcessCall TheOnly(string executable) => Assert.Single(From(executable));
@@ -78,17 +121,23 @@ public sealed class FakeProcessCli : IProcessCli
     public ProcessCall TheOnlyAgent() => Assert.Single(From("opencode"));
 
     /// <summary>Whether any invocation was a git one with the given subcommand.</summary>
-    public bool RanGit(string subcommand) =>
-        _calls.Any(call => call.Executable == "git"
-            && call.Arguments.Count > 0
-            && call.Arguments.Any(argument => argument == subcommand));
+    public bool RanGit(string subcommand)
+    {
+        lock (_callsGate)
+        {
+            return _calls.Any(call => call.Executable == "git"
+                && call.Arguments.Count > 0
+                && call.Arguments.Any(argument => argument == subcommand));
+        }
+    }
 
     /// <summary>The one clone a build round makes, or a failure saying there was not exactly one.</summary>
     public ProcessCall TheOnlyClone()
     {
-        var clones = _calls.Where(call => call.Executable == "git"
-            && call.Arguments.Contains("clone")).ToList();
-        return Assert.Single(clones);
+        lock (_callsGate)
+        {
+            return Assert.Single(_calls, call => call.Executable == "git" && call.Arguments.Contains("clone"));
+        }
     }
 
     /// <summary>

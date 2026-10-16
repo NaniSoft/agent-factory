@@ -7,6 +7,20 @@ using AgentFactory.Tests.Boundary;
 /// that fails validation keeps its own project out of the rotation and is reported;
 /// it never stops the factory from starting.
 /// </summary>
+/// <remarks>
+/// **This class shares a collection with <c>TheProcessTests</c> and
+/// <c>CredentialFreeObservabilityTests</c>, and the reason is the same one written there.**
+/// <c>Credentials_are_referenced_by_environment_variable_name_and_never_read</c> sets
+/// `NEXUS_GITHUB_TOKEN` in the *process* environment and clears it again, and xUnit runs
+/// classes in parallel — so while that test is running, `TheProcessTests`'
+/// `The_github_seam_is_a_real_client_and_a_call_it_cannot_make_says_which_one` finds a
+/// credential where it expects none, calls github.com instead of being refused locally, and
+/// fails on a message that does not name the credential. That is not hypothetical: it happened
+/// once in a full run while #63 was being built, and the collection is what makes the two run
+/// in sequence. The attribute was missing here because this class was written before the
+/// other two were put in a collection, and the hazard only shows up under load.
+/// </remarks>
+[Collection("the process environment")]
 public class ProjectFileTests
 {
     [Fact]
