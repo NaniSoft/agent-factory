@@ -324,6 +324,25 @@ web application and Temporal, and carries telemetry. Decided in
 [#63](https://github.com/NaniSoft/agent-factory/issues/63); the shape is in
 `docs/research/aspire.md`.
 
+**What the AppHost will see, and what Web owns, were decided in
+[#81](https://github.com/NaniSoft/agent-factory/issues/81).** It sees this project's
+`Program` and its `FactoryApp.Create(WebApplicationBuilder, FactoryOptions, bool)`, and
+nothing else. Web owns the process's composition — the two things a host is told before it
+is built, the three registration modules under `src/AgentFactory.Web/Composition/`, the
+eight route templates of the JSON surface, the Board export served at the root beside them,
+and the API's own document — and the AppHost will own the lifetime, the orchestration of
+the two processes, and the telemetry exporter. Nothing in Web may need to know that an
+AppHost exists.
+
+**`AgentFactory.Web`'s root namespace stays `AgentFactory`, and #81 owns that rather than
+inheriting it.** The convention the slices established is namespace = project name, and
+the entry point is the one thing that convention cannot describe: `Program`'s top-level
+statements are compiled into the global namespace and cannot be given one, so a rename
+would spread the project's own names across three (`AgentFactory`, `AgentFactory.OpenApi`
+and the global `Program`); and `FactoryApp`/`BoardExport` are the *process's* names, not a
+slice's. Everything a slice moved out of this project has a namespace that says where it
+went.
+
 One consequence is already decided and is not a discovery: **the factory now
 opens sockets.** The Aspire dashboard and an OpenTelemetry exporter both listen,
 which retires the "this process opens no socket of any kind" property deliberately.

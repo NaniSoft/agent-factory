@@ -1,33 +1,16 @@
 namespace AgentFactory;
 
-using AgentFactory.Application.Clock;
-using AgentFactory.Application.Credentials;
-using AgentFactory.Application.GitHub;
-using AgentFactory.Application.Observability;
-using AgentFactory.Application.Projects;
-using AgentFactory.Application.Rounds;
-using AgentFactory.Application.Routing;
-using AgentFactory.Application.Tickets;
 using AgentFactory.Application;
-using AgentFactory.Domain.Rounds;
-using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.Durability;
-using AgentFactory.Application.Driving;
-using AgentFactory.Infrastructure.GitHub;
-using AgentFactory.Infrastructure.Clock;
-using AgentFactory.Infrastructure.Credentials;
-using AgentFactory.Infrastructure.Durability;
-using AgentFactory.Infrastructure.Projects;
-using AgentFactory.Infrastructure.Results;
-using AgentFactory.Infrastructure.Rounds;
-using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Application.Loop;
 using AgentFactory.Application.Polling;
-using AgentFactory.Infrastructure.WorkItems;
+using AgentFactory.Application.Projects;
 using AgentFactory.Application.WorkItems;
+using AgentFactory.Domain.WorkItems;
+using AgentFactory.Infrastructure.Credentials;
+using AgentFactory.Infrastructure.Projects;
+using AgentFactory.OpenApi;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using System.Diagnostics.Metrics;
 
 // The Board's view records and its judgement classes now live in `Application` — they are the
 // model's shape rather than policy (#78). The alias keeps the composition root reading
@@ -39,6 +22,34 @@ using Api = AgentFactory.Application.Api;
 /// orchestrator and the board. The board is an endpoint this process serves, not a
 /// service it calls (ADR-0003).
 /// </summary>
+/// <remarks>
+/// <para>
+/// This is the composition root, and what it owns is the process: the two things a host
+/// must be told before it is built (where the board is bound, and what the process is
+/// configured with), the one framework surface that belongs to the process rather than to
+/// a module (the API's own document), the eight route templates of the JSON surface, the
+/// Board export served at the root beside them, and the two reads that must happen before
+/// the process serves anything. Everything a component needs in order to do its work is a
+/// module's decision, and each module is argued where it is: <c>Composition/TheSeams</c>,
+/// <c>Composition/ThePolicyCore</c> and <c>Composition/TheDrivers</c>.
+/// </para>
+/// <para>
+/// <strong>This is also the seam an AppHost will see, and it is deliberately the only
+/// one.</strong> [#63](https://github.com/NaniSoft/agent-factory/issues/63) adds an Aspire
+/// AppHost that composes this application and Temporal and carries telemetry, and none of
+/// that lands here: the AppHost references this project and runs its <c>Program</c>, which
+/// reads <c>FactorySettings</c> and calls <see cref="Create"/>. So what Web owns is the
+/// process's own composition, and what the AppHost owns is the host's — the lifetime, the
+/// orchestration of the two processes, and where the numbers go. Nothing added here may
+/// need to know that an AppHost exists.
+/// </para>
+/// <para>
+/// The route table is the routes as written: exactly eight templates, which
+/// <c>Review/DecisionTests</c> pins verbatim, because "what a human can reach" is a claim
+/// about this file and not about a framework's discovery. They stay here rather than in an
+/// endpoints module because the composition root is what decides the process's surface.
+/// </para>
+/// </remarks>
 public static class FactoryApp
 {
     /// <summary>
@@ -70,174 +81,13 @@ public static class FactoryApp
         // and the document exists only as the build artefact the Board's generation script
         // reads. `TheApiDocument.Configure` is where the one correction the endpoints cannot
         // state for themselves lives.
-        builder.Services.AddOpenApi(AgentFactory.OpenApi.TheApiDocument.Configure);
+        builder.Services.AddOpenApi(TheApiDocument.Configure);
 
-        // The real clock, unless a test has already put its own in the container.
-        builder.Services.TryAddSingleton<IClock, SystemClock>();
-
-        // The counters, on the platform's own metrics API and with no exporter. That last
-        // half is the decision: this process publishes no port and binds its board to
-        // loopback, and a metrics endpoint would be a second surface with a second set of
-        // access rules to reach the same machine. `System.Diagnostics.Metrics` is a push
-        // API — a consumer attaches to the meter in whatever process it shares — so the
-        // factory can be measured without exposing anything, and *where* the numbers go is
-        // the deployment's business rather than this process's.
-        //
-        // TryAdd, so a test can put its own in and read the counters its own factory
-        // published rather than summing over the whole process.
-        builder.Services.AddMetrics();
-        builder.Services.TryAddSingleton(services => new FactoryMetrics(
-            services.GetRequiredService<IMeterFactory>()));
-
-        // The result deriver, and the one place a credential name becomes a value.
-        //
-        // The deriver is the whole of ADR-0011 on this side of the boundary: it reads what
-        // the round observed and turns it into a result, and it has no way to ask the
-        // agent anything. The credential reader is the only component that can put a value
-        // rather than a name into a round, which is why the line between the LLM key
-        // (which goes in) and the GitHub key (which does not) is one method call away from
-        // being checkable rather than merely intended (ADR-0006).
-        builder.Services.AddSingleton<RoundResultDeriver>();
-
-        // The reader of a routing round's verdict, and the publisher of what it proposed.
-        // One instance of each, and both stateless: the reader turns a file into a verdict
-        // and the publisher turns a verdict into issues, and neither of them has anything to
-        // keep between calls. They are singletons because "one reader of that file's shape"
-        // is a property of the process rather than of any one call, and a per-call reader
-        // would be a second reader the moment somebody injected one by hand (ADR-0015).
-        builder.Services.AddSingleton<RoutingReader>();
-        builder.Services.AddSingleton<IIssuePublisher, IssuePublisher>();
-        // The reader is the composite: environment first, the secrets directory second (#32) —
-        // the directory the board's credentials form writes into, read at use time so a
-        // rotation needs no restart.
-        builder.Services.AddSingleton(services => new CompositeCredentialReader(
-            ProcessEnvironment.The,
-            services.GetRequiredService<FactoryOptions>().SecretsDirectory));
-        builder.Services.TryAddSingleton<ICredentialReader>(services =>
-            services.GetRequiredService<CompositeCredentialReader>());
-
-        // The agent seam now has an implementation, so it is registered as one rather than
-        // refused: a round runs in a fresh working tree on this machine, the OpenCode CLI
-        // is driven non-interactively in it as a child process, and the orchestrator still
-        // has no concept of a process. TryAdd, so the fake in the test host wins.
-        builder.Services.TryAddSingleton<IProcessCli, ProcessCli>();
-        builder.Services.TryAddSingleton<INOpenCode, RoundRunner>();
-
-        // The GitHub seam now has an implementation, and it is the first `HttpClient` in the
-        // process — deliberately, and only here. Intake reads through this client and the
-        // merger writes through it, so it is the one place the factory talks to GitHub, and
-        // the review surface still cannot: `PolicyTests` names this type as the single
-        // component allowed to hold a transport, for the same reason it names the driver's
-        // single `Task.Delay` (ADR-0003, one process, one boundary).
-        //
-        // **The merger is a second port on the same class, and that is not a second
-        // boundary.** `IGitHub` is intake and the issue writes; `IMerger` is everything the
-        // merge needs to ask GitHub and git, one step at a time, with the policy's plan as
-        // its only input. Both are answered by this one object, so there is still one place
-        // that knows what a repository is — and there is no longer a REST client that can
-        // reach the store, because the merge policy resolves the work item and hands the
-        // plan over.
-        //
-        // The token is never on a command line and never in a URL: it goes into one
-        // `Authorization` header per request and into the environment of the one git child
-        // that pushes, and the loop is handed `CancellationToken.None` so that the bound on
-        // a request is the client's own timeout rather than a timer the policy is forbidden
-        // to have. TryAdd, so the fake in the test host wins.
-        builder.Services.AddHttpClient(GitHubClient.HttpClientName, client =>
-        {
-            client.BaseAddress = new Uri("https://api.github.com/");
-            client.Timeout = GitHubClient.RequestTimeout;
-        });
-
-        builder.Services.TryAddSingleton<GitHubClient>(services => new GitHubClient(
-            services.GetRequiredService<IHttpClientFactory>().CreateClient(GitHubClient.HttpClientName),
-            services.GetRequiredService<ProjectLoadReport>(),
-            services.GetRequiredService<ICredentialReader>(),
-            services.GetRequiredService<ILogger<GitHubClient>>()));
-
-        builder.Services.TryAddSingleton<IGitHub>(services => services.GetRequiredService<GitHubClient>());
-
-        builder.Services.TryAddSingleton<IMerger>(services => services.GetRequiredService<GitHubClient>());
-
-        // The merge policy: the order, the naming rules, and every refusal about the
-        // factory's own work. It is the one component that reads the store on the merge's
-        // behalf, and it is in `Application` for exactly that reason — it is policy, and the
-        // adapter behind it can do nothing but answer questions about GitHub and git.
-        builder.Services.TryAddSingleton<IMergePolicy>(services => new MergePolicy(
-            services.GetRequiredService<IWorkItemStore>(),
-            services.GetRequiredService<IMerger>(),
-            services.GetRequiredService<ILogger<MergePolicy>>()));
-
-        builder.Services.AddSingleton<IWorkItemStore>(services =>
-            new SqliteWorkItemStore(options.DatabasePath, services.GetRequiredService<IClock>()));
-
-        // Loaded once at start, with no hot reload. A project file that fails validation
-        // takes only its own project out of the rotation and is reported on the board.
-        builder.Services.AddSingleton(services => ProjectFileLoader.Load(
-            options.FactoriesDirectory,
-            services.GetRequiredService<ILoggerFactory>().CreateLogger("agent-factory.projects")));
-
-        // The orchestrator is the factory's own policy: it knows the store, how to ask
-        // for a round, how to ask for a merge, and the clock. It has no concept of a
-        // container runtime — the agent seam it asks for a round through is a component
-        // that has one — and the merge is one call on the one GitHub seam, so the loop
-        // learns whether a change shipped without learning what a pull request is.
-        //
-        // What each transition *means* is `TicketPolicy`, which both this loop and the
-        // durable workflow call (#64): the loop is the in-process driver of the same rules
-        // the workflow drives from its history, so the two cannot come to disagree about
-        // a landing, a park or a merge.
-        builder.Services.AddSingleton<TicketPolicy>();
-        builder.Services.AddSingleton<Orchestrator>();
-
-        // The poller is intake: it reads the open issues of the projects being served and
-        // records them as work items. Like the orchestrator it is stepped rather than
-        // driven.
-        builder.Services.AddSingleton<Poller>();
-
-        // The heartbeat, and the last gap between this factory and a moving one. Every
-        // prior ticket recorded the same thing: a real agent, a real deriver and a bounded
-        // retry policy all exist, and nothing steps the machine on a schedule, so a work
-        // item in Backlog only moved when a reviewer's click asked for a step. The driver
-        // is that step, and it is safe to add now rather than earlier for exactly one
-        // reason: the round concurrency landed with it. A timer with no ceiling behind it
-        // is a factory spending a round on every issue of every project at once, which is
-        // what #8 refused.
-        //
-        // It is a hosted service, so the host starts and stops it, and it asks the loop for
-        // a step rather than deciding anything itself — the concurrency is enforced where
-        // the rounds are counted, in the loop, so a tick at the ceiling does nothing.
-        builder.Services.AddSingleton<FactoryDriver>();
-        if (drivingTheMachine)
-        {
-            builder.Services.AddHostedService(services => services.GetRequiredService<FactoryDriver>());
-        }
-
-        // IGitHub is one seam covering intake and the issue writes, and `IMerger` is the
-        // merge's — one boundary rather than two that can disagree about what a repository
-        // is, and both halves of the factory are wired to the same client. One
-        // `MergeAsync` on the policy is the whole of what "shipped" means to the loop: it
-        // pushes the branch, opens the pull request if there is not already one, and merges
-        // it, from the host, under a credential no worker container ever held (ADR-0006).
-
-        // The durable workflow, when a Temporal endpoint is configured. One workflow per
-        // ticket: its history is the record of where the ticket was, a round in flight
-        // survives a restart of this process, and the board's clicks reach the workflow as
-        // updates. The hosted service hosts the worker and reconnects on its own, so a
-        // Temporal outage is a degraded board rather than a dead factory. Without an
-        // endpoint the factory runs in store-only mode exactly as it always did, and the
-        // starter that is not there answers every call as a no-op — which is also what a
-        // test host gets, unless it substitutes its own.
-        if (!string.IsNullOrWhiteSpace(options.TemporalEndpoint))
-        {
-            builder.Services.AddSingleton<ITicketStarter, TemporalTickets>();
-            builder.Services.AddHostedService(services =>
-                (TemporalTickets)services.GetRequiredService<ITicketStarter>());
-        }
-        else
-        {
-            builder.Services.TryAddSingleton<ITicketStarter, NullTicketStarter>();
-        }
+        // The seams and their adapters, the policy core, and the drivers: three modules,
+        // each argued in its own file rather than in one long list here (#81).
+        Composition.TheSeams.AddTo(builder.Services, options);
+        Composition.ThePolicyCore.AddTo(builder.Services);
+        Composition.TheDrivers.AddTo(builder.Services, options, drivingTheMachine);
 
         var app = builder.Build();
 

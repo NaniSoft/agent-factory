@@ -5,17 +5,26 @@
     Directory.Build.props; this file says only what is true of the factory alone.
     Package versions are in Directory.Packages.props.
 
-    This project is `AgentFactory.Web` and its root namespace is `AgentFactory`, which
-    is the one place the two do not agree — and it is deliberate, not an oversight.
-    Every existing `.cs` file declares `namespace AgentFactory.Loop`,
-    `AgentFactory.Rounds` and so on, and the split moves code, so the convention it is
-    establishing is *namespace = project name*: Domain, Application and Infrastructure
-    all take their own names, and Web keeps `AgentFactory` so that the move does not
-    have to be a rename at the same time. When the composition root is the last thing
-    left here (#81), this becomes `AgentFactory.Web` along with everything else.
+    This project is `AgentFactory.Web` and its root namespace is `AgentFactory`, and
+    that is no longer a temporary state: #81 owns the decision and it is to stay.
 
-    Until then every `.cs` file in this project still lives in Web, which is exactly
-    where a slice ticket moves code *from*.
+    The convention the slices established is *namespace = project name* — Domain,
+    Application and Infrastructure each take their own — and what is left here is the
+    one thing that convention cannot describe, because the process is not a slice. Two
+    facts settle it. `Program`'s top-level statements are compiled into the global
+    namespace and cannot be given one at all, so a rename would leave this project's
+    own names in three places (`AgentFactory`, `AgentFactory.OpenApi`, and the global
+    `Program`) instead of one. And `FactoryApp`/`BoardExport` are the *process's*
+    names rather than a component's: `AgentFactory` is what "the whole factory in one
+    process" is called, while `AgentFactory.Web` would name the thing that is not one.
+    Everything a slice moved out of this project carries a namespace that says where it
+    went; what stays carries the name of what it is.
+
+    So this is where the composition root lives and stays. The registrations it used to
+    hold in one long method are three modules under `Composition/` (#81), and what is
+    left is the process's own surface — see `FactoryApp`'s own remarks for what Web owns
+    and what the AppHost of [#63](https://github.com/NaniSoft/agent-factory/issues/63)
+    will own.
   -->
 
   <PropertyGroup>
