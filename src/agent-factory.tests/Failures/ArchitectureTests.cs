@@ -66,6 +66,50 @@ public class ArchitectureTests
     }
 
     [Fact]
+    public void Application_names_logging_and_hosting_abstractions_and_no_infrastructure()
+    {
+        // The other half of the dependency rule, and the half the graph test above cannot
+        // state: an edge is a *project* reference, and the rule also says what a library may
+        // name from a package. `Application` is allowed the framework's own abstractions —
+        // the logging contract its records are written to and the hosting contract its
+        // heartbeat is run by — and nothing infrastructural: no `Temporalio`, no EF Core, no
+        // ASP.NET. The durable engine and the ORM are adapters behind ports (#62, #64, #77),
+        // and the process's own framework is `Web`'s alone.
+        //
+        // Written as the exact allowed set rather than as a list of forbidden names, because
+        // the forbidden list is one somebody has to remember and a closed set is one somebody
+        // has to edit — and this is the file where widening the inside is supposed to be a
+        // failing test rather than a silent addition. A new package here is a slice deciding
+        // `Application` may reach the thing it wraps, which is what this refuses.
+        var application = TheFactoryProjects()["AgentFactory.Application"];
+
+        Assert.Equal(
+            ["Microsoft.Extensions.Hosting.Abstractions", "Microsoft.Extensions.Logging.Abstractions"],
+            Names(application, "PackageReference").Order(StringComparer.Ordinal).ToList());
+
+        // And no framework reference at all. The Web SDK's `Microsoft.AspNetCore.App` is the
+        // door that arrives without a package name, and a library switched onto it would read
+        // as clean to the list above.
+        Assert.Empty(Names(application, "FrameworkReference"));
+
+        // `Domain`'s half is `The_domain_points_nowhere_at_all` above — no project, no package
+        // and no framework reference, which is strictly narrower than what is asked of
+        // `Application`. It is named here so the two are not mistaken for one.
+
+        // **The positive control, and the reason this is a check rather than a fact that
+        // happens to hold.** `Infrastructure` *does* reach outside — `Temporalio` and EF Core
+        // are the package references this project is defined by — so a reader that returned
+        // nothing for every project would satisfy the assertions above for the wrong reason.
+        // The same read, over the project that must name infrastructure, has to find it.
+        var infrastructure = Names(TheFactoryProjects()["AgentFactory.Infrastructure"], "PackageReference");
+
+        Assert.Contains("Temporalio", infrastructure);
+        Assert.Contains(
+            infrastructure,
+            reference => reference.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Only_web_declares_the_aspNet_sdk_and_the_aspNet_framework_reference()
     {
         // **"The three libraries do not use ASP.NET types" is compiler-enforced today, and
