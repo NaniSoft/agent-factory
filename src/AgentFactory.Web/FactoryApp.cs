@@ -25,7 +25,6 @@ using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.FileProviders;
 using System.Diagnostics.Metrics;
 
 /// <summary>
@@ -236,51 +235,15 @@ public static class FactoryApp
         // The Board app: the static Prism export this process serves at the root, beside the
         // JSON surface under `/api`. It is the human surface now — the app's routes are the
         // pages, and the only write path is `POST /api/work-items/{id}/decisions` — and the
-        // one file the process serves that is not the app is this `wwwroot` itself.
-        //
-        // The file provider is named rather than left to the content root. The content root
-        // is wherever the factory's own directories happen to be — a temporary directory in
-        // the test host, `/app` in the deployment — and it is a factory *data* directory, so
-        // it never carries a `wwwroot` of its own. The app is a property of the application
-        // rather than of wherever a deployment put it, and `dotnet publish` puts it beside
-        // the entry assembly, which is where this looks.
+        // one thing the process serves that is not the app is this `wwwroot` itself.
+        // `BoardExport` is where the serving lives, and where the two cases the framework's
+        // own handlers do not cover — a route without its trailing slash, and the boundary
+        // `/api` must never cross — are argued.
         //
         // Loopback binding is what keeps this from being a second surface: the same machine
         // that can open the Board can reach the app and its `/api` reads, and nothing else
         // can reach either (ADR-0005, ADR-0012).
-        var webRootDirectory = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        if (Directory.Exists(webRootDirectory))
-        {
-            var webRoot = new PhysicalFileProvider(webRootDirectory);
-
-            // Default files, so a directory address serves its own index rather than a 404.
-            // The app is a static export built with `trailingSlash: true`, so each route has
-            // its own directory index (`projects/index.html`, `credentials/index.html`,
-            // `work-items/index.html`) and a direct load or refresh of `/projects` resolves
-            // to it. The root's own front door is `wwwroot/index.html`. It is declared with
-            // the same provider as the static files, because that provider is the published
-            // directory rather than the content root.
-            app.UseDefaultFiles(new DefaultFilesOptions
-            {
-                FileProvider = webRoot,
-            });
-
-            app.UseStaticFiles(new StaticFileOptions
-            {
-                FileProvider = webRoot,
-                ServeUnknownFileTypes = false,
-            });
-        }
-        else
-        {
-            // Said out loud rather than left as an app that answers every route with a 404:
-            // a checkout that has not run `pnpm build` publishes no export, and the copy that
-            // ships is put here by `dotnet publish`.
-            app.Logger.LogWarning(
-                "No wwwroot beside the entry assembly at {Directory}, so the Board app is not served: "
-                    + "the export ships there and this build did not put it there",
-                webRootDirectory);
-        }
+        BoardExport.Serve(app, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
 
         // The JSON surface the Board app renders. Most of it is a second *reading* of the
         // same state the board reads; the credentials surface is the one place a secret
