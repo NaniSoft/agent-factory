@@ -41,25 +41,29 @@ possible to point at a type and know it is the factory's own.
 
 ### What is a port and where it is declared
 
-All seven interfaces are **declared in `Application`** and **implemented in
+All nine ports are **declared in `Application`** and **implemented in
 `Infrastructure`**. That is the whole of Clean Architecture's outward rule: the
 inside says what it needs, the outside says how it gets it.
 
 | Port | Declared | Implemented by |
 | --- | --- | --- |
-| `IClock` | `Application` | `SystemClock`, `TestClock` |
+| `IClock` | `Application` | `SystemClock` (test: `TestClock`) |
 | `ICredentialReader` | `Application` | `CompositeCredentialReader` |
-| `IProcessCli` | `Application` | `ProcessCli`, `FakeProcessCli` |
-| `INOpenCode` | `Application` | `RoundRunner`, `FakeNOpenCode` |
-| `IGitHub` | `Application` | `GitHubClient`, `FakeGitHub` |
+| `IProcessCli` | `Application` | `ProcessCli` (test: `FakeProcessCli`) |
+| `INOpenCode` | `Application` | `RoundRunner` (test: `FakeNOpenCode`) |
+| `IGitHub` | `Application` | `GitHubClient` (test: `FakeGitHub`) |
+| `IMerger` | `Application` | `GitHubClient` |
+| `IIssuePublisher` | `Application` | `IssuePublisher` |
 | `IWorkItemStore` | `Application` | `SqliteWorkItemStore` |
 | `ITicketStarter` | `Application` | `TemporalTickets`, `NullTicketStarter` |
 
-**Seven, and there used to be an eighth.** `ITicketActivities` was listed here and is not a
-port. It lives in `Infrastructure` beside `TicketWorkflow`, its only caller, and
-`Application` no longer names `Temporalio` at all — the argument is in
-"`ITicketActivities` is not a port" below, because it is a correction rather than a
-missing row.
+**Two interfaces in `Application` are deliberately not in this table, and both are the
+same argument.** `ITicketActivities` and `IMergePolicy` invert nothing: each is declared
+in `Application` and implemented there — by `TicketActivities`' caller `TicketWorkflow`
+and by `MergePolicy` respectively — so they are an *internal* seam, useful for testing
+and not a boundary. The `ITicketActivities` half has its own note below; `IMergePolicy`
+is the merge policy's own seam, which is why `FakeGitHub` answers it and `GitHubClient`,
+the real `IMerger`, does not.
 
 ### `ITicketActivities` is not a port, and `Application` names no workflow engine
 
