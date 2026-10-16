@@ -35,8 +35,15 @@
     <ProjectReference Include="..\AgentFactory.Infrastructure\AgentFactory.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!--
+    **The only two things Web declares from NuGet, and both are about the document**
+    (#85). The process's framework — ASP.NET Core, Kestrel, the minimal API surface — is
+    the Web SDK's, and its adapters are `Infrastructure`'s; a package Web declared and
+    named nowhere is a dependency nobody is reviewing, which is exactly what `YamlDotNet`
+    had become: the project loader it once served moved to `Infrastructure` with the
+    Projects slice, and the reference stayed behind pointing at nothing.
+  -->
   <ItemGroup>
-    <PackageReference Include="YamlDotNet" />
     <!--
       The OpenAPI document the Board's generated types are read from (#78, #80).
       The generator is registered here and *served* nowhere: `MapOpenApi()` is not
