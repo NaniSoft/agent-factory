@@ -27,7 +27,7 @@ not an admin, and a component is not a "worker" — the agent is.
    AgentFactory.Infrastructure    ← SqliteWorkItemStore, GitHubClient, ProcessCli,
                     │               RoundRunner, HostDiffReader, SystemClock, Temporal
                     ▼
-         AgentFactory.Application     ← Orchestrator, Poller, FactoryDriver, all eight ports,
+         AgentFactory.Application     ← Orchestrator, Poller, FactoryDriver, the seven ports,
                     │                  the merge policy, the Routes/Api projections
                     ▼
             AgentFactory.Domain        ← WorkItem, Round, Swimlane, Decision, Escalation,
@@ -41,7 +41,7 @@ possible to point at a type and know it is the factory's own.
 
 ### What is a port and where it is declared
 
-All eight interfaces are **declared in `Application`** and **implemented in
+All seven interfaces are **declared in `Application`** and **implemented in
 `Infrastructure`**. That is the whole of Clean Architecture's outward rule: the
 inside says what it needs, the outside says how it gets it.
 
@@ -54,27 +54,43 @@ inside says what it needs, the outside says how it gets it.
 | `IGitHub` | `Application` | `GitHubClient`, `FakeGitHub` |
 | `IWorkItemStore` | `Application` | `SqliteWorkItemStore` |
 | `ITicketStarter` | `Application` | `TemporalTickets`, `NullTicketStarter` |
-| `ITicketActivities` | `Application` | `TicketActivities` |
 
-`ITicketActivities` is the one that reads backwards, and deliberately so: it is an
-**inbound** port. The durable workflow lives outside and drives the factory through
-it, so it is declared inside and implemented by the driver. That is the same shape
-as an HTTP endpoint — the caller is outside, the contract is the inside's.
+**Seven, and there used to be an eighth.** `ITicketActivities` was listed here and is not a
+port. It lives in `Infrastructure` beside `TicketWorkflow`, its only caller, and
+`Application` no longer names `Temporalio` at all — the argument is in
+"`ITicketActivities` is not a port" below, because it is a correction rather than a
+missing row.
 
-**It is also the one port that drags a framework inward, and that is a correction to
-this rule rather than an oversight (#76).** The engine resolves every activity call
-from an `[Activity]` attribute on the very method the workflow invokes — the SDK's own
-`ActivityDefinition.NameFromMethodForCall` throws without one — so an inbound durable
-port cannot be declared without the engine's own vocabulary, and `Application` names
-`Temporalio` for this interface alone. Two alternatives were refused: an
-attribute-free port does not work at all, and moving the attributes to
-`TicketActivities` would make the workflow call the concrete adapter and leave the
-port decorative. The same shape already holds for `FactoryDriver`, which is a
-`BackgroundService` and is why `Application` names the hosting abstractions: when a
-driver *is* the framework's contract, the inside speaks the framework's words.
-Nothing in the policy core names a Temporalio type, and the engine's adapters —
-`TicketActivities`, `TicketWorkflow`, `TemporalTickets`, `NullTicketStarter` — are in
-`Infrastructure`.
+### `ITicketActivities` is not a port, and `Application` names no workflow engine
+
+This table used to carry an eighth row — `ITicketActivities`, declared in `Application` and
+implemented by `TicketActivities` — with a paragraph here calling it an **inbound** port,
+and a second paragraph added in #76 accepting that it dragged `Temporalio` into
+`Application` as a correction to the rule.
+
+**Both are withdrawn: the type is not a port and never was.** A port exists to *invert* a
+dependency — an inner component needs something done and must not name the outer thing that
+does it, so the contract is declared where the need is and the implementation is somebody
+else's problem. Here there is nothing to invert. The workflow and its activities are the
+same layer and the same driver: `TicketWorkflow` calls `ITicketActivities` by name, and
+`Application`'s contract for the durable path is already `TicketPolicy`, which both drivers
+call. `ITicketActivities` is the driver's **internal** seam — useful for testing, and not a
+boundary.
+
+The engine resolves every activity call from an `[Activity]` attribute on the very method
+the workflow invokes: `ActivityDefinition.CreateAll` skips a method without one, and
+`ActivityDefinition.NameFromMethodForCall` throws. So declaring that interface forces the
+engine's own vocabulary onto whatever project declares it, and #76 read that as a cost the
+inside had to pay. The truth is that the interface was in the wrong place, and the cost was
+avoidable — `Application` paid a reference to a workflow engine for nothing.
+
+So `ITicketActivities`, `RouteLanded`, `BuildLanded`, `MergeLanded` and `TicketDecision`
+are in `AgentFactory.Infrastructure.Durability` beside `TicketWorkflow`, and `Application`
+has **no `Temporalio` reference at all**. The same is true of the `BackgroundService`
+`FactoryDriver`: `Microsoft.Extensions.Hosting.Abstractions` is not a framework the policy
+core speaks, it is the contract for a long-running task, and nothing in the policy names it.
+When a driver *is* the framework's contract the framework is named — but an interface that
+merely sits beside a driver is not that, and the rule below stands unamended.
 
 ### One policy core, two drivers
 
@@ -242,11 +258,14 @@ Mechanical, and the same every time:
    `Microsoft.NET.Sdk` and see no `Microsoft.Extensions.*` and no ASP.NET — verified, not
    assumed. `Application` and `Infrastructure` both take
    `Microsoft.Extensions.Logging.Abstractions` when they first need it; `Domain` takes
-   nothing, ever, and `ArchitectureTests` says so. The durable driver added two more of the
-   same kind — `Microsoft.Extensions.Hosting.Abstractions` for the `BackgroundService` and
+   nothing, ever, and `ArchitectureTests` says so. The durable driver added three more:
+   `Microsoft.Extensions.Hosting.Abstractions` for `TemporalTickets`, the
+   `BackgroundService` that hosts the worker, and
    `Microsoft.Extensions.DependencyInjection.Abstractions` for resolving the store, the
-   policy core and the logger — plus, for `Application`, the `Temporalio` reference the
-   inbound port above needs. Each is recorded beside the reference it justifies.
+   policy core and the logger — both in `Infrastructure`; and the `Temporalio` reference
+   the workflow and its activities need, also in `Infrastructure`. Each is recorded beside
+   the reference it justifies, and **none of them is in `Application`** — see
+   "`ITicketActivities` is not a port" above.
 5. **Do not touch `PolicyTests`' scanner.** If a fifth project appears,
    `The_scan_reads_every_assembly_the_factory_is_made_of` fails and that failure is the
    answer: add the name to `TheFactory`, then decide deliberately whether the graph test

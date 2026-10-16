@@ -1,6 +1,5 @@
 namespace AgentFactory.Infrastructure.Durability;
 
-using AgentFactory.Application.Durability;
 using AgentFactory.Application.Tickets;
 using AgentFactory.Application.WorkItems;
 using AgentFactory.Domain.Failures;

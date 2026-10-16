@@ -1,4 +1,4 @@
-namespace AgentFactory.Application.Durability;
+namespace AgentFactory.Infrastructure.Durability;
 
 using AgentFactory.Domain.Failures;
 using Temporalio.Activities;
@@ -11,21 +11,25 @@ using Temporalio.Activities;
 /// </summary>
 /// <remarks>
 /// <para>
-/// It is an <strong>inbound</strong> port, and the only one in this project: the durable
-/// workflow lives outside and drives the factory through it, so the caller is outside and
-/// the contract is the inside's — the same shape as an HTTP endpoint. The implementations
-/// (<c>TicketActivities</c>, <c>TicketWorkflow</c>, <c>TemporalTickets</c>,
-/// <c>NullTicketStarter</c>) are in <c>Infrastructure</c>, beside the engine they adapt.
+/// <strong>This is not a port, and moving it here is the correction.</strong> It was
+/// declared in <c>AgentFactory.Application.Durability</c> as an "inbound port", and it was
+/// never one. A port exists to <em>invert</em> a dependency: an inner component needs
+/// something done and must not name the outer thing that does it, so the contract is
+/// declared where the need is. Here there is nothing to invert — the workflow and its
+/// activities are the same layer, both <c>Infrastructure</c>, and the workflow calls the
+/// activities by name because they are the same driver's two halves. What
+/// <c>Application</c> offers the durable path is its contract with the driver, and that is
+/// already <c>TicketPolicy</c>, which both drivers call.
 /// </para>
 /// <para>
-/// <strong>This port is why `Application` names `Temporalio`, and that is a correction to
-/// the dependency rule rather than an oversight.</strong> The engine resolves every
-/// activity call from an <see cref="ActivityAttribute"/> on the very method the workflow
-/// invokes — <c>ActivityDefinition.NameFromMethodForCall</c> throws without one — so an
-/// inbound durable port cannot be declared without the engine's own vocabulary. The two
-/// alternatives were both worse: an attribute-free port does not work at all, and moving
-/// the attributes to <c>TicketActivities</c> would make the workflow call the concrete
-/// adapter and leave the port decorative. Recorded in <c>docs/architecture.md</c>.
+/// Declaring it in <c>Application</c> bought nothing and cost <c>Application</c> a
+/// reference to a workflow engine, which is the one property the dependency rule exists to
+/// protect. The engine resolves every activity call from an <see cref="ActivityAttribute"/>
+/// on the very method the workflow invokes — <c>ActivityDefinition.NameFromMethodForCall</c>
+/// throws without one — so an activity interface cannot be declared without the engine's
+/// own vocabulary, and the choice is between naming the engine where it is used and pulling
+/// it into the policy core. This interface is the driver's <strong>internal seam</strong>:
+/// useful for testing, and not a boundary.
 /// </para>
 /// <para>
 /// The retry policy these activities carry is the failure classification the components

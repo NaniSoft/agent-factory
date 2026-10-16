@@ -1,7 +1,6 @@
 namespace AgentFactory.Tests.Durability;
 
 
-using AgentFactory.Application.Durability;
 using AgentFactory.Infrastructure.Durability;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;

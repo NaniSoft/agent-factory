@@ -1,6 +1,5 @@
 namespace AgentFactory.Infrastructure.Durability;
 
-using AgentFactory.Application.Durability;
 using Temporalio.Common;
 using Temporalio.Workflows;
 
@@ -33,8 +32,8 @@ public sealed record TicketDecisionResult(bool Applied, string? Refusal);
 /// <see cref="TicketInput"/> and <see cref="TicketDecisionResult"/> live beside it rather
 /// than with the port's DTOs: they are the workflow's own request and response shapes, not
 /// anything an activity's signature names, so they belong with the driver that carries them
-/// (<see cref="TicketDecision"/>, which an activity *does* name, is in
-/// <c>AgentFactory.Application.Durability</c>).
+/// (<see cref="TicketDecision"/>, which an activity *does* name, is in the same namespace
+/// as the interface that names it, because the workflow and its activities are one layer).
 /// </para>
 /// </remarks>
 [Workflow]
