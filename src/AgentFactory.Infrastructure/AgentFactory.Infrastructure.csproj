@@ -39,6 +39,14 @@
     -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <!--
+      `Microsoft.EntityFrameworkCore.Sqlite` carries this transitively, and it is declared
+      anyway because the store compiles against two of its types — the connection-string
+      builder and the `SqliteException` that the unique index's refusal arrives as. A
+      compile-time type reached through a transitive dependency is an agreement nobody
+      wrote down.
+    -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!--
       `dotnet ef` needs this to be loadable at design time, and nothing else does: it is
       `PrivateAssets=all`, so it is not a dependency of anything that references this
       project. It is what makes `migrations add` a build-time act with no application

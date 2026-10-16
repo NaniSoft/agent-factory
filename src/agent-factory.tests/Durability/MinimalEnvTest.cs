@@ -8,7 +8,7 @@ using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Application.Tickets;
 using AgentFactory.Tests.Boundary;
-using AgentFactory.WorkItems;
+using AgentFactory.Infrastructure.WorkItems;
 using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging.Abstractions;
 using Temporalio.Client;

@@ -23,7 +23,7 @@ using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Application.Loop;
 using AgentFactory.Application.Polling;
-using AgentFactory.WorkItems;
+using AgentFactory.Infrastructure.WorkItems;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;

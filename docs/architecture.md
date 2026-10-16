@@ -122,17 +122,16 @@ resolved here.
   inward.
 - `FactoryPaths` → **`Infrastructure`.** It resolves directories on a disk.
 - `WorkItems/WorkItemRecord`, `RoundResultRecord`, `DecisionRecord`, `PendingRound` →
-  **`Application`**, beside `IWorkItemStore` rather than beside `SqliteWorkItemStore`.
-  They are the shapes rows take, so they read as persistence shape and the first
-  guess is `Infrastructure` — and `Infrastructure` is where the thing that maps
-  them to columns is, so the guess looks right. It is not available: a port's
-  signatures name these types, and a signature cannot name a type that lives
-  beyond it. What they are is the **port's** vocabulary — what the inside says a
-  round, a decision and a pending round are — which is something a caller needs
-  in order to call the port at all. No field of any of them is a column: no
-  attributes, and every type is the BCL's or the factory's own. The one place
-  the two halves touch is `SqliteWorkItemStore` itself, which is still in `Web`
-  and is the thing this map's store slice moves.
+  **`Application`**, beside `IWorkItemStore` rather than beside the store that persists
+  them. They read as persistence shape and the first guess is `Infrastructure` — which is
+  now also where the thing that maps them to columns is, so the guess looks even righter
+  than it did, and it is still not available: a port's signatures name these types, and a
+  signature cannot name a type that lives beyond it. What they are is the **port's**
+  vocabulary — what the inside says a round, a decision and a pending round are — which is
+  something a caller needs in order to call the port at all. No field of any of them is a
+  column: no attributes, and every type is the BCL's or the factory's own. The two halves
+  touch in one place, `SqliteWorkItemStore`, and in one direction only: it reads the
+  records the port declared and writes rows of its own.
 - `Observability/WorkItemScope`, `Observability/ProjectScope` → **`Application`.**
   The scope vocabulary is the factory's own ("this record is about work item 4,
   project nexus, issue 42, round 2") and a record is written from inside.
@@ -183,6 +182,50 @@ what is about to ship — the repository, the issue, the title, the tree, the ba
 commit, the round — into a single immutable plan, and hands that plan to the
 adapter. The adapter's whole input is the plan.
 
+### The store of record, over EF Core
+
+`SqliteWorkItemStore` is `Infrastructure`'s now, and it is EF Core over SQLite rather than
+hand-written ADO.NET (#62, #77). Four things about that are decisions rather than
+mechanics, and each is written at the code that makes it:
+
+- **`Application` names no EF type.** `FactoryDbContext`, its four row types and the
+  baseline migration are all this side of the boundary, and `IWorkItemStore` is unchanged:
+  a port whose implementation is an ORM is still a port. The class keeps the word *SQLite*
+  because the word names the decision rather than the library — ADR-0009 says the record of
+  record is one SQLite file, and *EF* would name the part free to change.
+- **The row types are not the port's records, and the duplication is the price of that.**
+  A table is a schema — mutable, scalar, one column per property — and the records are
+  immutable positional records that the port's signatures name. Mapping them onto each
+  other is *possible* for three of the four tables and impossible for `round_results`,
+  whose diff is deliberately five independently-nullable columns rather than a shape read
+  back as a unit; a model with an exception nobody can state in a sentence is worse than a
+  second set of types with one mapping file. The architecture document's own claim is what
+  settles it: **no field of the port's records is a column**, and it stays true because the
+  columns live on rows.
+- **Two timestamps carry a `long` tick converter and the rest stay readable text.** SQLite's
+  provider throws `NotSupportedException` on `ORDER BY` and on comparison over a
+  `DateTimeOffset`, and exactly two of this store's reads do one of those: the Board orders
+  by `created_utc` on every poll, and reconciliation orders pending rounds by `asked_utc`.
+  `updated_utc`, `started_utc`, `review_started_utc`, `merge_retry_after_utc` and the rest
+  are compared in the loop over a record it already holds, never by a query, so they stay
+  legible to the `sqlite3` CLI. Narrower than the research's first list of four, and
+  re-derived by running the queries the Board and the loop actually issue.
+- **Enums stay text and no foreign keys are created.** Text because `Swimlane`, `Decision`
+  and the rest are closed vocabularies this codebase treats as policy and a human should be
+  able to read a row; and because a `WorkItemKind` this build does not recognise still reads
+  as `Unrouted`, which is what the store has always done. No foreign keys because the
+  schema had none, nothing in this factory deletes a work item, and a cascade would mean
+  that if something ever did, the record of record would be the first thing deleted.
+
+**The schema is a committed baseline migration, and `data/agent-factory.db` is deliberately
+not migrated.** The map decided a fresh database rebuilt from GitHub is accepted, so the
+baseline is what a new file is built from and what every future migration is a change
+against; deleting the old file and restarting is the entire cutover. The store applies the
+migration at start (`Database.Migrate()`), and `FactoryDbContextFactory` exists so that
+`dotnet ef` builds a *model* rather than booting the application — which is what keeps a
+build-time command from creating and writing the real database. EF also turns WAL on, which
+the hand-written store never had: a Board read can no longer block behind a loop write.
+
 ### What a slice may not do
 
 **A slice moves code. It does not move policy.** Routing rules, the three
@@ -229,8 +272,11 @@ comparing two lists. That is the silent failure, and the whole of the defence is
 set. `Boundary/TheFactory.cs` names the four assemblies and `PolicyTests.CallsMadeBy`
 takes them as a set. `ArchitectureTests.The_scan_reads_every_assembly_the_factory_is_made_of`
 pins that set and the walk over it — because "the set has four names" and "the walk reads
-four assemblies" are different claims, and every line of the factory is still in `Web`, so
-only the second one catches a scan narrowed back to one.
+four assemblies" are different claims, and only the second one catches a scan narrowed back
+to one. (When that paragraph was written every line of the factory was still in `Web`, so a
+scan handed four assemblies and reading only the first would have passed every pin. The
+slices have since moved the code, and the sentence stayed true for the opposite reason: the
+lines are spread across the four now, and a scan narrowed back to one *does* see less.)
 
 `ArchitectureTests` also reads the four `csproj` files and asserts the graph, `Domain`'s
 total absence of references, and that only `Web` declares the ASP.NET SDK or names an

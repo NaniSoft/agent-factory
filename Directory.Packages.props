@@ -47,10 +47,11 @@
     -->
     <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.13" />
     <!--
-      The raw provider, and it is still referenced by `AgentFactory.Web` while the
-      hand-written ADO.NET store is there. It is bumped to the 10.0.13 patch line with the
-      rest: EF brings `Microsoft.Data.Sqlite.Core` 10.0.13 transitively, and a direct
-      reference left at 10.0.12 splits the package across two versions.
+      The provider and the store's own database access, all in `Infrastructure` now that
+      the store has crossed the boundary (#77): `AgentFactory.Web` names no database at all
+      any more. It is at the 10.0.13 patch line with the rest, because EF brings
+      `Microsoft.Data.Sqlite.Core` 10.0.13 transitively and a direct reference left behind
+      would split the package across two versions.
     -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <!--
