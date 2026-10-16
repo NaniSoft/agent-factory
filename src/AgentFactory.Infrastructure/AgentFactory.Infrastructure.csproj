@@ -31,6 +31,22 @@
     <PackageReference Include="YamlDotNet" />
 
     <!--
+      The store of record, over an ORM rather than over raw ADO.NET. The `DbContext`, its
+      row types and the migration that defines the schema are all this project's, and
+      `Application` names none of them — `IWorkItemStore` is the contract and EF is one
+      way of keeping it (#62, #77). `Microsoft.Data.Sqlite` arrives with the provider, so
+      this project does not reference it separately.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!--
+      `dotnet ef` needs this to be loadable at design time, and nothing else does: it is
+      `PrivateAssets=all`, so it is not a dependency of anything that references this
+      project. It is what makes `migrations add` a build-time act with no application
+      booted and no database touched.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+
+    <!--
       The same reference `Application` takes, and for the same reason on this side of the
       line: `RoundResultDeriver` reads a round's result file and says out loud what it
       could not read, which is `ILogger<T>` and nothing else — the constructor that pin

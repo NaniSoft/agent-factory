@@ -21,7 +21,7 @@
       scope opens a record and does not choose where the record goes — which is #63's, on
       the far side of the boundary. `Domain` takes nothing, ever.
     -->
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <!--
       `FactoryDriver` is the heartbeat: a `BackgroundService` whose whole body is one
       `Task.Delay` and two calls into the policy core. It is the only hosted service in
@@ -30,7 +30,7 @@
       run and stopped, carrying no adapter and reaching nothing outside — not a transport,
       a disk, a process or a credential.
     -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
     <!--
       `TemporalTickets` resolves the store, the policy core and its own logger from the
       container as it hosts the worker, so `Infrastructure` names `IServiceProvider`'s own
@@ -38,15 +38,38 @@
       not, so it is declared rather than assumed — the same kind of reference as the
       hosting abstractions above, and declared with it for the same reason.
     -->
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
     <!--
       `FactoryPaths` and `FactorySettings` read a configuration key before they resolve
       anything on a disk, so this project names `IConfiguration` and declares the
       abstractions for it. `Application` does not: `FactoryOptions` is the values, and
       nothing in the policy reads a key.
     -->
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.13" />
+    <!--
+      The raw provider, and it is still referenced by `AgentFactory.Web` while the
+      hand-written ADO.NET store is there. It is bumped to the 10.0.13 patch line with the
+      rest: EF brings `Microsoft.Data.Sqlite.Core` 10.0.13 transitively, and a direct
+      reference left at 10.0.12 splits the package across two versions.
+    -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <!--
+      The store of record over EF Core, on SQLite. `Infrastructure` owns the model — the
+      `DbContext`, its row types and every mapping — and `Application` names none of it:
+      `IWorkItemStore` is still a port, and this is the adapter behind it (#56, #62).
+      **EF 10.0.13 requires the `Microsoft.Extensions.*` abstractions at 10.0.13**, so the
+      four above move with it in the same change: holding them at 10.0.12 is a package
+      downgrade, which this repository's `TreatWarningsAsErrors` refuses as NU1605 rather
+      than letting it pass as a warning.
+    -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    <!--
+      Required only by `dotnet ef`, which is the tool that generates the baseline
+      migration, so it is a `PrivateAssets=all` reference in `Infrastructure` and travels
+      nowhere. It is pinned to the same version as the provider because EF's tooling checks
+      the tool and the runtime versions against each other.
+    -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Temporalio" Version="1.20.0" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
