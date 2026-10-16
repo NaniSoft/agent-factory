@@ -211,7 +211,7 @@ public class ConcurrentRunsTests
         // parameter, and `PolicyTests` names that constructor — so this is the assertion
         // that a round's records can be attributed without widening the seam the design
         // pinned. The record it wrote here is the count of lines it could not read, which
-        // is ADR-0011's own named failure said out loud rather than inferred.
+        // is the derive-the-result rule's own named failure said out loud rather than inferred.
         var deriver = Assert.Single(records, record =>
             record.Category.EndsWith("RoundResultDeriver", StringComparison.Ordinal));
 

@@ -20,9 +20,10 @@ Build and test it with the commands in [`AGENTS.md`](AGENTS.md).
 dotnet run --project src/AgentFactory.Web    # the factory and the board on 127.0.0.1:5000
 ```
 
-[`DESIGN.md`](DESIGN.md) is the specification the factory is built against, and the decisions it defers on are recorded one file each in
-[`docs/adr/`](docs/adr/). [`AGENTS.md`](AGENTS.md) records what is built, how it
-is tested, and why each boundary is where it is.
+[`DESIGN.md`](DESIGN.md) is the specification the factory is built against, and
+[`docs/architecture.md`](docs/architecture.md) is the architecture of record: how the
+four projects are laid out, what the dependency rule is, and why each boundary is where
+it is. [`AGENTS.md`](AGENTS.md) records how to build, test and work in it.
 
 The factory's public documentation is published separately, in the
 [nexus](https://github.com/NaniSoft/nexus) repository, at
@@ -41,9 +42,19 @@ record and the implementation.
 - [`AGENTS.md`](AGENTS.md) — what is built and how it is verified.
 - [`CONTEXT.md`](CONTEXT.md) — the domain vocabulary the code and this repository
   speak.
-- [`docs/adr/`](docs/adr/) — the decisions the design defers on.
-- [`src/`](src/) — the .NET solution: one process holding the config loader, the
-  work item store, the orchestrator, intake, the merger and the board.
+- [`docs/architecture.md`](docs/architecture.md) — the architecture of record: the
+  four projects, the dependency rule, the ports, and how the process is hosted.
+- [`docs/agents/`](docs/agents/) — how agents work in this repository: the issue
+  tracker, the triage labels, and where domain docs live.
+- [`docs/research/`](docs/research/) — the findings behind three decisions that were
+  made from evidence rather than assumption: Aspire, EF Core on SQLite, and OpenAPI
+  codegen. Kept because the corrections in them are still the record.
+- [`agent-factory.unit-tests/`](agent-factory.unit-tests/) — the fast test layer over
+  `Domain` and `Application` alone: no Temporal, no Docker, under a second.
+- [`src/`](src/) — the .NET solution: four projects, one process, holding the config
+  loader, the work item store, the orchestrator, intake, the merger and the board.
+- [`apphost/`](apphost/) — the Aspire AppHost that runs the process with its
+  dashboard and telemetry.
 - [`factories/`](factories/) — one file per project, and **this repository commits
   none**: a file there is served, not sampled. The examples are in
   read [`factories/README.md`](factories/README.md) before adding one.

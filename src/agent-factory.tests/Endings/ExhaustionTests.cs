@@ -98,9 +98,9 @@ public class ExhaustionTests
         var workItem = await Exhausted(host);
 
         // Forty-eight hours is where the factory merges a work item nobody reviewed. An
-        // exhausted one is not waiting in Review, and the difference between the two is
-        // the rule ADR-0008 exists for: ignoring a work item merges it, and objecting to
-        // one parks it.
+        // exhausted one is not waiting in Review, and that difference is the
+        // park-don't-grave rule: ignoring a work item merges it, and objecting to one
+        // parks it.
         host.Clock.Advance(FactoryConstants.FeedbackThreshold + TimeSpan.FromHours(1));
         await host.Settle();
 

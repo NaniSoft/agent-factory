@@ -116,7 +116,7 @@ public class EndingTests
         await using var host = await FactoryHost.StartAsync(root, agent: SixRounds(), github: github);
         var parked = await Exhausted(host, 42);
 
-        // ADR-0008 and the glossary say the same two things: a human can still merge or
+        // the park-don't-grave rule and the glossary say the same two things: a human can still merge or
         // reject it. So those are the two the board offers, and the reason a third is not
         // there is not that a fourth way out of a work item exists but that re-opening the
         // build is the retry policy's business (#7).

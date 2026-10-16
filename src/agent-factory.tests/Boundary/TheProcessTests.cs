@@ -180,7 +180,7 @@ public class TheProcessTests
         // It is a one-element list on purpose. The merger is the only component that talks
         // to GitHub, the board is the only surface, and this is the one place that
         // establishes the factory has exactly one way out to the network — which is the
-        // structural form of "one GitHub seam" (ADR-0003, one process, one boundary).
+        // structural form of "one GitHub seam".
         //
         // The scan is over every assembly the factory is made of rather than over the entry
         // assembly, and that is a correction rather than a widening: `GitHubClient` moved to

@@ -200,7 +200,7 @@ public class ResultBoardTests
     [Fact]
     public async Task The_board_says_which_credentials_the_round_was_handed_and_names_only()
     {
-        // ADR-0006 as a reviewer sees it. The result carries the *names* the round was
+        // the host-writes rule as a reviewer sees it. The result carries the *names* the round was
         // handed, so a card can show what the agent had without a value ever travelling
         // into the store — and an empty list is checkable evidence rather than a claim.
         using var root = FactoryRoot.Create();

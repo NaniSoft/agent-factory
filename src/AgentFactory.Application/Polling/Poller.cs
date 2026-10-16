@@ -380,7 +380,7 @@ public sealed class Poller
         {
             // The one label the poller reads, and it is the factory's own: an issue this
             // process published — a Grill's questions, filed under the issue that asked
-            // for them — is the factory's output, not the repository's work. ADR-0007
+            // for them — is the factory's output, not the repository's work. The indiscriminate-poller rule
             // keeps a repository's triage labels out of intake because which of a
             // repository's issues are worth building is a human's judgement; whether an
             // issue is this factory's own output is not a judgement at all, and taking it

@@ -13,7 +13,7 @@ using System.Text.Json;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-0011 is the whole of this class. The image records; the factory reads and
+/// the derive-the-result rule is the whole of this class. The image records; the factory reads and
 /// reshapes. Files come from <c>git status</c> and <c>git diff</c>, commands come from
 /// the recording wrapper, and an outcome is the exit code that was observed. The agent's
 /// prose is copied raw and believed about nothing: a model that claims it edited a file
@@ -274,7 +274,7 @@ public sealed class RoundResultDeriver
     /// the other misses, unioned.
     /// </summary>
     /// <remarks>
-    /// This is where ADR-0011's guarantee actually lives, and it is the reason the
+    /// This is where the derive-the-result rule's guarantee actually lives, and it is the reason the
     /// deriver never asks the agent anything. A file the round committed is clean in
     /// <c>git status</c> and named in the diff; a scratch file the round left behind is
     /// the reverse. Take the diff alone and the untracked file is invisible; take the

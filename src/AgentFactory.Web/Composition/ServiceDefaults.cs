@@ -68,7 +68,7 @@ using OpenTelemetry.Trace;
 /// <c>app.MapDefaultEndpoints()</c> maps <c>/health</c> and <c>/alive</c> — <em>only</em> in the
 /// Development environment, which is exactly the environment the test host and every
 /// <c>dotnet run</c> use. That is two new anonymous, unauthenticated inbound routes on the
-/// listener ADR-0005 and ADR-0012 bound to loopback and called the authorisation, and it is a
+/// listener the no-hosted-agent rule bound to loopback and called the authorisation, and it is a
 /// route table this repository pins at exactly eight templates
 /// (<c>Review/DecisionTests.The_board_is_the_only_way_a_human_can_change_anything</c>). What it
 /// buys is a liveness probe for the dashboard, for a process the AppHost started and can

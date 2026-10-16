@@ -635,7 +635,7 @@ public class DiffOnTheBoardTests
         // at is indistinguishable from a diff of a smaller change), that the shown files
         // are whole rather than cut mid-hunk (half a file looks like all of a file), and
         // that the path to the rest is named (the tree is on the host because the host
-        // pushes, ADR-0006 — so it is somewhere a reviewer can actually go).
+        // pushes, the host-writes rule — so it is somewhere a reviewer can actually go).
         using var root = FactoryRoot.Create();
 
         // A thousand files: past any plausible bound, and built as a real diff so the

@@ -11,16 +11,14 @@
 # Credential values live here as one file per name (#32) — never a committed artifact.
 secrets/
 
-# The .NET build output, and only that. Scoped to src/ because the patterns are directory
-# names rather than paths, and an unscoped `[Bb]in/` also swallowed worker/bin/ -- the
-# recording wrapper, the collector and the round entrypoint that worker/Dockerfile COPYs,
-# which is why the image could not be built from a clean checkout (#41). Those three files
-# are source and are committed; nothing else called `bin` is.
+# The .NET build output. The patterns are directory names rather than paths, so a nested
+# directory of the same name anywhere in the tree is matched — which is why there is no
+# negation list any more: the one that used to be here kept a deleted worker image's
+# `bin/` in the repository.
 [Bb]in/
 [Oo]bj/
-!/worker/bin/
 
-# The store of record is a local file, not a committed artifact (ADR-0009).
+# The store of record is a local file, not a committed artifact.
 data/
 *.db
 *.db-shm

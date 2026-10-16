@@ -54,7 +54,7 @@ one fails with `Remote branch main not found` and a non-zero exit — which the 
 permanent failure, so the work item parks rather than retrying.
 
 **The first commit is a human's.** The factory will not make one: it holds a write credential
-for the *host*, and ADR-0006's whole shape is that the host pushes a commit a round made in
+for the *host*, and the host-writes rule's whole shape is that the host pushes a commit a round made in
 its own working tree, which holds nothing that can push. Inventing a project's first commit is
 a different act from answering its first issue, and the design does not grant it.
 

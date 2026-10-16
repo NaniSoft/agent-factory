@@ -8,7 +8,7 @@ using System.Diagnostics;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The diff the board shows is <c>git diff</c> against the tree a round left (ADR-0006,
+/// The diff the board shows is <c>git diff</c> against the tree a round left (the host-writes rule,
 /// story 34). Testing that against a hand-written string would be testing a fixture
 /// against itself: the fake would be deciding what git says, which is the one thing under
 /// test. So the tree here is a genuine repository with a genuine commit on it, built by
@@ -79,7 +79,7 @@ public sealed class LiftedTree : IDisposable
 
     /// <summary>
     /// A commit on top of the one the round started at, which is what a round that did
-    /// some work and committed it leaves behind (ADR-0006: the container commits, the host
+    /// some work and committed it leaves behind (the host-writes rule: the container commits, the host
     /// pushes).
     /// </summary>
     public void Committed(string message, params (string Path, string Content)[] changes)

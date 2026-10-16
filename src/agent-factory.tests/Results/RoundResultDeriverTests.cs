@@ -46,7 +46,7 @@ public class RoundResultDeriverTests : IDisposable
     [Fact]
     public void The_files_changed_come_from_git_and_not_from_the_agents_own_account_of_them()
     {
-        // The most valuable test in this ticket, and the one ADR-0011 exists for. The note
+        // The most valuable test in this ticket, and the one the derive-the-result rule exists for. The note
         // claims three things and git contradicts all three: a file the round never
         // touched, a change to a file it did not touch in the way it says, and a deletion
         // that never happened. If the deriver believed the note, all three would appear.
@@ -221,7 +221,7 @@ public class RoundResultDeriverTests : IDisposable
     [Fact]
     public void The_factory_records_what_a_command_returned_and_does_not_decide_what_it_meant()
     {
-        // ADR-0011 settles the design's own contradiction about test commands: the agent
+        // the derive-the-result rule settles the design's own contradiction about test commands: the agent
         // chooses what to run, the factory records what ran and what it returned, and
         // neither interprets it. A deriver that labelled a command "the tests" would be
         // imposing a convention, and one that turned a non-zero exit into a failure of the
@@ -340,7 +340,7 @@ public class RoundResultDeriverTests : IDisposable
         Assert.Equal(["src/Real.cs"], result.FilesChanged.Select(file => file.Path));
         Assert.Single(result.CommandsRun);
         // The damaged line is the note, and a note the factory cannot read is no note.
-        // The round above it is still recorded whole, which is the whole of ADR-0011's
+        // The round above it is still recorded whole, which is the whole of the derive-the-result rule's
         // "a round that omits it loses a sentence, not its record".
         Assert.Null(result.AgentNote);
 
@@ -368,7 +368,7 @@ public class RoundResultDeriverTests : IDisposable
     [Fact]
     public void The_result_records_which_credentials_the_round_was_handed_and_never_a_value()
     {
-        // ADR-0006. The image records the *names* of credential-shaped variables, and the
+        // the host-writes rule. The image records the *names* of credential-shaped variables, and the
         // deriver carries them through as names. An empty list is the evidence a reviewer
         // can check; a claim that no credential existed would be worth nothing.
         var held = _deriver.Derive(AResultFile(

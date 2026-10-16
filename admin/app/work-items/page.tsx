@@ -254,7 +254,7 @@ function Detail({
         for it, the round's own reason, and the issue it filed where there is one. Every
         field is the factory's judgement, so the page writes no sentence of its own about
         what a kind means — and a work item nobody has routed says so rather than reading
-        as one that was decided (ADR-0015).
+        as one that was decided.
       */}
       <section
         className="work-item__route"

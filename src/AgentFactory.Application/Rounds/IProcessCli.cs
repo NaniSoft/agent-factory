@@ -9,7 +9,7 @@ using AgentFactory.Domain.Failures;
 /// </summary>
 /// <remarks>
 /// This is the whole of what the factory knows about starting programs. It was once a
-/// Docker CLI (ADR-0010's `docker create`/`logs`/`cp`), and the verbs went away with the
+/// Docker CLI, and the verbs went away with the
 /// containers: a round is now one <c>git clone</c> and one <c>opencode run</c>, and both
 /// go through here, which is what keeps "arguments one at a time, never through a shell"
 /// one property of one component rather than a discipline every caller restates.

@@ -46,7 +46,7 @@ using Microsoft.Extensions.Logging;
 /// the process exit code for the round's own ending — and the
 /// <see cref="RoundResultDeriver"/> reads that into a result. The shim under-reports, as
 /// its own file states: a command the agent reaches without the <c>run</c> prefix is not
-/// recorded, and ADR-0011's guarantee is carried by <c>git status</c> and <c>git diff</c>,
+/// recorded, and the derive-the-result rule's guarantee is carried by <c>git status</c> and <c>git diff</c>,
 /// not by the command log.
 /// </para>
 /// <para>
@@ -436,7 +436,7 @@ public sealed class RoundRunner : INOpenCode
         // The commands *inside* the round are a different matter and are not read here at
         // all: a build whose tests failed returns zero from the agent, so it is still
         // `Produced` and the failing exit code stays data in the payload, which is what
-        // ADR-0001 asks for. The two cases never meet, because they are two different
+        // the one-round-one-session rule asks for. The two cases never meet, because they are two different
         // numbers read in two different places — a single "did anything fail" flag would
         // put them back together and make a failing test retryable.
         if (!derived.Environment.TheRoundRan)
@@ -561,7 +561,7 @@ public sealed class RoundRunner : INOpenCode
     /// </summary>
     /// <remarks>
     /// The project's <c>keys.github</c> name is not read here, anywhere, ever. That is
-    /// what makes ADR-0006 structural rather than a matter of care: the value is never in
+    /// what makes the host-writes rule structural rather than a matter of care: the value is never in
     /// this component's hands, so a round cannot be given one by accident or by a later
     /// edit that adds it. The LLM key is read because the agent cannot reach a provider
     /// without it — read by the project's own name for it, the reader's contract — and

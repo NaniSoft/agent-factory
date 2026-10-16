@@ -12,7 +12,7 @@ using AgentFactory.Domain.Rounds;
 /// and a complex property were both refused: either would replace five independently
 /// nullable columns with a shape that has to be read back as a unit, reintroducing the
 /// "parses but is missing the field the reviewer needs" failure this store exists to
-/// avoid (ADR-0009, and "The diff in Review" in AGENTS.md). The row therefore holds the
+/// avoid. The row therefore holds the
 /// five scalars and <see cref="RoundResultRecord"/> is assembled from them in one place.
 /// </remarks>
 internal sealed class RoundResultRow

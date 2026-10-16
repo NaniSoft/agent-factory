@@ -137,7 +137,7 @@ public class RoundRunnerTests
 
         // The GitHub key is out, and the check is that its *value* was never even read:
         // the runner has no way to hand over what it never picked up, which is what makes
-        // ADR-0006 structural rather than a matter of care.
+        // the host-writes rule structural rather than a matter of care.
         Assert.DoesNotContain(environment.Values, value => value == "github-secret-value");
         Assert.DoesNotContain("NEXUS_GITHUB_TOKEN", credentials.Asked);
         Assert.Equal(["NEXUS_ANTHROPIC_API_KEY"], credentials.Asked);
@@ -330,7 +330,7 @@ public class RoundRunnerTests
         // The exit codes are the whole point of this test. The round's own exit code is the
         // agent's — the process the runner starts *is* the agent — so the agent here exits
         // **0** and a command *inside* the round exits 1. That is the shape of a build whose
-        // tests failed, and it is the case ADR-0001 is about: a result, with the failing
+        // tests failed, and it is the case the one-round-one-session rule is about: a result, with the failing
         // exit code as data in it, and nothing for a retry policy to act on.
         using var harness = AFactory();
         harness.Processes.Agent((request, _) =>
@@ -529,7 +529,7 @@ public class RoundRunnerTests
         // here, with its reason, rather than as a missing directory further down.
         Assert.Equal(RoundOutcome.Produced, result.Outcome);
 
-        // ADR-0006: the host has to reach the round's commit after the round is over,
+        // the host-writes rule: the host has to reach the round's commit after the round is over,
         // because the host pushes and not the round. That is only true if the files are
         // not temporary, so where they land and that they are still there afterwards are
         // both part of the promise.

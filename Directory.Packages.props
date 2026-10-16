@@ -87,7 +87,7 @@
       generator. It launches the application's entry point to do it, which is why
       `AgentFactory.Web.csproj` turns generation off on `Build` and the generation
       script invokes the target itself with the store pointed at a temporary path
-      (#80, the store of record over ADR-0009).
+     .
     -->
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.13" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
@@ -173,7 +173,7 @@
 
   <!--
     `Testcontainers` was declared by the test project and used by nothing. It drove
-    the worker-image tests, which ADR-0016 deleted along with the worker image, and
+    the worker-image tests, which the rounds-run-on-the-host rule deleted along with the worker image, and
     the only mention left in the suite is the assertion in `RoundTests` that the
     factory takes no container-runtime package at all — which the reference was
     contradicting. It goes with the ADR that stranded it.

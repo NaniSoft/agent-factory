@@ -81,7 +81,7 @@ public interface IWorkItemStore
     /// <para>
     /// The lane is not a parameter. <see cref="WorkItemKind.Build"/> stays in Backlog,
     /// because a routed ticket is still waiting for the reviewer's click that a work item in
-    /// Backlog has always waited for (#40, ADR-0007); the other two kinds go to
+    /// Backlog has always waited for; the other two kinds go to
     /// <see cref="Swimlane.Waiting"/>, because they have nothing a container can build and
     /// everything a person has to answer. Putting that here rather than in the caller is what
     /// makes it one property rather than a convention two components have to keep agreeing

@@ -280,7 +280,7 @@ public class IntakeTests
             // vocabulary, and two of them mean the opposite of ready to build. They are
             // on the seam because GitHub issues have them, and a poller that filtered on
             // them would be reading a convention that belongs to one repository — which
-            // is exactly what ADR-0007 refuses to do.
+            // is exactly what the indiscriminate-poller rule refuses to do.
             new OpenIssue(10, "Ready for the agent", "A body.", ["ready-for-agent"], []),
             new OpenIssue(11, "Needs info before anything happens", "A body.", ["needs-info"], []),
             new OpenIssue(12, "Will not be fixed, but also ready", "A body.", ["wontfix", "ready-for-agent"], []),

@@ -5,8 +5,8 @@ use cases, builds the change that answers them by driving OpenCode, and merges
 the result back to the repository. One issue in, one reviewed pull request out.
 
 **Status: implemented and running.** This design is the specification the factory
-is built against, and the decisions it defers on are recorded as ADRs in
-`docs/adr/`. Everything in the sections below exists in code and has been run end
+is built against, and [`docs/architecture.md`](docs/architecture.md) records how it
+is laid out. Everything in the sections below exists in code and has been run end
 to end against a real repository: an issue was polled, built by an agent in a
 fresh working tree, reviewed on the board, and shipped as a merged pull request.
 What is *not* claimed here is production readiness — the board is loopback-only,

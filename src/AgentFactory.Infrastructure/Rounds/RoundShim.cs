@@ -11,7 +11,7 @@ using System.Text;
 /// </summary>
 /// <remarks>
 /// <para>
-/// ADR-0011 makes this the only account of what a round ran that the factory believes, and
+/// the derive-the-result rule makes this the only account of what a round ran that the factory believes, and
 /// the same honesty the image's README stated carries over unchanged: it under-reports,
 /// because the brief can only <em>ask</em> the agent to prefix its shell work with
 /// <c>run</c> — the agent's own shell tool is not pointed at it. A command that bypasses

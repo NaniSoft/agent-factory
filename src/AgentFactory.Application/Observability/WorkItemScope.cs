@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 /// holds for a component that was handed no work item at all: the result deriver, the
 /// container runtime and the Docker CLI are three components that know a round is
 /// happening and nothing about which work item it is an attempt at, and their records
-/// carry the answer anyway because the round is inside a scope the loop opened (ADR-0004,
-/// ADR-0011).
+/// carry the answer anyway because the round is inside a scope the loop opened (the NOpenCode rule,
+/// the derive-the-result rule).
 /// </summary>
 /// <remarks>
 /// <para>

@@ -98,7 +98,7 @@ public static class ResultPayload
             }
         }
 
-        // ADR-0006. The image records the *names* of credential-shaped variables and
+        // the host-writes rule. The image records the *names* of credential-shaped variables and
         // never their values, so this line is the evidence a reviewer can check rather
         // than a claim the board repeats, and the remotes below show where the tree came
         // from and whether that URL carried a credential of its own.

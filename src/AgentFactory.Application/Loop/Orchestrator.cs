@@ -411,7 +411,7 @@ public sealed class Orchestrator
     /// <summary>
     /// A work item that has spent the ceiling, parked by a reviewer asking for changes
     /// again. It is not merged and it is not built again: the two ends of the ceiling
-    /// are the rule, and ADR-0008 rules the exhausted one in favour of a human.
+    /// are the rule, and the park-don't-grave rule rules the exhausted one in favour of a human.
     /// </summary>
     private StepResult EscalatedForRunningOutOfRounds(WorkItem workItem, DecisionRecord decision)
     {
@@ -770,7 +770,7 @@ public sealed class Orchestrator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// ADR-0007 is untouched: the poller stays indiscriminate, and every open issue still
+    /// the indiscriminate-poller rule is untouched: the poller stays indiscriminate, and every open issue still
     /// becomes a work item. What changed is the step the old comment justified away — the
     /// human decides from the board, and the loop applies it, the same division as the
     /// three decisions. The action is not one of the three: it moves nothing that was
@@ -787,7 +787,7 @@ public sealed class Orchestrator
     /// refusal rather than a smaller version of the first.</strong> A work item in Backlog
     /// is either a routed build ticket or an issue the factory has not looked at yet, and
     /// accepting the second would spend a container building something a routing round said
-    /// nothing about — which is the exact thing ADR-0015 exists to stop. The board does not
+    /// nothing about — which is the exact thing the route-before-build rule exists to stop. The board does not
     /// offer the button for one, so this is the store-side half of that: a caller that posts
     /// the form by hand is refused by the same rule rather than being trusted.
     /// </para>

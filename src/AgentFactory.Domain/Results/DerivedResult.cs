@@ -15,7 +15,7 @@ namespace AgentFactory.Domain.Results;
 /// </para>
 /// <para>
 /// <see cref="FilesChanged"/> is a union on purpose, and it is the shape that carries
-/// ADR-0011's guarantee. A file the round committed is clean in <c>git status</c> and
+/// the derive-the-result rule's guarantee. A file the round committed is clean in <c>git status</c> and
 /// present in the diff; a file the round left behind uncommitted is the other way
 /// round. Reading either observation alone silently drops half of what a reviewer needs
 /// to see, and the untracked file is the one an agent leaves by accident.
@@ -31,7 +31,7 @@ namespace AgentFactory.Domain.Results;
 /// a command the agent reaches without going through the wrapper — a tool that shells
 /// out on its own, a command typed into a shell the agent opened itself — is not in here,
 /// which is exactly why <see cref="FilesChanged"/> and <see cref="Diff"/> come from git
-/// and carry ADR-0011's guarantee instead of this list.
+/// and carry the derive-the-result rule's guarantee instead of this list.
 /// </param>
 /// <param name="Diff">
 /// The diff the reviewer judges: what is on disk against the commit the round started
@@ -50,7 +50,7 @@ namespace AgentFactory.Domain.Results;
 /// <param name="Commits">The commits the round made since it started, if it made any.</param>
 /// <param name="Environment">
 /// The facts the container observed about itself: who it ran as, what it was holding,
-/// and where its tree came from. This is the evidence behind ADR-0006, not a claim
+/// and where its tree came from. This is the evidence behind the host-writes rule, not a claim
 /// about it.
 /// </param>
 /// <param name="UnreadableLines">
@@ -214,7 +214,7 @@ public sealed record Commit(string Id, string Subject);
 /// <param name="CredentialNames">
 /// The names of the credential-shaped environment variables the round was handed. The
 /// image never records their values, so neither does the factory, and an empty list is
-/// the evidence behind ADR-0006's claim rather than an assertion of it.
+/// the evidence behind the host-writes rule's claim rather than an assertion of it.
 /// </param>
 /// <param name="Git">The git the round built with.</param>
 /// <param name="Agent">The OpenCode CLI the round drove.</param>

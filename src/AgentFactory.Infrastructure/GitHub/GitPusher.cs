@@ -15,7 +15,7 @@ using System.Text;
 /// A process, and not a Git library, for the same reason the round runner
 /// is one: the arguments are the mechanism, they go in one at a time, and nothing the
 /// factory passes — a repository URL, a branch name, a commit — can be read as shell
-/// syntax on the way in. ADR-0010 names the Docker CLI's verbs rather than a
+/// syntax on the way in. The result-leaves-as-a-file rule names the Docker CLI's verbs rather than a
 /// container-runtime package for the same reason this names git's.
 /// </para>
 /// <para>

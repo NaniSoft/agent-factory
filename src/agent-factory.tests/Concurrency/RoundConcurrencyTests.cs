@@ -22,7 +22,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// The round concurrency, and the driver that spends it. Several projects make progress at
 /// once, bounded by a count of rounds rather than by a lock, so one noisy
 /// repository cannot starve the rest and a long build in one project does not stop
-/// another's issue from starting (DESIGN.md, ADR-0001).
+/// another's issue from starting.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -503,7 +503,7 @@ public class RoundConcurrencyTests
         // projects, run through the real round runner against the process seam, and two
         // working trees — each cloned by the runner's own commands into its own landing
         // directory. This is the one place the ceiling is not in play, and that is the
-        // point: the ceiling bounds how many run at once, and ADR-0001's "nothing survives
+        // point: the ceiling bounds how many run at once, and the one-round-one-session rule's "nothing survives
         // a round" is unchanged by it.
         var root = Path.Combine(Path.GetTempPath(), "agent-factory-concurrency", Guid.NewGuid().ToString("n"));
         var source = LiftedTree.WithACommitOn();

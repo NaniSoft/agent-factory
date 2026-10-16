@@ -488,7 +488,8 @@ function toCard(
         </span>
         {/*
           The routing verdict, so a card never lets "nobody has looked at this issue yet"
-          read as "ready to build" (ADR-0015). The kind's words and the factory's own
+          read as "ready to build", because every issue is routed before it is built. The
+          kind's words and the factory's own
           sentence for it are drawn as they arrive; the renderer works nothing out from the
           lane, because Backlog holds both a work item waiting to be routed and one waiting
           to be accepted. A verdict that filed an issue points at it, so a reviewer can

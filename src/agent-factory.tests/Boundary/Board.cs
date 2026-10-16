@@ -463,7 +463,7 @@ public sealed class Board
             html.Append("</ol>");
         }
 
-        // The acceptance gate (#40, restored by #52, gated by routing on ADR-0015): a card
+        // The acceptance gate: a card
         // offers acceptance only when the factory says it may — a work item waiting in
         // Backlog that a routing round decided is a build ticket. An issue nobody has looked
         // at is not a build ticket, so it carries no control the loop would refuse.

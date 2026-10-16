@@ -66,8 +66,8 @@ var factory = builder.AddProject<Projects.AgentFactory_Web>("agent-factory")
     // `http://127.0.0.1:5000/api/board` times out against a proxy with nothing behind it —
     // which is exactly what the first run of this AppHost did.
     //
-    // Not proxying is also the *right* answer rather than merely the working one. ADR-0005
-    // and ADR-0012 make loopback the authorisation: the machine that can open the board is
+    // Not proxying is also the *right* answer rather than merely the working one. The no-hosted-agent rule
+    // make loopback the authorisation: the machine that can open the board is
     // the machine allowed to decide what merges, and a hop in front of the listener is a
     // hop those documents did not account for. The project binds its own loopback port and
     // nothing sits in front of it; the dashboard links straight at it.

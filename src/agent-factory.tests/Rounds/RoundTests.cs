@@ -385,7 +385,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // entry in that file, so reading it covers all four projects. Both sources are
         // read and the assertion is over the union, which makes the claim the
         // one this test has always meant: nothing in this repository depends on a
-        // container runtime, which is what ADR-0016 decided when it deleted the worker
+        // container runtime, which is what the rounds-run-on-the-host rule decided when it deleted the worker
         // image.
         var packagesCentrally = CentralPackageFile()
             .Descendants("PackageVersion")

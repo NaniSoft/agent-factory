@@ -14,7 +14,7 @@ using AgentFactory.Domain.WorkItems;
 /// real violation: `Application` naming a type that lives on the far side of the boundary.
 /// The inside says what it needs - a verdict turned into the issue a person is asked on -
 /// and the outside says how it is done, which is GitHub's API on the host because a round
-/// holds no write credential (ADR-0006, docs/architecture.md rule 1).
+/// holds no write credential.
 /// </para>
 /// <para>
 /// It is narrow on purpose, and the narrowness is the point rather than a limitation. Which

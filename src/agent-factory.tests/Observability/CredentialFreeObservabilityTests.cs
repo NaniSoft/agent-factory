@@ -65,7 +65,7 @@ public class CredentialFreeObservabilityTests
         // The whole path, end to end, with a credential the environment actually has. The
         // merger resolves it and uses it; the round runner resolves the LLM key and puts it
         // in a container's environment; and neither value comes out in anything the factory
-        // says. That is ADR-0006 plus #10's own check, held across the observability work.
+        // says. That is the host-writes rule plus #10's own check, held across the observability work.
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         var log = new RecordedLog();
         var counters = new FactoryMetrics();

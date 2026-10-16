@@ -86,7 +86,7 @@
     launching the application's entry point with a mock server, and this
     application's entry point opens the SQLite store and reconciles orphaned
     rounds against it — against `data/agent-factory.db`, the record of record
-    (ADR-0009), on every `dotnet build`. Turning it off here means a build cannot
+   , on every `dotnet build`. Turning it off here means a build cannot
     reach `data/` at all: the generation script invokes the target itself and is
     the one place `Factory__DatabasePath` is pointed at a temporary path, so the
     only thing that ever launches the entry point for a document is the step that

@@ -110,7 +110,7 @@ public sealed record Round(
 /// A <see cref="RoundOutcome.Produced"/> round has no class and cannot have one. That is
 /// the structural half of "a build that fails its tests is not retried": a round that ran
 /// to completion and whose change failed came back with a result, the failing tests are
-/// data inside it, and there is nothing on it for the retry policy to act on (ADR-0001,
+/// data inside it, and there is nothing on it for the retry policy to act on (the one-round-one-session rule,
 /// DESIGN.md). It is also what keeps a rate-limited round and a test-failed round apart:
 /// they differ in <em>which</em> number was non-zero, and the two numbers go to two
 /// different places, so neither is ever a flag the other also sets.
@@ -215,7 +215,7 @@ public sealed record RoundResult(
     /// round's own exit code rather than at "did anything come back non-zero": the latter
     /// would make a failing test and a dead agent the same event, which is exactly what the
     /// design's own sentence warns against when it says a build that fails its tests is not
-    /// a transient failure (DESIGN.md, ADR-0001).
+    /// a transient failure.
     /// </para>
     /// </remarks>
     public bool IsRetryable =>

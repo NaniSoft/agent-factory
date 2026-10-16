@@ -519,7 +519,7 @@ public class MergeTests
     [Fact]
     public async Task The_credential_is_asked_for_by_name_and_never_appears_in_anything_the_factory_says()
     {
-        // ADR-0006 is a claim about the host, and the host is where the token lives: the
+        // the host-writes rule is a claim about the host, and the host is where the token lives: the
         // project declares a name, the name is resolved, and the value goes into a header
         // and into one git child's environment. It must not come out of either — not in a
         // log line, not in the message of the failure a reviewer reads on the board, and

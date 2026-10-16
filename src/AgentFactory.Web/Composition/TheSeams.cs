@@ -71,7 +71,7 @@ internal static class TheSeams
 
         // The result deriver, and the one place a credential name becomes a value.
         //
-        // The deriver is the whole of ADR-0011 on this side of the boundary: it reads what
+        // The deriver is the whole of the derive-the-result rule on this side of the boundary: it reads what
         // the round observed and turns it into a result, and it has no way to ask the
         // agent anything. The credential reader is the only component that can put a value
         // rather than a name into a round, which is why the line between the LLM key
@@ -109,7 +109,7 @@ internal static class TheSeams
         // merger writes through it, so it is the one place the factory talks to GitHub, and
         // the review surface still cannot: `PolicyTests` names this type as the single
         // component allowed to hold a transport, for the same reason it names the driver's
-        // single `Task.Delay` (ADR-0003, one process, one boundary).
+        // single `Task.Delay`.
         //
         // **The merger is a second port on the same class, and that is not a second
         // boundary.** `IGitHub` is intake and the issue writes; `IMerger` is everything the

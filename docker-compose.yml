@@ -3,7 +3,7 @@
 #   docker compose up temporal
 #
 # starts the durable workflow's server. The factory itself runs on this machine
-# (`dotnet run --project src/AgentFactory.Web`) — ADR-0016: rounds are this machine's
+# (`dotnet run --project src/AgentFactory.Web`) — the rounds-run-on-the-host rule: rounds are this machine's
 # own child processes, so the factory has no container of its own and no daemon
 # behind it. The board is at http://127.0.0.1:5000.
 #

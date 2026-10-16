@@ -48,7 +48,7 @@ public class GitHubReadTests
         // The issues endpoint returns pull requests as well as issues, and a pull request
         // is not a piece of work: intakeing one would make the factory build against its
         // own output, and the work item it made would be one the board then tried to ship a
-        // second time. ADR-0007 is about labels and assignees; this is the filter nobody
+        // second time. The indiscriminate-poller rule is about labels and assignees; this is the filter nobody
         // would have thought to add, and it is not a filter — it is GitHub telling the
         // difference between two kinds of object.
         using var api = new GitHubApi();
@@ -70,7 +70,7 @@ public class GitHubReadTests
         Assert.Equal("A thing", issue.Title);
         Assert.Equal("words", issue.Body);
 
-        // Carried and never read, which is ADR-0007's own assertion: the seam is faithful to
+        // Carried and never read, which is the indiscriminate-poller rule's own assertion: the seam is faithful to
         // what GitHub returns and the poller applies no filter whatever.
         Assert.Equal(["ready-for-agent"], issue.Labels);
         Assert.Equal(["someone"], issue.Assignees);

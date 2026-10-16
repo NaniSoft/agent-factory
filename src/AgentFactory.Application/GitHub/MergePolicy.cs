@@ -367,7 +367,7 @@ public sealed class MergePolicy(
     /// only what was committed. Shipping a change that is not the one on the board would
     /// break the one property the review surface exists for, and committing the difference
     /// here would make the host the author of work nobody reviewed, which is the thing
-    /// ADR-0006 exists to prevent. So the two are refused against each other, and a human
+    /// the host-writes rule exists to prevent. So the two are refused against each other, and a human
     /// finishes it from the board.
     /// </remarks>
     private static string CommitAt(string tree, TreeAtHead head)

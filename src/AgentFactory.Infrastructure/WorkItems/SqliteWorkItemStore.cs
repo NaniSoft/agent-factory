@@ -19,7 +19,7 @@ using Microsoft.EntityFrameworkCore;
 /// what an adapter is.</strong> `IWorkItemStore` is the port and stays in `Application`;
 /// the `DbContext`, the row types and the baseline migration are this project's, and no EF
 /// type is named anywhere the port can see (#62, #77). The class keeps the word *SQLite*
-/// because the word is about the record rather than the mechanism — ADR-0009 decides that
+/// because the word is about the record rather than the mechanism — the store-of-record rule decides that
 /// the store of record is one SQLite file, and a name saying so is the name of the
 /// decision; *EF* would name the library, which is the part free to change.
 /// </para>
@@ -253,7 +253,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         // one place all three answers are written down.
         //
         //   Build      → Backlog. Still a ticket waiting for the reviewer's click it came in
-        //                 for (#40, ADR-0007). Routing is not the gate and does not become one.
+        //                 for. Routing is not the gate and does not become one.
         //   Grill,
         //   Wayfinder  → Waiting. Nothing a container can build, everything a person has to answer.
         //   Unrouted   → Escalated. A round ran and could not answer, which is a failure and
@@ -475,7 +475,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         //
         // The two decidable lanes are Review and Escalated. Escalated is in the set
         // because parking is not a grave — a human finishes a parked work item from the
-        // board, and a store that refused would make ADR-0008's promise unkeepable. The
+        // board, and a store that refused would make the park-don't-grave rule's promise unkeepable. The
         // refusal below names only Review, and that is deliberate rather than stale: it
         // is shown for lanes that are neither Review nor Escalated, where "not in Review"
         // is both true and the whole of the reason, and the words are ones a reviewer has

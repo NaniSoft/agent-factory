@@ -437,14 +437,14 @@ public class PolicyTests
     [Fact]
     public void Only_the_round_runner_puts_a_credential_into_a_round_and_only_the_merger_resolves_one()
     {
-        // ADR-0006 as a structural property rather than a matter of care, and **this test
+        // the host-writes rule as a structural property rather than a matter of care, and **this test
         // changed deliberately and visibly for the merger**, because the fact it asserted
         // was "one component in the process may turn a credential name into a value" and
         // that stopped being true the moment a merger existed. It was not weakened to
         // accommodate the client: the boundary it guards is still exactly two places, and
         // both are named.
         //
-        // The shape of the claim has changed because the *design* has. ADR-0006 says the
+        // The shape of the claim has changed because the *design* has. The host-writes rule says the
         // host holds every write credential — "the host retrieves the commit, pushes the
         // branch, and opens the pull request under the factory's own token" — so a factory
         // that ships a change and never resolves its own GitHub token would be a factory
@@ -455,7 +455,7 @@ public class PolicyTests
         // What has not changed is the direction, and that is what the two halves assert.
         // The *round* boundary is still one method, and no third component can widen
         // it: a component that could read any credential could hand the GitHub one to the
-        // agent, and ADR-0006's whole claim is that it cannot. The merger's read is on the
+        // agent, and the host-writes rule's whole claim is that it cannot. The merger's read is on the
         // other side of the boundary entirely — it is the host, it is after the round is
         // over, and there is no agent process for it to hand anything to.
         var readers = CallsMadeBy(TheFactory.Assemblies)
@@ -480,14 +480,14 @@ public class PolicyTests
         // The round half, and it is the half that has not moved. A round's environment is
         // built in exactly one place in the process, and that place is inside the round
         // runner: so a credential value can only reach an agent by going through the
-        // component whose one credential read is the LLM key's, and ADR-0006's claim
+        // component whose one credential read is the LLM key's, and the host-writes rule's claim
         // holds by shape rather than by care. The merger is not on that path and cannot get
         // onto it, because it is not the thing that starts processes.
         //
         // Checked as *the one construction site* rather than as a name in a list of readers,
         // because the readers list says who asked and this says who can put. A third reader
         // somewhere harmless is caught by the list above; a second way to build a process's
-        // environment is caught here, and it is the one that would undo ADR-0006. The
+        // environment is caught here, and it is the one that would undo the host-writes rule. The
         // request is built twice in the runner — once for the agent, once for the small git
         // questions it asks of the tree — and both are the runner, which is the point.
         Assert.Equal(
@@ -498,7 +498,7 @@ public class PolicyTests
     [Fact]
     public void The_deriver_has_no_way_to_ask_the_agent_anything()
     {
-        // ADR-0011's guarantee, made structural. The component that produces a result reads
+        // the derive-the-result rule's guarantee, made structural. The component that produces a result reads
         // a file and reads an environment; it holds no agent, no client and no transport, so
         // "the factory derives the result and the agent only narrates" is a property of the
         // constructor rather than a claim about the code inside it. A deriver that gained a
@@ -974,7 +974,7 @@ public class PolicyTests
         // What it used to say was about the *process*: "this assembly publishes no measurement
         // over a socket of any kind — so the counters cannot have quietly become a second
         // inbound surface on a process that binds its board to loopback on purpose (story 64,
-        // ADR-0012)". The map's decision retires that. The factory runs under an Aspire AppHost
+        //)". The map's decision retires that. The factory runs under an Aspire AppHost
         // now, the dashboard is a real listener and the OTLP exporter is a real client, so the
         // process opens sockets — one outbound connection to a loopback collector, and nothing
         // in this process listens that did not before. The decision, and the argument for it,
