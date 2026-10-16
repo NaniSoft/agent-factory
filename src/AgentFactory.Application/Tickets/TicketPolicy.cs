@@ -145,7 +145,7 @@ public sealed class TicketPolicy(
     /// Lands a build round: the result is recorded against the work item and the work item
     /// moves to where the outcome means. A round that came back with a result is what a
     /// reviewer judges, so it goes to Review; a round that did not is not merged over and
-    /// parks in Escalated, where a human can still merge or decline it (ADR-0008).
+    /// parks in Escalated, where a human can still merge or decline it.
     /// </summary>
     /// <remarks>
     /// The two drivers pass the timestamp and the attempt count they hold: the loop knows

@@ -4,7 +4,7 @@ using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What a round is for. Two of them, and the difference is whether the round looks at the
-/// repository (ADR-0015).
+/// repository.
 /// </summary>
 /// <remarks>
 /// <para>

@@ -14,7 +14,7 @@ using System.Text;
 /// Nothing here interprets a diff. It splits one into the sections git wrote, names the
 /// path each section is about, and counts the lines it adds and removes. A round's change
 /// is what git says it is, and the board's job is to show that rather than to decide
-/// which of it matters (ADR-0011).
+/// which of it matters.
 /// </para>
 /// <para>
 /// A binary change has no <c>---</c>/<c>+++</c> pair and no line counts, and it is still a

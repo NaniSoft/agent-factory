@@ -133,7 +133,7 @@ public class ProjectBoardTests
     {
         // The filter is a way of looking, never a way of deciding. A project filter that
         // narrowed the decision set would be policy on the page, and the loop is what owns
-        // policy (ADR-0005): what a reviewer can press has to be the same three on a
+        // policy: what a reviewer can press has to be the same three on a
         // filtered board as on the whole one, and a post made by hand has to be refused
         // the same way.
         using var root = TwoProjects();

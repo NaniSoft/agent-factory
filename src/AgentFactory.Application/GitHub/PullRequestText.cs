@@ -62,7 +62,7 @@ public static class PullRequestText
 
             Opened by the agent factory, from the host. The change was built in a worker
             container, which committed it and stopped there; the host pushed the branch
-            and opened this pull request (ADR-0006).
+            and opened this pull request.
 
             The branch `{branch}` is the round's own commit and nothing else. No follow-up
             commits, no merge-time edits, and nothing the container could write has been

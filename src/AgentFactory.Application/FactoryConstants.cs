@@ -21,7 +21,7 @@ public static class FactoryConstants
     /// comparison the loop makes rather than a timer it starts. It is measured in
     /// wall-clock time and is not interchangeable with the round ceiling: a reviewer who
     /// sends changes back quickly spends rounds, and a reviewer who walks away spends
-    /// this (ADR-0001).
+    /// this.
     /// </remarks>
     public static readonly TimeSpan FeedbackThreshold = TimeSpan.FromHours(48);
 
@@ -50,7 +50,7 @@ public static class FactoryConstants
     /// This counts <em>attempts</em> and not rounds. A container that would not start is
     /// not a round that ran and failed: it is a round that did not happen, and charging it
     /// against the round ceiling would spend a reviewer's budget on the factory's own
-    /// infrastructure (ADR-0001).
+    /// infrastructure.
     /// </para>
     /// <para>
     /// It is the same number for a round and for a merge, deliberately. Both are attempts
@@ -104,7 +104,7 @@ public static class FactoryConstants
     /// <para>
     /// It bounds <em>rounds</em>, and it is the only thing that bounds concurrency. It is
     /// deliberately not a lock, not a shared working tree and not a per-project quota:
-    /// each round gets its own fresh working tree whatever project it is for (ADR-0001),
+    /// each round gets its own fresh working tree whatever project it is for,
     /// so there is nothing to serialise and nothing to share, and a project's own long
     /// build cannot hold another project's issue out.
     /// </para>

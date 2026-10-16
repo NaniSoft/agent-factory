@@ -16,7 +16,7 @@ using System.Text;
 /// <remarks>
 /// <para>
 /// Everything here is an <em>observation</em>, and nothing asks the agent anything
-/// (ADR-0011): the files git saw, the commands the recording shim ran and what each
+///: the files git saw, the commands the recording shim ran and what each
 /// returned, and the agent's one optional sentence copied raw. The git reads are pinned the
 /// way the diff reader's are — <c>core.autocrlf=false</c>, <c>core.quotepath=false</c>,
 /// <c>safe.directory</c> through the environment — because a tree read with the host's own
@@ -69,7 +69,7 @@ public static class RoundCollector
     /// <param name="credentialEnvNames">
     /// The names of the credential-shaped variables the round was handed — names, never
     /// values. This is the evidence a reviewer checks rather than a claim the board repeats
-    /// (ADR-0006).
+    ///.
     /// </param>
     public static string? Collect(
         string landing,

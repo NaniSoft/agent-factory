@@ -2,7 +2,7 @@ namespace AgentFactory.Domain.Results;
 
 /// <summary>
 /// What one round produced, as the factory derived it by watching the container rather
-/// than by believing the agent (ADR-0011). The three named things are here: the files
+/// than by believing the agent. The three named things are here: the files
 /// changed, the commands run, and the outcome each of them returned.
 /// </summary>
 /// <remarks>
@@ -155,7 +155,7 @@ public enum FileChange
 /// One command the round ran, and what it returned. The exit code is the outcome and
 /// nothing is inferred from it: the factory does not decide which of these were tests,
 /// because the repository's own scripts decide that, and a factory that guessed would be
-/// a factory imposing a test convention on the project it is building (ADR-0011).
+/// a factory imposing a test convention on the project it is building.
 /// </summary>
 /// <param name="Sequence">
 /// The number the wrapper assigned when the record was written. It increases down the
@@ -185,7 +185,7 @@ public sealed record CommandOutcome(
     /// <summary>
     /// Whether the command returned zero. The word "passed" is the factory's and the
     /// number is the command's: a build that ran and failed is a fact about the build,
-    /// not a failure the factory can retry (ADR-0001).
+    /// not a failure the factory can retry.
     /// </summary>
     public bool Passed => ExitCode == 0;
 }
@@ -227,7 +227,7 @@ public sealed record Commit(string Id, string Subject);
 /// This is the one number in the result that is about the <em>round</em> rather than about
 /// anything in it, and it is the boundary the design's own sentence does not draw. The exit
 /// code of a <em>command the round ran</em> is a test failing or a lint complaining: data,
-/// and a result a reviewer judges (ADR-0001). The exit code of the round's own last command
+/// and a result a reviewer judges. The exit code of the round's own last command
 /// is whether the round <em>finished</em> — and for the script this factory runs, that last
 /// command is the agent itself, because <c>WorkerRoundRunner.RoundScript</c> ends with the
 /// <c>opencode run</c> invocation and nothing after it. A rate limit, a refused provider, a

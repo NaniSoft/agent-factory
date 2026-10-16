@@ -68,7 +68,7 @@ public sealed record WorkItemDetailView(
 /// <summary>
 /// What the routing round decided about a work item, as the detail renders it — the whole
 /// of the routing judgement, serialised so the renderer writes no sentence of its own
-/// (ADR-0015).
+///.
 /// </summary>
 /// <param name="Say">
 /// The one sentence for this work item's kind, from <see cref="HowToReadTheRoute.Say"/>:

@@ -358,7 +358,7 @@ public sealed class Board
 
         var cause = Str(card.Json, "ending");
 
-        // The routing verdict (ADR-0015): the kind the round decided, its reason, the issue
+        // The routing verdict: the kind the round decided, its reason, the issue
         // it filed, and whether the card offers acceptance at all. Every field is the
         // factory's own judgement read back off `/api/board`, so the acceptance control
         // below is `offersAcceptance` and not a guess about the lane.
@@ -410,7 +410,7 @@ public sealed class Board
         }
 
         // The routing round's own words, so a card never lets "nobody has looked at this
-        // issue yet" read as "ready to build" (ADR-0015).
+        // issue yet" read as "ready to build".
         if (routeReason.Length > 0)
         {
             html.Append($"<span class=\"route-reason\" data-route-reason=\"true\">{Esc(routeReason)}</span>");

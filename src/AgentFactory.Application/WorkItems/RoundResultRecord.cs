@@ -37,7 +37,7 @@ using AgentFactory.Domain.Rounds;
 /// against the lifted tree, and a board that showed only the first would show a bounded
 /// prefix of the change on exactly the rounds a reviewer most needs to see. It is kept
 /// even for a round that produced no readable payload, because a round whose result could
-/// not be read is a round whose tree is the whole of what it left (ADR-0006, ADR-0011).
+/// not be read is a round whose tree is the whole of what it left.
 /// </param>
 public sealed record RoundResultRecord(
     Guid WorkItemId,

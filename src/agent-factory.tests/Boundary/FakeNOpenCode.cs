@@ -105,7 +105,7 @@ public sealed class FakeNOpenCode : INOpenCode
 
     /// <summary>
     /// The next round came back with a verdict on what kind of work its issue is
-    /// (ADR-0015).
+    ///.
     /// </summary>
     /// <remarks>
     /// Scripted as a real <see cref="RoutingOutcome"/> rather than as a flag on the

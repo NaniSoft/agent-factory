@@ -61,7 +61,7 @@ public class BoardEndpointTests
         // The lanes are the board's own set, in the board's own order: the six swimlanes
         // and then the two endings. Written out rather than read from the constant, because
         // a test that read it would prove only that the endpoint agrees with itself.
-        // Waiting is the routing layer's lane (ADR-0015), between Done and the two endings.
+        // Waiting is the routing layer's lane, between Done and the two endings.
         var lanes = board.GetProperty("lanes").EnumerateArray().ToList();
         Assert.Equal(
             ["Backlog", "Frontier", "InProgress", "Review", "Done", "Waiting", "Escalated", "Rejected"],
@@ -94,7 +94,7 @@ public class BoardEndpointTests
             ["approve", "request-changes", "reject"],
             [.. card.GetProperty("decisions").EnumerateArray().Select(decision => decision.GetString()!)]);
 
-        // The routing verdict rides on the card (ADR-0015): the kind the routing round
+        // The routing verdict rides on the card: the kind the routing round
         // decided, the kind's words, the factory's own sentence for it, and whether this
         // card may offer acceptance. The work item was routed Build to be accepted, and it
         // is now in Review, so acceptance is not offered.

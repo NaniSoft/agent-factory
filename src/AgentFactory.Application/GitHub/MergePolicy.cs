@@ -401,7 +401,7 @@ public sealed class MergePolicy(
     /// <summary>
     /// The round's tree on this host, which is where its commit is. The host pushes, so a
     /// round whose tree did not come out of its container has nothing to push — the
-    /// container is gone and there is no second copy of the change (ADR-0006).
+    /// container is gone and there is no second copy of the change.
     /// </summary>
     /// <remarks>
     /// <para>

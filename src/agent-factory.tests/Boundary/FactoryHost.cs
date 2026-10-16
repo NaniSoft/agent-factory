@@ -87,7 +87,7 @@ public sealed class FactoryHost : IAsyncDisposable
     /// <para>
     /// A work item is routed as <c>Build</c> first, because a reviewer's acceptance of an
     /// issue the factory has not looked at yet is refused by the loop — nothing can be built
-    /// before it has been decided to be buildable (ADR-0015). Routing it here is the store's
+    /// before it has been decided to be buildable. Routing it here is the store's
     /// own method applied directly, which is exactly what a routing round would have done,
     /// and it is here rather than in the fake agent so that the tests which are about budgets,
     /// retries and decisions are not all also tests of routing they did not ask for.

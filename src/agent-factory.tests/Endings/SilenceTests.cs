@@ -11,7 +11,7 @@ using AgentFactory;
 /// The other way a work item stops looping without a human finishing it: nobody looking.
 /// A work item left in Review past the feedback threshold is merged when auto-merge is
 /// on, because a pipeline held by a reviewer who is asleep is a pipeline that has
-/// stopped, and the design says so plainly rather than inferring it (ADR-0008). The
+/// stopped, and the design says so plainly rather than inferring it. The
 /// model-reference map's decision (#36) made the timeout a setting with a default, and
 /// the default is <em>off</em>: on this deployment a work item waits in Review however
 /// long it takes, and the board says which mode is live.
@@ -112,7 +112,7 @@ public class SilenceTests
     public async Task Ignoring_a_work_item_merges_it_and_declining_one_protects_the_repository()
     {
         // The asymmetry, in one test, because it is the design's whole point about
-        // governing the timeout path (ADR-0008). The same factory, the same clock, the
+        // governing the timeout path. The same factory, the same clock, the
         // same threshold, the same seam that would land every merge asked of it, and two
         // work items sitting in Review side by side. The only difference between them is
         // what a reviewer did: nothing to one, and a decline to the other. That is the
@@ -290,7 +290,7 @@ public class SilenceTests
 
         // Every work item waiting in Review says when its own silence will ship it, because
         // the timeout is the more dangerous of the two paths and the board is where it is
-        // governed (ADR-0008).
+        // governed.
         var id = board.ValuesOf("data-work-item").Single();
         var since = host.Store.Get(Guid.Parse(id))!.ReviewStartedUtc;
         Assert.NotNull(since);

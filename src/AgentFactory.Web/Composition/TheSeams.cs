@@ -76,7 +76,7 @@ internal static class TheSeams
         // agent anything. The credential reader is the only component that can put a value
         // rather than a name into a round, which is why the line between the LLM key
         // (which goes in) and the GitHub key (which does not) is one method call away from
-        // being checkable rather than merely intended (ADR-0006).
+        // being checkable rather than merely intended.
         services.AddSingleton<RoundResultDeriver>();
 
         // The reader of a routing round's verdict, and the publisher of what it proposed.
@@ -84,7 +84,7 @@ internal static class TheSeams
         // and the publisher turns a verdict into issues, and neither of them has anything to
         // keep between calls. They are singletons because "one reader of that file's shape"
         // is a property of the process rather than of any one call, and a per-call reader
-        // would be a second reader the moment somebody injected one by hand (ADR-0015).
+        // would be a second reader the moment somebody injected one by hand.
         services.AddSingleton<RoutingReader>();
         services.AddSingleton<IIssuePublisher, IssuePublisher>();
 

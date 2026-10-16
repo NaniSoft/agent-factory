@@ -27,7 +27,7 @@ using System.Text.Json.Serialization;
 /// The lanes are exactly the ones the board's own markup renders, in the same order:
 /// the six swimlanes and then the two parked-and-final lanes, so a card in Escalated or
 /// Rejected has a column of its own and the last two columns are the endings. Waiting is
-/// the lane the routing layer added (ADR-0015): it stands after Done and before the two
+/// the lane the routing layer added: it stands after Done and before the two
 /// endings, in the factory's own order, because a work item parked on a person is
 /// finished there rather than here.
 /// </para>
@@ -73,7 +73,7 @@ public sealed record BoardView(
         // cards are read from the store's own record and its rounds and decisions, so the
         // ending a card carries is the factory's answer and not the renderer's. The
         // auto-merge mode rides onto each card, because a countdown only exists when
-        // silence can merge and the card is where a reviewer sees it (ADR-0008).
+        // silence can merge and the card is where a reviewer sees it.
         var lanes = Swimlanes.All
             .Concat(Swimlanes.ParkedAndFinal)
             .Select(lane => new LaneView(
@@ -266,12 +266,12 @@ public sealed record LaneView(
 /// a reviewer or auto-merge is off. It is
 /// <c>ReviewStartedUtc + FactoryConstants.FeedbackThreshold</c> and it is present only for
 /// a card in Review with auto-merge on, because a countdown a reviewer cannot see per work
-/// item is a countdown they cannot act on while it still matters (ADR-0008).
+/// item is a countdown they cannot act on while it still matters.
 /// </param>
 /// <param name="Kind">
 /// The kind the routing round decided this issue is — one of
 /// <see cref="WorkItemKind"/>'s names, with <c>Unrouted</c> meaning nobody has looked at
-/// it yet (ADR-0015). The renderer draws the kind's own words; it never works out a kind
+/// it yet. The renderer draws the kind's own words; it never works out a kind
 /// from a lane.
 /// </param>
 /// <param name="KindLabel">The kind's words for a reader, from
@@ -292,7 +292,7 @@ public sealed record LaneView(
 /// Whether the card should carry the acceptance control at all, from
 /// <see cref="HowToReadTheRoute.OffersAcceptance"/>: a work item waiting in Backlog that
 /// is a build ticket. The app gates its control on this rather than on the lane alone,
-/// because an issue nobody has looked at is not a build ticket (ADR-0015).
+/// because an issue nobody has looked at is not a build ticket.
 /// </param>
 public sealed record CardView(
     [property: JsonPropertyName("id")] string Id,

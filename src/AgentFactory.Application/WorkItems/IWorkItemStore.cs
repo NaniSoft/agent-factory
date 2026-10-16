@@ -7,7 +7,7 @@ using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// The store of record. Work items are persisted, so a restart does not discard an
-/// agent's work. One writer, in one process, against one SQLite file (ADR-0009).
+/// agent's work. One writer, in one process, against one SQLite file.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -214,7 +214,7 @@ public interface IWorkItemStore
     /// <see cref="Swimlanes.Decidable"/>, which is what keeps Rejected final without a
     /// later caller having to remember; or the work item is parked and the decision
     /// requests changes, because a parked work item is finished by a human rather than
-    /// sent round again (ADR-0008); or the decision requests changes and carries no
+    /// sent round again; or the decision requests changes and carries no
     /// reasons, which would leave the next round with no brief.
     /// </exception>
     DecisionRecord RecordDecision(Guid workItemId, Decision decision, string? feedback);

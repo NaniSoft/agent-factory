@@ -42,7 +42,7 @@ public class MetricTests
     public async Task Issues_are_counted_when_intake_makes_a_work_item_and_not_when_it_finds_one_again()
     {
         // The reading that matters: "issues processed" is a count of work that arrived, not
-        // of times the poller looked. Intake is idempotent against the store (ADR-0007), and a
+        // of times the poller looked. Intake is idempotent against the store, and a
         // counter that went up on every pass would be measuring the poll interval — which
         // would make it look like a factory doing four times the work.
         using var root = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
@@ -135,7 +135,7 @@ public class MetricTests
 
         // And each project's own rounds are counted against that project rather than
         // against the factory, because "one noisy repository cannot starve the rest" is a
-        // claim about one repository (ADR-0007) and is not measurable without it. One
+        // claim about one repository and is not measurable without it. One
         // project produced and the other did not — asserted by *which* project rather than
         // by which one the rotation happened to reach first, because the order rounds are
         // handed out in is the loop's business and not this test's.

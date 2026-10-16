@@ -40,7 +40,7 @@ using AgentFactory.Domain.WorkItems;
 /// </param>
 /// <param name="Tree">
 /// The round's tree on this host, and therefore the only place the change exists: the
-/// container that made it is gone (ADR-0006).
+/// container that made it is gone.
 /// </param>
 /// <param name="Commit">The commit that tree is on, read from git rather than remembered.</param>
 public sealed record MergePlan(WorkItem WorkItem, string Tree, string Commit)

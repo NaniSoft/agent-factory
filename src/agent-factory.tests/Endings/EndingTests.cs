@@ -10,7 +10,7 @@ using AgentFactory;
 /// <summary>
 /// What the board says about the ways a work item ended. Nothing ends in silence, and
 /// Escalated and Rejected are two states with two causes rather than one dead state
-/// (ADR-0008): a failure and a human decline are different facts, and a board that
+///: a failure and a human decline are different facts, and a board that
 /// rendered them the same way would be hiding which one happened.
 /// </summary>
 public class EndingTests

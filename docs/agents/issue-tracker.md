@@ -38,9 +38,9 @@ Run `gh issue view <number> --comments`.
 
 This repository is the agent factory, and the factory polls GitHub issues. When the
 factory is pointed at this repository it will find **its own build tickets** as work
-items. The poller is deliberately indiscriminate (see ADR-0007), so this is expected
+items. The poller is deliberately indiscriminate, so this is expected
 rather than a misconfiguration. The factory must not be given a token that can write to
-this repository until its merge path is trustworthy — see ADR-0006.
+this repository until its merge path is trustworthy.
 
 The rule protects **this** repository and says nothing about any other repository the
 factory can reach, which is how a committed project file became a live hazard (#23):

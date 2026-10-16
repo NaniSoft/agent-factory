@@ -7,7 +7,7 @@ using System.Text.Json;
 
 /// <summary>
 /// The result deriver. It reads a round's one result file — the file the host lifted out
-/// of the container with <c>docker cp</c> (ADR-0010) — and turns the records in it into
+/// of the container with <c>docker cp</c> — and turns the records in it into
 /// the result a reviewer judges: the files changed, the commands run, what each returned,
 /// and the diff.
 /// </summary>
@@ -23,7 +23,7 @@ using System.Text.Json;
 /// Nothing here interprets a command. There is deliberately no field saying which of a
 /// round's commands were its tests, because the factory does not know and must not
 /// guess: the repository's own scripts decide what tested means, and the configuration
-/// schema has no field in which the factory could record an opinion (ADR-0011).
+/// schema has no field in which the factory could record an opinion.
 /// </para>
 /// <para>
 /// A result file that is malformed, truncated or absent still produces a

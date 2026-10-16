@@ -15,7 +15,7 @@ using System.Net;
 /// built until a reviewer says so.
 ///
 /// <para>
-/// <b>This file changed when the routing layer landed (ADR-0015), and the gate did not
+/// <b>This file changed when the routing layer landed, and the gate did not
 /// move.</b> What moved is that "built" now has a step in front of it: an issue nobody has
 /// looked at is looked at, and only then can it be accepted. Both halves are asserted here
 /// separately, because they are two different refusals and conflating them is how the gate
@@ -44,7 +44,7 @@ public class BacklogGateTests
         // Whatever the machine does on its own — the poller's turn, the loop's step, the
         // heartbeat's tick — a work item nobody has accepted stays where intake put it.
         // The one container it may cost is the routing round that read the issue, which
-        // builds nothing and is not charged to the round ceiling (ADR-0015).
+        // builds nothing and is not charged to the round ceiling.
         await host.Settle();
         await host.Tick();
 
@@ -135,7 +135,7 @@ public class BacklogGateTests
         // — the same component that applies every other transition — and the item moves.
         //
         // **Which now has a condition in front of it, and the condition is the point of
-        // this test as much as the control is (ADR-0015).** An issue nobody has looked at is
+        // this test as much as the control is.** An issue nobody has looked at is
         // not a build ticket, so its card offers no acceptance: rendering one would be
         // offering a reviewer a click that the loop is about to refuse.
         //

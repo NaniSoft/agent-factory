@@ -11,12 +11,12 @@ using System.Text;
 
 /// <summary>
 /// Turns a routing round's proposal into real issues in the project's tracker, and is the
-/// only thing that does (ADR-0015).
+/// only thing that does.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The container proposed and this published, because the host is where every write
-/// credential lives and a round holds none (ADR-0006). Splitting it out of the orchestrator
+/// credential lives and a round holds none. Splitting it out of the orchestrator
 /// is not tidiness: the orchestrator is the whole of the factory's <em>policy</em>, and which
 /// issues a map becomes and in what order is not policy — it is the shape of a proposal
 /// somebody else wrote. What is policy, and stays in the loop, is that a verdict is recorded
@@ -64,7 +64,7 @@ public sealed class IssuePublisher(
         // item's identity and writes records about it, and every component that does that
         // opens a scope — the check is `PolicyTests.A_record_about_a_work_item_is_written_
         // inside_a_scope_that_names_it`, and this being on that list rather than exempted
-        // from it is the point (ADR-0015).
+        // from it is the point.
         using var trace = logger.ForWorkItem(workItem.Id, workItem.Project, workItem.IssueNumber);
 
         var filed = proposal.Verdict switch

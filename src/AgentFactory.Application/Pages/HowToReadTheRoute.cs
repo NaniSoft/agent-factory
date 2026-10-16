@@ -5,7 +5,7 @@ using AgentFactory.Domain.WorkItems;
 
 /// <summary>
 /// What a card says about the routing round that looked at its issue, in words rather than
-/// in a state the reviewer has to already know the meaning of (ADR-0015).
+/// in a state the reviewer has to already know the meaning of.
 /// </summary>
 /// <remarks>
 /// <para>

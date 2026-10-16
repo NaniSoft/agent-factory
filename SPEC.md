@@ -124,7 +124,7 @@ recording wrapper, no `worker-round`. `CONTEXT.md` carries the term.
 
 - **One application image**: the .NET process published into a container.
 - **docker-compose.yml** carries: the Docker socket mounted so worker and
-  workspace containers land as siblings on the host daemon (the ADR-0012
+  workspace containers land as siblings on the host daemon (the
   rootful deviation, recorded in the compose comments); volumes for
   `factories/`, `secrets/`, and the SQLite store; the `127.0.0.1:5000` mapping;
   no pre-declared workspace ports (the factory publishes them itself).

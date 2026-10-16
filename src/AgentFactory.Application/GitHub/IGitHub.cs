@@ -23,7 +23,7 @@ public interface IGitHub
     /// <summary>
     /// Every open issue on the repository. No filter a repository's conventions could hang
     /// a triage decision on — labels, assignees — decides what is taken, because the board
-    /// is where a human decides what is worth building (ADR-0007). The one exception is
+    /// is where a human decides what is worth building. The one exception is
     /// the factory's own authorship, <see cref="FactoryIssueLabel"/>, which the poller
     /// reads to decline its own output.
     /// </summary>
@@ -39,7 +39,7 @@ public interface IGitHub
 
     /// <summary>
     /// Opens a pull request from the host, under the factory's own credential. A worker
-    /// container holds nothing that can write to a remote (ADR-0006).
+    /// container holds nothing that can write to a remote.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -65,13 +65,13 @@ public interface IGitHub
     /// <summary>
     /// Creates one issue, from the host, under the project's own credential. Used for the
     /// questions and the maps a routing round proposed and the host has decided to publish
-    /// (ADR-0015).
+    ///.
     /// </summary>
     /// <remarks>
     /// <para>
     /// This is a write the project did not ask for in the sense of a pull request: it puts
     /// something in its issue tracker. It is here rather than inside the round because the
-    /// round has no credential that can write anything (ADR-0006), and the agent's own words
+    /// round has no credential that can write anything, and the agent's own words
     /// in a title reach GitHub as an ordinary string, never as a shell.
     /// </para>
     /// <para>
@@ -151,7 +151,7 @@ public sealed record NewIssue(string RepoUrl, int? ParentNumber, string Title, s
 /// An open issue. The factory's input, and it stays GitHub's object. The labels and
 /// assignees are carried because GitHub issues have them and the seam is faithful to
 /// what it returns — and the poller reads neither as a triage filter, which is the point
-/// (ADR-0007): a repository's own conventions decide nothing about what is worth building.
+///: a repository's own conventions decide nothing about what is worth building.
 /// The one read is the factory's own authorship label (<see cref="IGitHub.FactoryIssueLabel"/>),
 /// which declines the factory's output rather than the repository's work.
 /// </summary>

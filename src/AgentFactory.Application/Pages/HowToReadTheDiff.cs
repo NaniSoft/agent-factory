@@ -24,7 +24,7 @@ using AgentFactory.Application.WorkItems;
 /// nothing is silently dropped: a diff too large to render whole says how much of it is
 /// not on the page, counts the files and lines left out, and names the path the reviewer
 /// can get the rest from — a path that is on the host because the host has to be able to
-/// reach the round's commit anyway (ADR-0006).
+/// reach the round's commit anyway.
 /// </para>
 /// </remarks>
 internal static class HowToReadTheDiff

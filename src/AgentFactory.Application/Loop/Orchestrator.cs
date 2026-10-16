@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging;
 /// too (#64); what stays here is how this driver is stepped — the step order, the
 /// in-flight budget, the round timeout and the retry backoff — and the records it writes
 /// about them. It has no concept of a container, an image, a process, or a pull request
-/// (ADR-0004, ADR-0005, ADR-0006).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,7 +33,7 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// There is a ceiling of <see cref="FactoryConstants.RoundConcurrency"/> rounds in flight
 /// rather than one, and it is the whole of what bounds concurrency. Each round runs in its
-/// own fresh worker container whatever project it is for (ADR-0001), so there is no shared
+/// own fresh worker container whatever project it is for, so there is no shared
 /// tree to serialise and no lock to take: the only scarce thing is a container, and the
 /// budget is the count of those. A round that cannot be given one is not started; it waits
 /// in Frontier, where a reviewer can see that it is waiting for a container rather than
@@ -354,7 +354,7 @@ public sealed class Orchestrator
             // Oldest work item first, which is the order they were picked up in, and the
             // loop works through them in that order rather than picking and choosing.
             // Escalated is in the set as well as Review, because a human can still finish
-            // a parked work item from the board (ADR-0008).
+            // a parked work item from the board.
             var pending = _store.Decisions(workItem.Id).FirstOrDefault(decision => decision.IsPending);
             if (pending is null)
             {
@@ -561,7 +561,7 @@ public sealed class Orchestrator
     /// <para>
     /// It is a transition the loop makes and not a decision a reviewer made, so the board's
     /// write path does not grow: a parked work item still offers approve and reject, and
-    /// nothing else (ADR-0008). A step that makes an attempt and is refused again is not a
+    /// nothing else. A step that makes an attempt and is refused again is not a
     /// refusal for the board to render — there is no reviewer holding a response — so it is
     /// a move and a log line, and the card says where the count got to.
     /// </para>
@@ -744,7 +744,7 @@ public sealed class Orchestrator
     /// allows. A work item that is not in Review is never overdue however long it has been
     /// there, which is what keeps the two ends of the asymmetry apart: silence merges, and
     /// an objection — whether it arrived as spent rounds, a failed build, a failed merge
-    /// or a decline — parks or stays final, and is never merged over (ADR-0008).
+    /// or a decline — parks or stays final, and is never merged over.
     /// </summary>
     private bool WaitedLongEnough(WorkItem workItem) =>
         workItem.Swimlane == Swimlane.Review
@@ -839,7 +839,7 @@ public sealed class Orchestrator
     /// </para>
     /// <para>
     /// **That reasoning is about build rounds only, and a routing round is the case that
-    /// breaks it** (ADR-0015): a routing round holds its work item's container without
+    /// breaks it**: a routing round holds its work item's container without
     /// moving the work item, so the lane gives no protection and
     /// <see cref="NextToRoute"/> has to exclude in-flight work items explicitly. The
     /// asymmetry is the point — a card that said "In Progress" while the round had only read
@@ -854,7 +854,7 @@ public sealed class Orchestrator
     /// Preferring the project that is holding fewer containers means a project that has work
     /// waiting is served as soon as any container comes free, whatever is queued ahead of
     /// it — and the tie is broken by age, so one project on its own still gets the whole
-    /// budget and the queue reads in the order it was picked up (ADR-0007).
+    /// budget and the queue reads in the order it was picked up.
     /// </para>
     /// </remarks>
     private async Task<bool> StartARoundAsync()
@@ -1038,7 +1038,7 @@ public sealed class Orchestrator
     /// Whether the round concurrency has room for another round. The whole of the
     /// concurrency policy in one comparison, and it counts rounds rather than projects:
     /// each round gets its own fresh working tree whatever project it is for, so there is
-    /// nothing shared to lock and nothing to serialise (ADR-0001).
+    /// nothing shared to lock and nothing to serialise.
     /// </summary>
     private bool ASlotIsFree() => _inFlight.Count < FactoryConstants.RoundConcurrency;
 
@@ -1118,7 +1118,7 @@ public sealed class Orchestrator
 
         // A round that came back with a result is what a reviewer judges, so it goes to
         // Review. A round that did not is not merged over: it parks in Escalated, which a
-        // human can still merge or reject (ADR-0008). That is the answer for a permanent
+        // human can still merge or reject. That is the answer for a permanent
         // failure, for a timeout, and for a transient one that has spent its attempts —
         // and it is the same landing the durable workflow asks `TicketPolicy` for.
         var round = _policy.LandTheBuild(run.WorkItemId, result, run.StartedUtc, run.Attempts);
@@ -1148,7 +1148,7 @@ public sealed class Orchestrator
     /// again, once its backoff has passed, as the same round. Not a new round, because a
     /// container that would not start is not an attempt at building anything — charging it
     /// to the ceiling would spend a reviewer's budget on the factory's own infrastructure
-    /// (ADR-0001). The work item stays in In Progress and keeps its slot, because a round
+    ///. The work item stays in In Progress and keeps its slot, because a round
     /// that has not ended has not released one.
     /// </summary>
     /// <remarks>

@@ -51,7 +51,7 @@ public static class Decisions
     /// The decisions a reviewer can still make about a work item in a given lane. Review
     /// offers all three. Escalated offers two, because parking is not a grave: a human
     /// finishes a parked work item from here, and the only two ways to finish one are to
-    /// merge it and to decline it (ADR-0008). Everywhere else offers nothing, because a
+    /// merge it and to decline it. Everywhere else offers nothing, because a
     /// work item there is either not the reviewer's to decide about or is final.
     /// </summary>
     /// <remarks>

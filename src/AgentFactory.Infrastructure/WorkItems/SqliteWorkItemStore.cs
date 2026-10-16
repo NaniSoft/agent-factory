@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 /// <summary>
 /// Work items in SQLite, the store of record. One writer, one process, one file
-/// (ADR-0009): losing a work item on restart would mean losing an agent's work.
+///: losing a work item on restart would mean losing an agent's work.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -257,7 +257,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
         //   Grill,
         //   Wayfinder  → Waiting. Nothing a container can build, everything a person has to answer.
         //   Unrouted   → Escalated. A round ran and could not answer, which is a failure and
-        //                 parks (ADR-0008) rather than being retried into the same silence.
+        //                 parks rather than being retried into the same silence.
         //
         // The move first, because it is the only writer of a lane and the review clock is part
         // of a move; the verdict follows it, and the two are the same fact recorded once each.
@@ -414,7 +414,7 @@ public sealed class SqliteWorkItemStore : IWorkItemStore
 
         // Five columns for the diff rather than one column of JSON, and that is a
         // deliberate choice against the tidier-looking alternative. This store is the
-        // store of record (ADR-0009): a row it cannot read back is an agent's work nobody
+        // store of record: a row it cannot read back is an agent's work nobody
         // can look at any more. JSON in a column has to be deserialised, and a
         // deserialisation that fails — or worse, succeeds with a field missing — is the
         // "results payload that parses but is missing the field the reviewer needs"

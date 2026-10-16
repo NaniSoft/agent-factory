@@ -241,7 +241,7 @@ public sealed class FakeGitHub : IGitHub, IMergePolicy
 
     public Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken) =>
         // The loop never calls this, and never will: `MergeAsync` is one call and opening a
-        // pull request is a step inside it (ADR-0006). A fake that implemented it anyway
+        // pull request is a step inside it. A fake that implemented it anyway
         // would let a test exercise a path the factory does not have, and would be a second
         // answer to "how does a change get shipped" — the disagreement this seam exists to
         // prevent. Recorded here so that its absence is a decision rather than a gap.

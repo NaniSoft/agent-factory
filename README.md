@@ -20,8 +20,7 @@ Build and test it with the commands in [`AGENTS.md`](AGENTS.md).
 dotnet run --project src/AgentFactory.Web    # the factory and the board on 127.0.0.1:5000
 ```
 
-[`DESIGN.md`](DESIGN.md) is the specification the factory is built against
-(ADR-0002), and the decisions it defers on are recorded one file each in
+[`DESIGN.md`](DESIGN.md) is the specification the factory is built against, and the decisions it defers on are recorded one file each in
 [`docs/adr/`](docs/adr/). [`AGENTS.md`](AGENTS.md) records what is built, how it
 is tested, and why each boundary is where it is.
 
@@ -49,7 +48,7 @@ record and the implementation.
   none**: a file there is served, not sampled. The examples are in
   read [`factories/README.md`](factories/README.md) before adding one.
 - [`docker-compose.yml`](docker-compose.yml) — the Temporal dev server behind the
-  durable workflow (ADR-0016); the factory itself runs on this machine.
+  durable workflow; the factory itself runs on this machine.
 - [`.gitignore`](.gitignore) — keeps local agent and tool state, including
   `.claude/settings.local.json`, out of the repository.
 

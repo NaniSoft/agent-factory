@@ -19,7 +19,7 @@ using AgentFactory.Domain.Projects;
 /// <para>
 /// It is intake's own state rather than a work item's, and it is deliberately not a work
 /// item: a repository that cannot be read has produced no work item to hang a fact about,
-/// which is the same reason intake does not escalate (ADR-0008). So this is a project's,
+/// which is the same reason intake does not escalate. So this is a project's,
 /// keyed by the project's name, and it is what the board renders above the lanes rather
 /// than on a card.
 /// </para>
@@ -54,7 +54,7 @@ public enum IntakeStatus
 /// One project's intake, as the board shows it. A snapshot rather than a record of record:
 /// it is in memory, it is gone on a restart, and it is not written to the store — a poll
 /// is a read, and nothing about it is a fact a reviewer needs to survive a restart
-/// (ADR-0009).
+///.
 /// </summary>
 /// <param name="Project">The project's name, as its project file spells it.</param>
 /// <param name="RepoUrl">The repository, so a reviewer can see which one this is about.</param>

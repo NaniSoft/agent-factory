@@ -200,7 +200,7 @@ mechanics, and each is written at the code that makes it:
 - **`Application` names no EF type.** `FactoryDbContext`, its four row types and the
   baseline migration are all this side of the boundary, and `IWorkItemStore` is unchanged:
   a port whose implementation is an ORM is still a port. The class keeps the word *SQLite*
-  because the word names the decision rather than the library — ADR-0009 says the record of
+  because the word names the decision rather than the library — the record of
   record is one SQLite file, and *EF* would name the part free to change.
 - **The row types are not the port's records, and the duplication is the price of that.**
   A table is a schema — mutable, scalar, one column per property — and the records are
@@ -393,9 +393,8 @@ instruction — `FactoryApp.Create` calls `UseUrls(options.BoardUrl)`, and **`Us
 a random port", and the second is what happens). So the first run of this AppHost had the
 proxy holding 5000 with a dead web process behind it, and `http://127.0.0.1:5000/api/board`
 timed out. `WithEndpoint("http", endpoint => endpoint.IsProxied = false)` is the fix, and it
-is also the right answer rather than merely the working one: ADR-0005 and ADR-0012 make
-loopback the authorisation, and a hop in front of the listener is a hop those documents did
-not account for.
+is also the right answer rather than merely the working one: loopback is what authorises
+the board, and a hop in front of the listener is a hop that argument never accounted for.
 
 ### What the AppHost owns, and what Web owns
 

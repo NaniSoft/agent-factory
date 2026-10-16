@@ -14,7 +14,7 @@ using AgentFactory.Application.WorkItems;
 
 /// <summary>
 /// The routing layer end to end through the real loop, the real store and the real board's
-/// own gate (ADR-0015).
+/// own gate.
 /// </summary>
 /// <remarks>
 /// <para>

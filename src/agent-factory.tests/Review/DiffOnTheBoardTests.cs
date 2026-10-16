@@ -253,7 +253,7 @@ public class DiffOnTheBoardTests
 
         // The two rounds' trees are both still on the host, which is what makes the merger
         // able to ship either of them: the host pushes, and the round that made each one
-        // is long gone (ADR-0006).
+        // is long gone.
         Assert.Equal(2, host.Store.Rounds(workItem.Id).Count);
     }
 
@@ -391,7 +391,7 @@ public class DiffOnTheBoardTests
     [Fact]
     public async Task A_rounds_diff_survives_a_restart_so_a_reviewer_can_still_read_the_change()
     {
-        // The store is the store of record (ADR-0009), and a diff the board had to
+        // The store is the store of record, and a diff the board had to
         // re-generate from a directory it no longer has is a diff that is gone. The change
         // is kept with the round, not looked up on render — so this starts the factory
         // again over the same root and reads the same card.
@@ -919,7 +919,7 @@ public class DiffOnTheBoardTests
         // Storys 35 and 36. Ignoring a work item merges it, which is the more dangerous of
         // the two endings, so what a reviewer's silence is worth is stated on the card as
         // well as in the header — a timeout nobody can see per work item is a timeout
-        // they cannot act on while it still matters (ADR-0008).
+        // they cannot act on while it still matters.
         using var root = FactoryRoot.Create();
         var agent = new FakeNOpenCode().Yielding(RoundResult.Produced(
             ResultPayload.Of(Derived()),

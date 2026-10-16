@@ -17,7 +17,7 @@ using System.Text;
 /// the issue asked for, what the reviewer's reasons were, and leaves the rest to the
 /// agent: the factory does not know a repository's toolchain, and a brief that told the
 /// agent which commands to run would be the factory imposing a test convention on the
-/// project it is building (ADR-0011).
+/// project it is building.
 /// </para>
 /// <para>
 /// The one instruction it does give is about how to work rather than what to build: the
@@ -42,7 +42,7 @@ public static class RoundBrief
     /// not to touch anything. The two briefs have nothing else in common — no tree, no tests,
     /// no commit — so making one conditional document out of them would leave every sentence
     /// hedged about which round it was in, which is the kind of brief a model follows worse
-    /// rather than better (ADR-0015).
+    /// rather than better.
     /// </remarks>
     public static string For(Round round)
     {

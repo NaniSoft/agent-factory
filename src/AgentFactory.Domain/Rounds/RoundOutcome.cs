@@ -14,7 +14,7 @@ namespace AgentFactory.Domain.Rounds;
 /// <see cref="Produced"/> therefore means the round's own command returned zero. What the
 /// commands <em>inside</em> it returned is data inside the result and never an outcome:
 /// a build whose tests failed produced a change, and that is a result a reviewer judges
-/// (ADR-0001). <see cref="Failed"/> means the round's own command did not return zero, so
+///. <see cref="Failed"/> means the round's own command did not return zero, so
 /// there is no finished round to judge — whatever is on disk is what it managed on the way
 /// out, and the card says so rather than presenting it as a result.
 /// </para>

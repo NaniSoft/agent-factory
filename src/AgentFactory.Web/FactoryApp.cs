@@ -21,7 +21,7 @@ using Api = AgentFactory.Application.Api;
 /// <summary>
 /// The whole factory, in one process: the config loader, the store, intake, the
 /// orchestrator and the board. The board is an endpoint this process serves, not a
-/// service it calls (ADR-0003).
+/// service it calls.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -121,7 +121,7 @@ public static class FactoryApp
         //
         // Loopback binding is what keeps this from being a second surface: the same machine
         // that can open the Board can reach the app and its `/api` reads, and nothing else
-        // can reach either (ADR-0005, ADR-0012).
+        // can reach either.
         BoardExport.Serve(app, Path.Combine(AppContext.BaseDirectory, "wwwroot"));
 
         // The JSON surface the Board app renders. Most of it is a second *reading* of the
@@ -130,7 +130,7 @@ public static class FactoryApp
         // decision or merge anything. The app that consumes it is a thin renderer over
         // exactly this — the factory's own judgement, serialised — so the endpoints hold
         // no policy of their own and resolve the already-registered singletons the board
-        // resolves (ADR-0013, ADR-0014).
+        // resolves.
         //
         // The budget is read the way the board's own header reads it, from the loop's
         // in-flight count against the one code constant, and the mode from the options; a
@@ -141,7 +141,7 @@ public static class FactoryApp
         //
         // The surface and the data share one process and one loopback binding, and the app
         // re-decides nothing: the factory's judgement is the app's only source of truth
-        // (ADR-0013, ADR-0014). The endpoint resolves the store, the load report, the loop
+        //. The endpoint resolves the store, the load report, the loop
         // and the options the board page resolves, and `BoardView.Of` puts them together;
         // it reads and writes nothing, calls no seam and moves no work item.
         var api = app.MapGroup("/api");

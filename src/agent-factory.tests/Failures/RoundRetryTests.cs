@@ -126,7 +126,7 @@ public class RoundRetryTests
 
         // The third attempt failed and the budget is spent, so the round ends. Retries
         // exhausted escalates: the work item is parked where a human can still merge or
-        // decline it, and never merged over (ADR-0008).
+        // decline it, and never merged over.
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, workItem.Id));
 
         var round = Assert.Single(host.Store.Rounds(workItem.Id));
@@ -461,7 +461,7 @@ public class RoundRetryTests
     {
         // The question #6 left here, decided: no. A work item parked by a failure has spent
         // the retry policy, and re-opening it would mint a fresh budget for the same
-        // failure while spending rounds that are a reviewer's to spend (ADR-0001, ADR-0008).
+        // failure while spending rounds that are a reviewer's to spend.
         //
         // So a work item can end up parked with two of its three rounds unspent, and they
         // stay unspent. That is the honest cost of the decision and it is said rather than

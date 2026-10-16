@@ -415,7 +415,7 @@ public class IntakeTests
         // is asked for through `IMergePolicy`, and the adapter's own knowledge of a
         // repository and of git is `IMerger`, answered by this same client.
         //
-        // The last four arrived with the routing layer (ADR-0015). They are on the same seam
+        // The last four arrived with the routing layer. They are on the same seam
         // rather than a second one for the same reason: a factory that read issues through
         // one interface and wrote them through another would have two things that can
         // disagree about what a repository is.

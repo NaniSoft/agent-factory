@@ -3,7 +3,7 @@ namespace AgentFactory.Domain.WorkItems;
 /// <summary>
 /// What kind of work a work item turned out to be. A work item is an issue at intake and
 /// stays an issue until a routing round has looked at it, and this is what that round said
-/// (ADR-0015).
+///.
 /// </summary>
 /// <remarks>
 /// <para>

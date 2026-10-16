@@ -370,7 +370,7 @@ public class MergeTests
         // a round's uncommitted files along with its commits. A push sends only what was
         // committed. Shipping the committed part and calling it the reviewed change would
         // make Done mean something the reviewer never saw, and committing the difference on
-        // the host would make the host the author of work nobody reviewed (ADR-0006).
+        // the host would make the host the author of work nobody reviewed.
         using var merging = new Merging();
         merging.Tree.LeftUncommitted("src/Scratch.cs", "// the agent left this behind\n");
         merging.NothingShippedYet();
@@ -438,7 +438,7 @@ public class MergeTests
     [Fact]
     public async Task A_round_whose_tree_never_came_out_of_its_container_cannot_be_shipped()
     {
-        // The host holds the only copy of a round's change (ADR-0006): the container is gone
+        // The host holds the only copy of a round's change: the container is gone
         // and there is nothing to re-fetch. There is no retry into existence for this, so it
         // is permanent and it is refused before anything leaves the building.
         //

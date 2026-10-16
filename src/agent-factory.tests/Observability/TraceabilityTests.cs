@@ -58,7 +58,7 @@ public class TraceabilityTests
         // because a tick is what starts the round and the fake agent is the one thing in
         // this factory that has to be told what a round will be before it is asked for.
         //
-        // **The verdict is scripted first, for a reason worth stating (ADR-0015).** The first
+        // **The verdict is scripted first, for a reason worth stating.** The first
         // round the machine asks for is now the routing round that reads the issue, so the
         // script without it would spend the transient failure on deciding what kind of work
         // this is and then park the work item with nothing built — and this file is about a
@@ -192,7 +192,7 @@ public class TraceabilityTests
 
         // The routing round's verdict, then the ceiling's worth of build rounds. Ordered as
         // the factory will ask for them, because the first thing the machine asks for is the
-        // round that decides what kind of work this is (ADR-0015).
+        // round that decides what kind of work this is.
         host.Agent.RoutingAs(WorkItemKind.Build, "the issue names one change and one test");
 
         for (var round = 1; round <= FactoryConstants.RoundCeiling; round++)
@@ -206,7 +206,7 @@ public class TraceabilityTests
         // The tick above spent the routing round that reads the issue, and routed it as a
         // build ticket. Recorded here rather than scripted, because this test is about the
         // *build* rounds' records and routing's own record is a different kind of story —
-        // it says what the work is, not what was done to it (ADR-0015).
+        // it says what the work is, not what was done to it.
         Assert.Equal(WorkItemKind.Build, work.Kind);
 
         await host.PromoteAsync(work.Id);
@@ -240,7 +240,7 @@ public class TraceabilityTests
         // measurements rather than decoration.
         //
         // **Four rounds came back and three were spent, and the difference is the routing
-        // layer's whole cost model (ADR-0015).** The routing round was a container: it ran,
+        // layer's whole cost model.** The routing round was a container: it ran,
         // it wrote a file, it came back `Produced`, and it is counted as a round that came
         // back. It is not charged against the round ceiling, so the per-work-item counter
         // reads 1, 2, 3 and the fourth round is still unreachable. A single counter that

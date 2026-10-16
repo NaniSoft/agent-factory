@@ -68,7 +68,7 @@ using Microsoft.Extensions.Logging;
 /// on the board. The project's own name for it is logged, because a name is not a secret
 /// and it is the thing an operator has to go and fix. No worker container is involved in
 /// any of this: the container that wrote the change is long gone, and this is the component
-/// that ships it (ADR-0006).
+/// that ships it.
 /// </para>
 /// </remarks>
 public sealed class GitHubClient : IGitHub, IMerger
@@ -392,7 +392,7 @@ public sealed class GitHubClient : IGitHub, IMerger
 
                 // Labels are applied for humans reading the tracker and for the tools around
                 // it. They are deliberately not read back by the factory — the work item's
-                // kind is a column the factory writes (ADR-0007, ADR-0015), so a label here
+                // kind is a column the factory writes, so a label here
                 // is presentation and not an input, and nothing this process does changes if
                 // somebody edits or removes it.
                 ["labels"] = new[] { IGitHub.FactoryIssueLabel },

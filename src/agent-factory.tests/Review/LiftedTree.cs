@@ -46,7 +46,7 @@ public sealed class LiftedTree : IDisposable
     /// Where to build it. A merger test needs the tree to be where the round runner would
     /// have lifted it — inside the factory's own rounds directory, under the work item's
     /// own id — because that path is what the merger computes and nothing else tells it
-    /// where a round's commit is (ADR-0006).
+    /// where a round's commit is.
     /// </param>
     public static LiftedTree WithACommitOn(string branch = "main", string? at = null)
     {
@@ -170,7 +170,7 @@ public sealed class LiftedTree : IDisposable
     }
 
     /// <summary>
-    /// The commit the tree is on right now, which is the one the host would push (ADR-0006).
+    /// The commit the tree is on right now, which is the one the host would push.
     /// Read from git rather than remembered, so a test that commits something after building
     /// the tree still names the commit the change actually ended up on.
     /// </summary>

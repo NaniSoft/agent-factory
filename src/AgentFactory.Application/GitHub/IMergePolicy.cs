@@ -32,7 +32,7 @@ public interface IMergePolicy
     /// <summary>
     /// Pushes the work item's change, opens the pull request if there is not already one,
     /// and merges it, from the host and under the factory's own credential — the container
-    /// that wrote the change holds nothing that can write to a remote (ADR-0006).
+    /// that wrote the change holds nothing that can write to a remote.
     /// </summary>
     /// <param name="workItem">
     /// The work item whose change is shipping. It is handed over rather than looked up, so

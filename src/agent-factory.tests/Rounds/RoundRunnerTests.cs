@@ -112,7 +112,7 @@ public class RoundRunnerTests
         // The sharp line this ticket has to keep. Two credentials are named in the project
         // file and they are not the same kind of thing: the LLM key is what the agent
         // reaches a provider with and has to be in the round, and the GitHub key is the
-        // one thing that can write to a remote and must never be (ADR-0006). Both are
+        // one thing that can write to a remote and must never be. Both are
         // configured here, so a runner that passed the wrong one would be caught.
         var credentials = new FakeCredentialReader()
             .Having("NEXUS_ANTHROPIC_API_KEY", "llm-secret-value")
@@ -252,8 +252,8 @@ public class RoundRunnerTests
         Assert.Contains("the parser drops the last field", brief, StringComparison.Ordinal);
 
         // And the brief tells the agent to commit and stop, because the host pushes and
-        // the round cannot (ADR-0006). The repository's own scripts decide what testing
-        // means; the factory does not get an opinion (ADR-0011).
+        // the round cannot. The repository's own scripts decide what testing
+        // means; the factory does not get an opinion.
         Assert.Contains("decide what running its tests means", brief, StringComparison.Ordinal);
         Assert.Contains("commit your work to the branch you are on and stop there", brief, StringComparison.OrdinalIgnoreCase);
     }
@@ -271,7 +271,7 @@ public class RoundRunnerTests
 
         var agent = harness.Processes.TheOnlyAgent();
 
-        // `opencode run` is the non-interactive form (ADR-0004), the brief reaches it as a
+        // `opencode run` is the non-interactive form, the brief reaches it as a
         // *file*, and the model arrives as `-m` with the project's own full reference
         // verbatim (#38).
         Assert.Equal("run", agent.Arguments[0]);
@@ -281,7 +281,7 @@ public class RoundRunnerTests
         // CLI stops and asks a human to approve every edit, and there is no human inside a
         // round. What it widens is the agent's freedom *within its own working tree* —
         // which holds no credential that can write to a remote, and reaches nothing the
-        // factory did not put in its environment (ADR-0006). There is nothing outside the
+        // factory did not put in its environment. There is nothing outside the
         // round for a confused or injected agent to reach but this machine's own files,
         // which is the containment the trust boundary names.
         Assert.Contains(agent.Arguments, argument => argument == "--auto");
@@ -310,7 +310,7 @@ public class RoundRunnerTests
         Assert.Equal(RoundOutcome.Produced, result.Outcome);
 
         // The payload is a record derived from what the round observed, not the file's own
-        // bytes (ADR-0011): the file git saw, the note, and nothing the agent merely claimed.
+        // bytes: the file git saw, the note, and nothing the agent merely claimed.
         Assert.DoesNotContain("\"kind\":\"result\"", result.ResultPayload!, StringComparison.Ordinal);
         if (!result.ResultPayload!.Contains("src/Index.cs", StringComparison.Ordinal))
         {
@@ -319,7 +319,7 @@ public class RoundRunnerTests
         }
         Assert.Equal("Added the answer.", result.AgentNote);
 
-        // And the tree is still there, kept, because the host pushes from it (ADR-0006).
+        // And the tree is still there, kept, because the host pushes from it.
         Assert.True(Directory.Exists(Path.Combine(
             RoundRunner.LandingFor(harness.Options, round), "tree", ".git")));
     }
@@ -692,7 +692,7 @@ public class RoundRunnerTests
             []);
 
         // A throwaway rounds directory, in a temporary place, because a round's files are
-        // kept rather than cleaned up (ADR-0006) and a test must not leave them where a
+        // kept rather than cleaned up and a test must not leave them where a
         // later run would find them.
         var database = Path.Combine(
             Path.GetTempPath(),
@@ -719,7 +719,7 @@ public class RoundRunnerTests
     /// <summary>
     /// A round runner over a fake process seam, with a throwaway rounds directory.
     /// Disposing it removes the directory a round's kept files land in, which every test
-    /// here needs: a round's result and tree are kept rather than cleaned up (ADR-0006),
+    /// here needs: a round's result and tree are kept rather than cleaned up,
     /// so a test that does not remove them leaves the next run with a directory it did not
     /// create.
     /// </summary>

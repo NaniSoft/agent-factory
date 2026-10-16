@@ -23,7 +23,7 @@ public enum Swimlane
 
     /// <summary>
     /// Waiting on a person rather than on a container: a work item the factory has
-    /// understood well enough to know it cannot finish unattended (ADR-0015).
+    /// understood well enough to know it cannot finish unattended.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -74,7 +74,7 @@ public static class Swimlanes
     /// Escalated is in here because escalation parks a work item rather than graving it:
     /// a human finishes it from the board, by merging it or declining it, and a store
     /// that refused a decision about anything but Review would make that impossible
-    /// (ADR-0008). Rejected is deliberately absent and cannot be added, which is what
+    ///. Rejected is deliberately absent and cannot be added, which is what
     /// makes a decline final without a later caller having to remember.
     ///
     /// Waiting is absent for a different reason, and it is load-bearing. Escalated holds a
@@ -82,7 +82,7 @@ public static class Swimlanes
     /// decisions are about something real. A work item in Waiting has no change to judge at
     /// all — a map and a question set are not diffs — so the two decisions above would both
     /// be decisions about nothing. It is answered in the issue tracker instead
-    /// (ADR-0015), and the store refusing a decision about it is what keeps the board from
+    ///, and the store refusing a decision about it is what keeps the board from
     /// ever rendering one.
     /// </remarks>
     public static readonly IReadOnlyList<Swimlane> Decidable =

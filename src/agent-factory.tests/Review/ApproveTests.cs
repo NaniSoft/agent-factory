@@ -136,7 +136,7 @@ public class ApproveTests
         }
 
         // It is parked in Escalated, and the board still renders the decision form for it,
-        // because a parked work item is a work item a human can still finish (ADR-0008).
+        // because a parked work item is a work item a human can still finish.
         // Finishing it does not mean leaving the tool to find a branch and merge by hand.
         var stuck = await Board.ReadAsync(host.Board);
         Assert.Equal(Swimlane.Escalated, host.Store.Get(workItem.Id)!.Swimlane);

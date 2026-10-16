@@ -12,7 +12,7 @@ fresh working tree, reviewed on the board, and shipped as a merged pull request.
 What is *not* claimed here is production readiness — the board is loopback-only,
 the deployment is one operator's machine, and auto-merge defaults to off. The
 polished, public presentation of this same design is published as the Nexus
-documentation and is frozen until reconciliation (ADR-0002); see
+documentation and is frozen until reconciliation; see
 [Where the public docs live](#where-the-public-docs-live).
 
 Where this document and the code can be read for the current truth, the code is
@@ -33,18 +33,25 @@ Five components with narrow contracts between them.
 
 These are five components in one .NET process, not five services: the board is an
 ASP.NET Core endpoint on port 5000 served by that same process, and the
-components call each other as ordinary method calls (ADR-0003). The board reads
+components call each other as ordinary method calls. The board reads
 the records the orchestrator writes. There is no board-side copy of the truth,
 and in one process that is the absence of a second copy rather than a
 consistency property to maintain.
 
 The orchestrator is a hand-rolled deterministic state machine. It runs no
 Microsoft Agent Framework and hosts no agents of its own — the agent a round
-drives does all the agentic work (ADR-0005). The orchestrator does not start a
+drives does all the agentic work. The orchestrator does not start a
 process itself: it hands a work item to NOpenCode, which drives OpenCode in a
 fresh working tree and returns structured results. NOpenCode is our own
-interface, not a package of that name (ADR-0004). Keeping that boundary is what
+interface, not a package of that name. Keeping that boundary is what
 allows the orchestrator's policy to be tested against a fake NOpenCode.
+
+**How those five are laid out in code is not described here.**
+[`docs/architecture.md`](docs/architecture.md) is the architecture of record: the
+four projects, the dependency rule, the ports and what each is for. This document
+describes what the factory *does*, and the earlier version of this section tried to
+do both — which is how a design document ends up describing a container runtime
+that no longer exists.
 
 ## Configuration
 
@@ -79,11 +86,11 @@ start — a changed file means a restart.
 
 The issue poller reads open issues from the configured repository. Every open
 issue is a candidate work item — there is no label or assignee filter, and the
-board is where a human decides what is worth building (ADR-0007). Each issue
+board is where a human decides what is worth building. Each issue
 becomes a work item with a title, a description, and an initial **Backlog**
 status. Work items are persisted in SQLite, the factory's store of record, so the
 board and the orchestrator read the same record rather than each keeping its own
-state (ADR-0009).
+state.
 
 Acceptance from Backlog into Frontier is a human act: a reviewer presses a button
 on the card, and the loop applies it. Nothing is built until they do.
@@ -92,7 +99,7 @@ on the card, and the loop applies it. Nothing is built until they do.
 
 A work item does not go from Backlog straight into a build. Before it can be
 accepted it costs one **routing round**: an agent that reads the issue's title
-and body and returns one of three verdicts (ADR-0015).
+and body and returns one of three verdicts.
 
 | Verdict | Means | Then |
 | --- | --- | --- |
@@ -103,7 +110,7 @@ and body and returns one of three verdicts (ADR-0015).
 The routing round does **not** fetch the repository. The round runner fetches the
 tree only when the round's purpose says to, so the saving is the whole of why a
 routing round is cheaper than a build round — the costs are bounded by what the
-factory chooses to hand over (ADR-0016).
+factory chooses to hand over.
 
 What the round writes is a proposal, and the host decides what becomes real. The
 round writes `routing.json` outside the working tree; the host reads it after the
@@ -121,7 +128,7 @@ acceptance is never made to wait behind the factory's own guess about an issue.
 A verdict the factory cannot read — malformed, truncated, a shape this build does
 not know — is **parked with the reason on the card**, never guessed and never
 defaulted to `Build`. Readiness is a column the factory writes, derived from the
-issue; the factory still reads no labels (ADR-0007).
+issue; the factory still reads no labels.
 
 `Waiting` is a swimlane of its own for work items parked on a person rather than
 on the machine: a map and a question set are not diffs, so the three review
@@ -132,14 +139,13 @@ decisions are not offered on one.
 Every round gets a fresh working tree, cloned at the work item's base into the
 round's own landing directory. One exists for exactly one round, and nothing
 survives it — no cache, no tree, no state from a previous run or from another
-project's run. The process's lifetime and the round boundary are the same thing
-(ADR-0001, ADR-0016).
+project's run. The process's lifetime and the round boundary are the same thing.
 
 In that tree, OpenCode builds and tests the change from the issue, driven
 non-interactively as this machine's own child process. The project's own tests
 run in the same tree the build produced. Files changed, commands run, and test
 outcomes are derived by the factory observing the round rather than from the
-agent's own account of them (ADR-0011), and are persisted with the work item, so
+agent's own account of them, and are persisted with the work item, so
 the reviewer sees what happened rather than a summary of it.
 
 ## The Kanban board and the feedback loop
@@ -176,7 +182,7 @@ approval on the record, rather than reporting a merge that did not happen.
 The 3-round ceiling prevents the failure mode an unbounded feedback loop has:
 the agent and the reviewer disagreeing forever while the factory keeps paying
 for rounds. When the third round comes back with feedback still outstanding,
-the work item escalates. It is never merged on exhaustion (ADR-0008).
+the work item escalates. It is never merged on exhaustion.
 
 Escalation is a parking state, not a terminal one: a human can still merge or
 reject the work item from the board. The asymmetry is deliberate. Ignoring a
@@ -269,20 +275,30 @@ request with no `User-Agent` outright, so the faked transport refuses it too; an
 a CRLF line-ending setting on the host is asserted against rather than assumed
 absent.
 
-Note that **unit and end-to-end are the same tests here**: the policy seam is
-end-to-end by construction, which is why the earlier four-layer description
-(unit / integration / end-to-end / chaos) is superseded by this one rather than
-being a second thing to keep in step.
+Note that **unit and end-to-end are the same tests here** for the policy: the
+seam is end-to-end by construction, so there is no four-layer pyramid to keep in
+step. The suite's actual layers, and the honest state of each — including one
+that was promised by the restructure and has not been written — are in
+[`AGENTS.md`](AGENTS.md).
 
 ## Deployment
 
-The factory runs on the machine (`dotnet run --project src/AgentFactory.Web`) —
-rounds are that machine's own child processes, so the factory itself has no
-container and needs no daemon (ADR-0016). One deployment serves every configured
-project; there is no per-project deployment. The only thing compose runs is the
-Temporal dev server behind the durable workflow, bound to loopback like the
-board; with no Temporal endpoint configured, the factory runs in store-only mode
-without it.
+The factory runs on the machine — rounds are that machine's own child processes,
+so the factory itself has no container and needs no daemon. One deployment serves
+every configured project; there is no per-project deployment.
+
+Two ways to run it. `dotnet run --project src/AgentFactory.Web` runs the process
+alone. `dotnet run --project apphost/AgentFactory.AppHost` hosts it under an
+Aspire AppHost, which owns the process's lifetime, starts the Temporal server as
+a resource beside it, and carries the dashboard and the telemetry export. With no
+Temporal endpoint configured the factory runs in store-only mode without the
+server; `docker compose up temporal` is the third way to provide one.
+
+The board is bound to loopback and the AppHost does not proxy it: loopback is what
+authorises the board, so a proxy hop would sit outside that argument rather than
+inside it. The AppHost's dashboard and the OTLP exporter do open sockets, which is
+a property this system deliberately gained — see
+[`docs/architecture.md`](docs/architecture.md).
 
 The store of record keeps each round's tree beside it: the host pushes from that
 tree, so it is kept after the round that made it is gone. Credential values live
@@ -303,8 +319,9 @@ project, so a leaked or over-broad credential has a blast radius of one project.
 The factory assumes its workloads are untrusted — they are written by agents —
 so **the machine is the trust boundary** is the named consideration: the board is
 loopback-only, rounds hold scoped credentials, and nothing outside a round that
-the machine's own user could not already reach is placed in a round's way
-(ADR-0016, which supersedes ADR-0012's container framing).
+the machine's own user could not already reach is placed in a round's way. A
+round is this machine's own child process, in a fresh working tree the runner
+clones for itself.
 
 Two consequences are properties of the design rather than habits. **A round holds
 no credential that can write to a remote**: the GitHub key is read on the host,
@@ -313,7 +330,7 @@ push anywhere — and the LLM key does go in, because the agent cannot reach a
 provider without it, scoped to one project and dying with one process. And
 **nothing crosses a round's boundary but files and the exit code**: the tree is
 cloned by the round itself and the result leaves as one file the factory wrote
-beside it (ADR-0016, superseding ADR-0010).
+beside it.
 
 Because a project file in `factories/` is *served* rather than sampled, this
 repository commits none. See `factories/README.md`.
@@ -326,4 +343,4 @@ the Nexus documentation at **https://nexus.nanisoft.com/docs** (source in the
 `nexus` repository), which covers the same architecture, concepts, configuration,
 operations, and reference material in more depth. It is frozen while the
 implementation runs and is reconciled in one sweep at the first working
-milestone (ADR-0002).
+milestone.

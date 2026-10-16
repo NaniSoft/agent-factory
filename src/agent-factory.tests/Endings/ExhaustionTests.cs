@@ -12,7 +12,7 @@ using System.Net;
 /// The round ceiling, and the parking that follows it. Three rounds per work item, and a
 /// third request for changes escalates rather than starting a fourth round — because the
 /// ceiling is a brake on the agent and the reviewer disagreeing for ever, and a ceiling
-/// that spends one more round before it bites is not a ceiling (ADR-0001, ADR-0005).
+/// that spends one more round before it bites is not a ceiling.
 /// Driven over the board's own HTTP surface, the way a reviewer sends a change back, with
 /// only the agent, the clock and GitHub faked. Nothing here waits: the ceiling and the
 /// threshold are both comparisons against the fake clock.
@@ -128,7 +128,7 @@ public class ExhaustionTests
 
         // Parking is not a grave. The board renders a decision on it, and a human
         // finishing the work item does not mean leaving the tool to find a branch and
-        // merge it by hand (ADR-0008).
+        // merge it by hand.
         var parked = await Board.ReadAsync(host.Board);
         Assert.Contains(workItem.Id.ToString(), parked.Swimlane("Escalated"), StringComparison.Ordinal);
         Assert.NotEqual(string.Empty, parked.DecisionFormFor(workItem.Id));

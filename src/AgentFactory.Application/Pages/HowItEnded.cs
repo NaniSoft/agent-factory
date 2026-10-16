@@ -9,7 +9,7 @@ using AgentFactory.Application.WorkItems;
 /// <summary>
 /// Why a work item ended up where it is, said in a reviewer's words. Escalated and
 /// Rejected are two states with two distinct causes — a failure and a human decline
-/// (ADR-0008) — so the board has to say which one it is looking at, and not merely render
+/// — so the board has to say which one it is looking at, and not merely render
 /// two lanes whose cards look alike.
 /// </summary>
 /// <remarks>

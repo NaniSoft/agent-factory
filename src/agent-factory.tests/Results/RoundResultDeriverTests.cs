@@ -11,7 +11,7 @@ using System.Text;
 /// The deriver, driven against result files shaped like the ones the worker image's own
 /// collector writes. No Docker and no model: what is under test is that a result is read
 /// out of what a container observed, and — the load-bearing half — that a round's own
-/// account of itself changes nothing about it (ADR-0011).
+/// account of itself changes nothing about it.
 /// </summary>
 /// <remarks>
 /// The fixtures here are written to the shape the round collector writes — the same
@@ -225,7 +225,7 @@ public class RoundResultDeriverTests : IDisposable
         // chooses what to run, the factory records what ran and what it returned, and
         // neither interprets it. A deriver that labelled a command "the tests" would be
         // imposing a convention, and one that turned a non-zero exit into a failure of the
-        // round would be retrying a build that failed its own tests (ADR-0001).
+        // round would be retrying a build that failed its own tests.
         var result = _deriver.Derive(AResultFile(
             """
             {"kind":"result","schema":"agent-factory/worker-result@1"}
@@ -244,7 +244,7 @@ public class RoundResultDeriverTests : IDisposable
     public void A_round_that_wrote_no_note_is_still_fully_recorded()
     {
         // The note is the only part a model authors and it is optional by construction
-        // (ADR-0011): a round that omits it loses a sentence, not its record.
+        //: a round that omits it loses a sentence, not its record.
         var withNote = _deriver.Derive(AResultFile(
             """
             {"kind":"result","schema":"agent-factory/worker-result@1","gitRepo":true}

@@ -60,7 +60,7 @@ using System.Diagnostics.Metrics;
 /// The two keys are a project's name and a round's outcome. A project name is the one
 /// instance-valued dimension that survives the argument, and it survives for two reasons:
 /// it is bounded by the number of files in <c>factories/</c>, which is a directory a human
-/// writes and reviews, and "one noisy repository cannot starve the rest" (ADR-0007) is a
+/// writes and reviews, and "one noisy repository cannot starve the rest" is a
 /// claim about a single repository that is not measurable without it. Everything else the
 /// process knows is an instance — a work item, a round, a commit, a path, a reviewer's
 /// feedback — and no instrument here is labelled with any of it. What happened to a
@@ -180,7 +180,7 @@ public sealed class FactoryMetrics
     /// <summary>
     /// One issue became a work item. Counted when intake <em>created</em> the work item and
     /// not when it re-read the issue, because intake is idempotent against the store
-    /// (ADR-0007) and a counter that went up on every pass would measure how often the
+    /// and a counter that went up on every pass would measure how often the
     /// poller ticks rather than how much work arrived.
     /// </summary>
     public void IssueProcessed(string project) => _issuesProcessed.Add(1, Project(project));

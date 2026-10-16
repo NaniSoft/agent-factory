@@ -254,7 +254,7 @@ public class IntakeRetryTests
             .Failing(RepoUrl, FailureClass.Transient, "the API returned 503");
 
         // Two roots, because two hosts against one SQLite file is two writers for a file
-        // that has one writer by design (ADR-0009), and the point here is the schedules
+        // that has one writer by design, and the point here is the schedules
         // rather than the store.
         using var goneRoot = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
         using var downRoot = FactoryRoot.Create().WithProjectFile("nexus.yaml", ProjectFile.Valid);
@@ -351,7 +351,7 @@ public class IntakeRetryTests
         // Unchanged and worth restating under a retry policy: backoff must not become
         // starvation. A project being paced is a project's own turn being skipped, and the
         // rotation carries on round to the others — which is the whole reason the rotation
-        // is one project at a time (ADR-0007).
+        // is one project at a time.
         var clock = new TestClock();
         const string Alpha = "https://github.com/NaniSoft/alpha";
         using var root = FactoryRoot.Create()

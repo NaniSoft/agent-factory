@@ -15,20 +15,20 @@ using AgentFactory.Infrastructure.Routing;
 using Microsoft.Extensions.Logging;
 
 // The host diff. The round's tree is on the host because the host has to be able to reach
-// the commit once the round is over (ADR-0006), and `git` against that tree is how a
+// the commit once the round is over, and `git` against that tree is how a
 // reviewer gets the change itself rather than a bounded record of it.
 
 /// <summary>
 /// A round, run for real: one fresh working tree, the agent driven in it as this machine's
 /// own child process, and the result, the tree and the log gathered where the factory keeps
 /// its rounds. One call is one round and one result, which is the whole of what the
-/// orchestrator is promised (ADR-0004) and the only thing it knows.
+/// orchestrator is promised and the only thing it knows.
 /// </summary>
 /// <remarks>
 /// <para>
 /// This is the seam's implementation and the agent's driver. The brief reaches the agent as
 /// a file in the round's landing directory, and the process this component starts <em>is</em>
-/// the OpenCode CLI, run non-interactively (ADR-0004, ADR-0005). There is no script between
+/// the OpenCode CLI, run non-interactively. There is no script between
 /// the factory and the agent any more, and that is the round boundary made structural: the
 /// exit code this component reads is the agent's own, because nothing wraps it. Where the
 /// round script once had to end with <c>opencode run</c> and nothing after it, the child
@@ -53,7 +53,7 @@ using Microsoft.Extensions.Logging;
 /// Credentials are the sharp line here. A round holds <strong>no</strong> credential that
 /// can write to a remote, and the project file's GitHub key is never read: this component
 /// never calls <see cref="ICredentialReader.Read"/> with that name, so it cannot hand the
-/// value over even by accident (ADR-0006). The project's LLM credential is a different
+/// value over even by accident. The project's LLM credential is a different
 /// matter and does go in, because the agent cannot reach a provider without one; it is
 /// scoped to the one project, lives for one child process, and dies with it. When the
 /// environment does not have it, the round still runs and still records — a refusal here
@@ -215,7 +215,7 @@ public sealed class RoundRunner : INOpenCode
             // was decided where the refusal was observed — the clone knows a round holds
             // no credential that can fetch a private repository — and it is carried here
             // as a result rather than thrown, because one call is one round and one
-            // result, and a refusal to begin is a round that ended (ADR-0004).
+            // result, and a refusal to begin is a round that ended.
             _logger.LogWarning(
                 broken,
                 "A round of {Project}#{Issue} could not begin: {Reason}. The factory has read that as a permanent failure.",
@@ -355,7 +355,7 @@ public sealed class RoundRunner : INOpenCode
         // absence a conditional read would leave behind.
         var routing = _routing.Read(Path.Combine(landing, RoutingFileName));
 
-        // The diff, generated on the host out of the tree the round just left (ADR-0006).
+        // The diff, generated on the host out of the tree the round just left.
         // It is the host's own git against a directory on the host, so it is available with
         // no network and no API, and it is generated whether or not there is a payload to
         // put it beside: a round that broke before it could write a result file still left
@@ -471,7 +471,7 @@ public sealed class RoundRunner : INOpenCode
 
         // Produced. The agent returned zero, so the round finished, and whatever the
         // commands inside it returned is a result a reviewer judges rather than a failure
-        // the factory retries (ADR-0001).
+        // the factory retries.
         return RoundResult.Produced(
             ResultPayload.Of(derived, log),
             derived.AgentNote,
@@ -503,7 +503,7 @@ public sealed class RoundRunner : INOpenCode
     /// directory — the factory has no shared tree to hand a round, and a shared tree is
     /// the thing two concurrent rounds would corrupt. The clone is unauthenticated and
     /// <c>--single-branch</c>, because the credentials the round holds are for the model,
-    /// not for this repository (ADR-0006): a private repository is simply not something a
+    /// not for this repository: a private repository is simply not something a
     /// round can fetch, and that is said in the refusal rather than discovered in git's
     /// error. <c>core.autocrlf=false</c> is pinned on the clone, because a tree checked
     /// out with the host's line-ending setting is not the tree the repository describes,

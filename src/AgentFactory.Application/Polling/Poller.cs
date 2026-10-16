@@ -17,7 +17,7 @@ using Microsoft.Extensions.Logging;
 /// into work items, one project's turn at a time. Every open issue becomes one; there
 /// is no label filter, no assignee filter, no state filter beyond open, and no gate,
 /// because which issues are worth building is a judgement a human makes on the board
-/// and a filter here would put it in project configuration (ADR-0007).
+/// and a filter here would put it in project configuration.
 /// </summary>
 /// <remarks>
 /// The poller is stepped like the loop is, not driven by a timer: one step is one
@@ -326,7 +326,7 @@ public sealed class Poller
             again);
 
         // Nothing is escalated here and nothing is parked, and that is a decision rather
-        // than an omission: escalation is a work item's state (ADR-0008), and a repository
+        // than an omission: escalation is a work item's state, and a repository
         // that cannot be read has produced no work item to escalate. The project-level
         // fault is rendered on the board instead — see `HowToReadIntake`.
     }
@@ -335,7 +335,7 @@ public sealed class Poller
     {
         // Indiscriminate, deliberately. Everything the seam returns becomes a candidate,
         // because this repository's own triage labels are this repository's convention
-        // and a project's conventions are not the factory's business (ADR-0007).
+        // and a project's conventions are not the factory's business.
         var issues = await _github.ListOpenIssuesAsync(project.RepoUrl, CancellationToken.None);
 
         // The turn was taken and read. Whatever the rest of it does, this project is not
@@ -411,7 +411,7 @@ public sealed class Poller
                 // Counted here and not in the loop: a work item exists from the moment
                 // intake makes it, and "issues processed" is a fact about the world arriving
                 // rather than about the machine starting on it. Counted on creation rather
-                // than on every read, because intake is idempotent (ADR-0007) and a counter
+                // than on every read, because intake is idempotent and a counter
                 // that went up on every pass would be counting poll ticks.
                 _metrics.IssueProcessed(project.Name);
 

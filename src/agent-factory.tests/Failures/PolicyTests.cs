@@ -617,12 +617,12 @@ public class PolicyTests
         // two places — intake, and the loop merging — and the board is neither.
         //
         // **A third was added for the routing layer and the list below says so
-        // (ADR-0015).** `IssuePublisher` files the tickets a routing round proposed, which is
+        //.** `IssuePublisher` files the tickets a routing round proposed, which is
         // a GitHub write on the loop's behalf rather than on a diff's. It is named
         // individually rather than folded into "the loop" so that this stays a short list of
         // named things allowed to reach the network instead of a general permission: the
         // publisher reaches the same single seam, under the same credential, on the same host,
-        // after the round that proposed the tickets is gone (ADR-0006), and it is
+        // after the round that proposed the tickets is gone, and it is
         // stateless with no transport of its own.
         //
         // **And this entry did not change when the Routing slice moved, which is worth
@@ -675,7 +675,7 @@ public class PolicyTests
                 $"only intake, the loop, the issue publisher, the workflow activities and their shared policy core may ask "
                     + $"GitHub anything, and {caller} does: a round's diff is "
                     + "generated on the host from the tree the round left, and a board that fetched one from the API would be showing a "
-                    + "second opinion from the service that produced the change (ADR-0006)"));
+                    + "second opinion from the service that produced the change"));
 
         // And the diff reader itself is a git process against a directory, with no client,
         // no transport and no credential reader — checked as its own constructor, for the
@@ -844,7 +844,7 @@ public class PolicyTests
         // fifth and is gone with the Razor board (#51): the JSON decision endpoint records
         // and steps without opening a scope of its own.
         //
-        // **It grew by two entries for the routing layer (ADR-0015)**, and neither is a new
+        // **It grew by two entries for the routing layer**, and neither is a new
         // component taking a work item's identity:
         //
         // - `Orchestrator.LandTheRoute` is the loop landing a routing round, which is the
@@ -1016,7 +1016,7 @@ public class PolicyTests
         // narrower thing than any of the five it already could.
         //
         // **And this list grew by one more, deliberately and visibly, for the routing layer
-        // (ADR-0015): the publisher.** The same reasoning applies and it is worth spelling
+        //: the publisher.** The same reasoning applies and it is worth spelling
         // out, because "the loop's dependencies did not change" is exactly the claim that
         // erodes one dependency at a time.
         //

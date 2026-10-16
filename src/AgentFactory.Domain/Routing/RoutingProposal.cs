@@ -5,7 +5,7 @@ using AgentFactory.Domain.WorkItems;
 /// <summary>
 /// What a routing round proposed, read out of <c>routing.json</c> by
 /// <see cref="RoutingReader"/>. It is a proposal: where it lands is the host's decision,
-/// because the host is where every write credential lives (ADR-0006).
+/// because the host is where every write credential lives.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,7 +18,7 @@ using AgentFactory.Domain.WorkItems;
 /// <para>
 /// Nothing in this file is ever trusted into a work item's kind directly. A verdict this
 /// cannot read is a park with a reason on it, and the factory never guesses a verdict — the
-/// same rule the result deriver follows for a result it cannot read (ADR-0011), for the same
+/// same rule the result deriver follows for a result it cannot read, for the same
 /// reason: "this could not be read" and "this round decided nothing" are different claims.
 /// </para>
 /// </remarks>

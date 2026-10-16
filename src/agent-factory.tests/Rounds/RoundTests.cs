@@ -26,7 +26,7 @@ public class RoundTests
     [Fact]
 public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
     {
-        // **This test gained a step, deliberately, for the routing layer (ADR-0015).** It
+        // **This test gained a step, deliberately, for the routing layer.** It
         // used to assert that a settle moves a Backlog work item nowhere, which was true and
         // is no longer the whole truth: a settle spends a container looking at it. What the
         // lane now says is narrower and still worth asserting — a routing round does not
@@ -39,7 +39,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         await using var host = await FactoryHost.StartAsync(root, agent: agent);
         var workItem = host.Store.Intake("nexus", RepoUrl, 42, "A work item, end to end", IssueBody, "main").WorkItem;
 
-        // The gate (#40) and routing (ADR-0015) together: a settle reads the issue and
+        // The gate (#40) and routing together: a settle reads the issue and
         // leaves the work item in Backlog, and acceptance is still a reviewer's act and a
         // transition of its own.
         await host.Settle();
@@ -259,7 +259,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // A failure is visible rather than silent, and it is never merged over. Whether
         // it is worth another attempt is the retry ticket's classification, so what this
         // asserts is the part that belongs here: the round was recorded, and the work item
-        // parked where a human can still finish it (ADR-0008).
+        // parked where a human can still finish it.
         Assert.Equal(Swimlane.Escalated, SwimlaneOf(host, workItem.Id));
         Assert.Equal(RoundOutcome.Failed, Assert.Single(host.Store.Rounds(workItem.Id)).Outcome);
         Assert.Equal(1, host.Store.Get(workItem.Id)!.RoundCount);
@@ -302,7 +302,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         // auto-merge switch (#36) - settings, not a seam: nothing to call, nothing behind
         // it.
         //
-        // **And an eighth arrived for the routing layer (ADR-0015): the publisher.** It
+        // **And an eighth arrived for the routing layer: the publisher.** It
         // is not a boundary either, and the reason is worth the sentence: it holds no clock,
         // no transport, no credential reader and no options, and the only way it reaches
         // anything is by calling the `IGitHub` this constructor already had. So the loop has

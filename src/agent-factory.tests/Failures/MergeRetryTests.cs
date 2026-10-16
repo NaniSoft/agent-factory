@@ -150,7 +150,7 @@ public class MergeRetryTests
     {
         // The point of widening Escalated: a merge the repository would have taken gets to
         // be taken, without a human having to find the branch and merge it by hand
-        // (ADR-0008). A parked work item is parked rather than graveless.
+        //. A parked work item is parked rather than graveless.
         var clock = new TestClock();
         using var root = FactoryRoot.Create();
         var github = new FakeGitHub().RefusingToMerge(

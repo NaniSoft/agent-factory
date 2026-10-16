@@ -41,7 +41,7 @@ using AgentFactory.Domain.Routing;
 /// </param>
 /// <param name="Purpose">
 /// Whether this round fetches the repository and builds something, or reads the issue and
-/// decides what kind of work it is (ADR-0015). It is carried rather than worked out from the
+/// decides what kind of work it is. It is carried rather than worked out from the
 /// work item's kind because the round runner is the component that has to act on it — by
 /// choosing a script and by deciding whether to put a repository URL in the container's
 /// environment at all — and neither of those is the store's business.

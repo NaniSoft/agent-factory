@@ -63,8 +63,7 @@ adding the project file. One commit, from them, and every issue after it is the 
 
 ## What a credential here can reach
 
-The `keys.github` name is read on the **host**, by the merger, after the round is over
-(ADR-0006). It is never passed into a round, so a confused, injected or compromised agent has
+The `keys.github` name is read on the **host**, by the merger, after the round is over. It is never passed into a round, so a confused, injected or compromised agent has
 nothing that can push anywhere. The `keys.llm` value *does* go into the round's environment,
 scoped to that one project and dying with that one process.
 

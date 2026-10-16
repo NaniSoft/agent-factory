@@ -13,7 +13,7 @@ using System.Text;
 /// This models git's diff format and nothing else. It has no opinion about which part of a
 /// change matters, no ranking, and no summary of a hunk — a hunk is shown the way git
 /// wrote it because a diff a reviewer cannot check against git is not the diff that would
-/// ship (ADR-0011, ADR-0006).
+/// ship.
 /// </para>
 /// <para>
 /// It exists because a diff is the one part of a round's record with structure worth

@@ -435,7 +435,7 @@ public class RoundConcurrencyTests
         // A round that comes straight back, because this is about the work item reaching
         // Review and not about where a round ends up. The first round is the routing
         // round the workflow now spends on every issue nobody has looked at, and it says
-        // this one is already a build ticket (ADR-0015).
+        // this one is already a build ticket.
         var agent = new FakeNOpenCode()
             .RoutingAs(WorkItemKind.Build, "the issue names one endpoint and one test")
             .Producing("src/Index.cs +12 -3", "Added the endpoint.");
@@ -569,7 +569,7 @@ public class RoundConcurrencyTests
         {
             source.Dispose();
 
-            // A round's files are kept rather than cleaned up (ADR-0006), so the test
+            // A round's files are kept rather than cleaned up, so the test
             // removes its own throwaway directory rather than leaving the next run one it
             // did not create.
             try
