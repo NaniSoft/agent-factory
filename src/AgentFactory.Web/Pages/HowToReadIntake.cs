@@ -1,7 +1,7 @@
 namespace AgentFactory.Pages;
 
 using AgentFactory.Domain.Failures;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 
 /// <summary>
 /// What the board says about intake, and why it says it that way. The whole of the

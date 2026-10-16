@@ -1,9 +1,9 @@
 namespace AgentFactory.Driving;
 
 using AgentFactory.Application;
-using AgentFactory.Durability;
+using AgentFactory.Application.Durability;
 using AgentFactory.Loop;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

@@ -1,6 +1,7 @@
-namespace AgentFactory.Polling;
+namespace AgentFactory.Application.Polling;
 
 using AgentFactory.Application.Clock;
+using AgentFactory.Application.Durability;
 using AgentFactory.Application.Observability;
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
@@ -8,7 +9,6 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
@@ -30,7 +30,7 @@ public sealed class Poller
 {
     private readonly IWorkItemStore _store;
     private readonly IGitHub _github;
-    private readonly Durability.ITicketStarter _tickets;
+    private readonly ITicketStarter _tickets;
     private readonly IClock _clock;
     private readonly ILogger<Poller> _logger;
     private readonly FactoryMetrics _metrics;
@@ -69,7 +69,7 @@ public sealed class Poller
     public Poller(
         IWorkItemStore store,
         IGitHub github,
-        Durability.ITicketStarter tickets,
+        ITicketStarter tickets,
         IClock clock,
         ProjectLoadReport projects,
         ILogger<Poller> logger,

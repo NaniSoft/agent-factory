@@ -5,7 +5,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Loop;
 using AgentFactory.Pages;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
 using System.Text.Json.Serialization;
 

@@ -10,6 +10,7 @@ using AgentFactory.Application.Routing;
 using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
+using AgentFactory.Application.Durability;
 using AgentFactory.Driving;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Clock;
@@ -19,7 +20,7 @@ using AgentFactory.Infrastructure.Results;
 using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Loop;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Http;
@@ -210,13 +211,13 @@ public static class FactoryApp
         // test host gets, unless it substitutes its own.
         if (!string.IsNullOrWhiteSpace(options.TemporalEndpoint))
         {
-            builder.Services.AddSingleton<Durability.ITicketStarter, Durability.TemporalTickets>();
+            builder.Services.AddSingleton<ITicketStarter, Durability.TemporalTickets>();
             builder.Services.AddHostedService(services =>
-                (Durability.TemporalTickets)services.GetRequiredService<Durability.ITicketStarter>());
+                (Durability.TemporalTickets)services.GetRequiredService<ITicketStarter>());
         }
         else
         {
-            builder.Services.TryAddSingleton<Durability.ITicketStarter, Durability.NullTicketStarter>();
+            builder.Services.TryAddSingleton<ITicketStarter, Durability.NullTicketStarter>();
         }
 
         var app = builder.Build();
@@ -324,7 +325,7 @@ public static class FactoryApp
             Api.DecisionRequest request,
             IWorkItemStore store,
             Orchestrator loop,
-            Durability.ITicketStarter tickets) =>
+            ITicketStarter tickets) =>
         {
             string Lane()
             {
@@ -402,7 +403,7 @@ public static class FactoryApp
         api.MapPost("/work-items/{id}/accept", async (
             string id,
             Orchestrator loop,
-            Durability.ITicketStarter tickets) =>
+            ITicketStarter tickets) =>
         {
             if (!Guid.TryParse(id, out var workItemId))
             {

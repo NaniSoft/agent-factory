@@ -5,7 +5,7 @@ using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Application.WorkItems;
 

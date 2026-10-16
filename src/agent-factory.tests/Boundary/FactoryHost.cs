@@ -14,7 +14,7 @@ using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
 using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Loop;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;

@@ -7,7 +7,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Loop;
-using AgentFactory.Polling;
+using AgentFactory.Application.Polling;
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Results;
 using AgentFactory.Infrastructure.Results;
