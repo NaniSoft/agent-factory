@@ -1,9 +1,9 @@
-namespace AgentFactory.Api;
+namespace AgentFactory.Application.Api;
 
 using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Pages;
+using AgentFactory.Application.Pages;
 using AgentFactory.Application.Polling;
 using AgentFactory.Application.WorkItems;
 using System.Text.Json.Serialization;

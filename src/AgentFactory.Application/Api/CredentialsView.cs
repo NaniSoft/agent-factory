@@ -1,4 +1,4 @@
-namespace AgentFactory.Api;
+namespace AgentFactory.Application.Api;
 
 using System.Text.Json.Serialization;
 

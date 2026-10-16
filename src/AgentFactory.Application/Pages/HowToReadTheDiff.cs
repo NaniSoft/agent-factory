@@ -1,4 +1,4 @@
-namespace AgentFactory.Pages;
+namespace AgentFactory.Application.Pages;
 
 using AgentFactory.Application.Results;
 using AgentFactory.Domain.Results;

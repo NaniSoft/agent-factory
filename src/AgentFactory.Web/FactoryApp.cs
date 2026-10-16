@@ -29,6 +29,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Diagnostics.Metrics;
 
+// The Board's view records and its judgement classes now live in `Application` — they are the
+// model's shape rather than policy (#78). The alias keeps the composition root reading
+// `Api.BoardView` while the type it names sits on the inside of the boundary.
+using Api = AgentFactory.Application.Api;
+
 /// <summary>
 /// The whole factory, in one process: the config loader, the store, intake, the
 /// orchestrator and the board. The board is an endpoint this process serves, not a
@@ -280,7 +285,8 @@ public static class FactoryApp
             ProjectLoadReport projects,
             FactoryOptions options,
             Poller poller) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, options, poller)));
+            Microsoft.AspNetCore.Http.Results.Json(Api.BoardView.Of(store, projects, options, poller)))
+            .Produces<Api.BoardView>();
 
         // A reviewer's decision, the board's one write path now that the Razor form is gone
         // (#45, #51). It invents no capability: `Decisions.TryParse`, then
@@ -362,7 +368,11 @@ public static class FactoryApp
 
             return Microsoft.AspNetCore.Http.Results.Json(
                 new Api.DecisionResult(step.Applied, step.Refusal, Lane()));
-        });
+        })
+            // The decision answer, and the two branches that answer "not a decision at all":
+            // naming the type is how the document says what this endpoint returns rather than
+            // leaving an `IResult` for the generator to guess at (#78).
+            .Produces<Api.DecisionResult>();
 
         // The acceptance gate (#40, restored by #52): intake puts every issue in Backlog and
         // nothing is built until a reviewer accepts it. This mirrors the deleted page's
@@ -406,7 +416,8 @@ public static class FactoryApp
                 Refusal: promoted
                     ? null
                     : "That work item is not waiting in Backlog, so there is nothing to accept into the build."));
-        });
+        })
+            .Produces<Api.AcceptanceResult>();
 
         // The work-item detail (#46): the whole record behind a board card — the work item,
         // every round it has run with the host's diff, the decisions made and the decisions
@@ -419,7 +430,9 @@ public static class FactoryApp
         api.MapGet("/work-items/{id}", (string id, IWorkItemStore store) =>
             Guid.TryParse(id, out var workItemId) && store.Get(workItemId) is { } workItem
                 ? Microsoft.AspNetCore.Http.Results.Json(Api.WorkItemDetailView.Of(workItem, store))
-                : Microsoft.AspNetCore.Http.Results.NotFound());
+                : Microsoft.AspNetCore.Http.Results.NotFound())
+            .Produces<Api.WorkItemDetailView>()
+            .Produces(StatusCodes.Status404NotFound);
 
         // The Projects surface (#48): the served set with its load state and the loader's
         // own refusals, and the three writes — add, edit (one write that overwrites), and
@@ -428,7 +441,8 @@ public static class FactoryApp
         // served only after a restart, which the app says where a repository is chosen. The
         // endpoint holds no validation of its own; `ProjectFiles` is the guard it calls.
         api.MapGet("/projects", (ProjectLoadReport projects) =>
-            Microsoft.AspNetCore.Http.Results.Json(Api.ProjectsView.From(projects)));
+            Microsoft.AspNetCore.Http.Results.Json(Api.ProjectsView.From(projects)))
+            .Produces<Api.ProjectsView>();
 
         api.MapPost("/projects", (Api.ProjectWriteRequest request, FactoryOptions options) =>
         {
@@ -445,7 +459,11 @@ public static class FactoryApp
                 statusCode: refused is null
                     ? StatusCodes.Status200OK
                     : StatusCodes.Status400BadRequest);
-        });
+        })
+            // One type on both statuses: a refusal is `ok:false` with the loader's own words
+            // and arrives as a 400, so both branches are this record (#78).
+            .Produces<Api.ProjectWriteResult>(StatusCodes.Status200OK)
+            .Produces<Api.ProjectWriteResult>(StatusCodes.Status400BadRequest);
 
         api.MapDelete("/projects/{name}", (string name, FactoryOptions options) =>
         {
@@ -460,7 +478,9 @@ public static class FactoryApp
 
             ProjectFiles.Delete(options.FactoriesDirectory, name);
             return Microsoft.AspNetCore.Http.Results.Json(new Api.ProjectWriteResult(true, null));
-        });
+        })
+            .Produces<Api.ProjectWriteResult>(StatusCodes.Status200OK)
+            .Produces<Api.ProjectWriteResult>(StatusCodes.Status400BadRequest);
 
         // The credential names the factory can use — the union of the keys the served
         // projects declare and the files already in the secrets directory — each with
@@ -481,7 +501,8 @@ public static class FactoryApp
                     .Select(id => new Api.LlmProviderView(
                         id,
                         LlmProviders.CanonicalEnvironmentVariables[id]))
-                    .ToList())));
+                    .ToList())))
+            .Produces<Api.CredentialsView>();
 
         // A credential's value, written and never rendered back. The composite reader is
         // the boundary that turns the name into a value in the secrets directory, exactly
@@ -516,7 +537,9 @@ public static class FactoryApp
 
             credentials.Write(written, value.Trim());
             return Microsoft.AspNetCore.Http.Results.Json(new Api.CredentialView(written, true));
-        });
+        })
+            .Produces<Api.CredentialView>()
+            .Produces(StatusCodes.Status400BadRequest);
 
         // A credential's file, removed. The name is guarded so a route segment cannot
         // reach outside the secrets directory, exactly as a project name is guarded.
@@ -524,7 +547,10 @@ public static class FactoryApp
         {
             CredentialFiles.Delete(options.SecretsDirectory, name);
             return Microsoft.AspNetCore.Http.Results.NoContent();
-        });
+        })
+            // No body at all: the only route the document says nothing about, and saying so is
+            // the point of naming it rather than letting `IResult` imply a 200 with a schema.
+            .Produces(StatusCodes.Status204NoContent);
 
         return app;
     }

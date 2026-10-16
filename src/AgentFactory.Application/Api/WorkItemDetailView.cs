@@ -1,4 +1,4 @@
-namespace AgentFactory.Api;
+namespace AgentFactory.Application.Api;
 
 using AgentFactory.Application;
 using AgentFactory.Application.Results;
@@ -6,7 +6,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Pages;
+using AgentFactory.Application.Pages;
 using AgentFactory.Application.WorkItems;
 using System.Text.Json.Serialization;
 

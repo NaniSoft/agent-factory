@@ -1,4 +1,4 @@
-namespace AgentFactory.Api;
+namespace AgentFactory.Application.Api;
 
 using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Projects;

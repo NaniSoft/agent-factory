@@ -1,4 +1,4 @@
-namespace AgentFactory.Pages;
+namespace AgentFactory.Application.Pages;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Polling;
