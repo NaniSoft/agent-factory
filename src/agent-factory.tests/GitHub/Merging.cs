@@ -8,7 +8,7 @@ using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.Review;
 using AgentFactory.WorkItems;
@@ -16,15 +16,15 @@ using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// The real client, over a faked transport, against a real tree on this host and a real
+/// The real policy and the real client, over a faked transport, against a real tree on this host and a real
 /// bare repository to push to. Everything but the network is the production thing.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The awkward part of building this is the path. The merger finds a round's tree the only
-/// way it can — under <see cref="FactoryOptions.RoundsDirectory"/>, named for the work
+/// The awkward part of building this is the path. The merge policy finds a round's tree the
+/// only way it can — under <see cref="FactoryOptions.RoundsDirectory"/>, named for the work
 /// item, in the folder the container runtime lifts into — so the fixture builds the tree
-/// exactly there rather than teaching the client a second way to find one. That is the
+/// exactly there rather than teaching the policy a second way to find one. That is the
 /// point of the arrangement: a test cannot pass by pointing the merger at a tree it put
 /// somewhere convenient.
 /// </para>
@@ -104,10 +104,13 @@ public sealed class Merging : IDisposable
         Client = new GitHubClient(
             new HttpClient(Api) { BaseAddress = new Uri("https://api.github.com/") },
             new ProjectLoadReport([project], []),
-            Options,
-            Store,
             _credentials,
             Log);
+
+        // The merge policy over the real client and the real store. This is the whole
+        // production arrangement with the network faked: the policy reads the work item's
+        // own rounds off the store, builds the plan, and the adapter ships it.
+        Policy = new MergePolicy(Store, Client, PolicyLog);
     }
 
     public GitHubApi Api { get; } = new();
@@ -117,7 +120,11 @@ public sealed class Merging : IDisposable
 
     public RecordingLogger<GitHubClient> Log { get; } = new();
 
+    public RecordingLogger<MergePolicy> PolicyLog { get; } = new();
+
     public GitHubClient Client { get; }
+
+    public MergePolicy Policy { get; }
 
     public IWorkItemStore Store { get; }
 
@@ -178,9 +185,16 @@ public sealed class Merging : IDisposable
         "attempt-1",
         "tree");
 
-    /// <summary>Ships the work item's change, once.</summary>
+    /// <summary>Ships the work item's change, once, through the policy.</summary>
     public Task Merge(CancellationToken cancellationToken = default) =>
-        Client.MergeAsync(WorkItem.RepoUrl, WorkItem.IssueNumber, cancellationToken);
+        Policy.MergeAsync(WorkItem, cancellationToken);
+
+    /// <summary>
+    /// Every word the merge said, from both of the components it is made of. A refusal is
+    /// raised by one or the other and a test that asserts on the message needs whichever
+    /// wrote it.
+    /// </summary>
+    public string EverythingSaid => Log.Everything + PolicyLog.Everything;
 
     /// <summary>
     /// Answers for a change that has not been pushed and has no pull request: nothing

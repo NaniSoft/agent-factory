@@ -8,7 +8,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Infrastructure.Rounds;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
 using AgentFactory.Application.WorkItems;
@@ -181,8 +181,14 @@ public class TheProcessTests
         // to GitHub, the board is the only surface, and this is the one place that
         // establishes the factory has exactly one way out to the network — which is the
         // structural form of "one GitHub seam" (ADR-0003, one process, one boundary).
-        var holding = typeof(FactoryApp).Assembly
-            .GetTypes()
+        //
+        // The scan is over every assembly the factory is made of rather than over the entry
+        // assembly, and that is a correction rather than a widening: `GitHubClient` moved to
+        // `Infrastructure` in this restructure and this scan went on reading `Web`, where it
+        // found nothing and would have reported "no component holds a transport" — the exact
+        // inversion of what it exists to say.
+        var holding = TheFactory.Assemblies
+            .SelectMany(assembly => assembly.GetTypes())
             .Where(type => type.GetConstructors()
                 .SelectMany(constructor => constructor.GetParameters())
                 .Any(parameter => parameter.ParameterType.Name is "HttpClient" or "IHttpClientFactory"))

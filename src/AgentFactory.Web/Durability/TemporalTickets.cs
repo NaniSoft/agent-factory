@@ -111,6 +111,7 @@ public sealed class TemporalTickets : BackgroundService, ITicketStarter
                 _services.GetRequiredService<INOpenCode>(),
                 _services.GetRequiredService<IIssuePublisher>(),
                 _services.GetRequiredService<IGitHub>(),
+                _services.GetRequiredService<IMergePolicy>(),
                 _loggerFactory.CreateLogger<TicketActivities>());
 
             using var worker = new TemporalWorker(

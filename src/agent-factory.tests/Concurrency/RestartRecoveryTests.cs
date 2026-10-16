@@ -1,7 +1,7 @@
 namespace AgentFactory.Tests.Concurrency;
 
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Tests.Boundary;

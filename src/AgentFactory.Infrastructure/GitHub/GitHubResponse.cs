@@ -1,4 +1,4 @@
-namespace AgentFactory.GitHub;
+namespace AgentFactory.Infrastructure.GitHub;
 
 using AgentFactory.Domain.Failures;
 using System.Net.Http.Headers;

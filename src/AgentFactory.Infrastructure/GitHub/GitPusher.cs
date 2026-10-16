@@ -1,4 +1,4 @@
-namespace AgentFactory.GitHub;
+namespace AgentFactory.Infrastructure.GitHub;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Infrastructure.Results;
@@ -29,6 +29,16 @@ using System.Text;
 /// again, because it exists for the same reason in both places: a tree created by uid
 /// 1000 inside a Linux container is a repository git refuses to read on a Linux host, and
 /// refused here would mean the factory cannot see a change it is holding.
+/// </para>
+/// <para>
+/// <strong>That borrow is now a same-project reference, which is what closed
+/// <c>docs/architecture.md</c>'s third rule.</strong> While this file and
+/// <see cref="HostDiffReader"/> were both in <c>AgentFactory.Web</c>, the merger reached
+/// across into the review surface's git-safety configuration and the architecture
+/// document had to record it as a rule a project reference could not see. Both are in
+/// <c>AgentFactory.Infrastructure</c> now, so the reference is ordinary and the borrow is
+/// deliberate rather than something a reader has to notice: the two components share a
+/// safety pin because they are subject to the same tree, and they share nothing else.
 /// </para>
 /// <para>
 /// The credential reaches git through the environment and never through the command line,

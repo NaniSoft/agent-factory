@@ -16,10 +16,10 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// The orchestrator: a hand-rolled deterministic state machine over the work item store,
 /// and the whole of the factory's policy about what runs next. It asks
-/// <see cref="INOpenCode"/> for one round and receives one result, and it asks
-/// <see cref="IGitHub"/> for one merge and learns whether it landed. It has no concept of
-/// a container, an image, a process, or a pull request behind either call (ADR-0004,
-/// ADR-0005, ADR-0006).
+/// <see cref="INOpenCode"/> for one round and receives one result, reads a work item's
+/// conversation through <see cref="IGitHub"/>, and asks <see cref="IMergePolicy"/> for
+/// one merge and learns whether it landed. It has no concept of a container, an image, a
+/// process, or a pull request behind either call (ADR-0004, ADR-0005, ADR-0006).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -54,6 +54,7 @@ public sealed class Orchestrator
     private readonly IWorkItemStore _store;
     private readonly INOpenCode _agent;
     private readonly IGitHub _github;
+    private readonly IMergePolicy _merger;
     private readonly IIssuePublisher _publisher;
     private readonly IClock _clock;
     private readonly ILogger<Orchestrator> _logger;
@@ -113,6 +114,7 @@ public sealed class Orchestrator
         IWorkItemStore store,
         INOpenCode agent,
         IGitHub github,
+        IMergePolicy merger,
         IIssuePublisher publisher,
         IClock clock,
         ILogger<Orchestrator> logger,
@@ -122,6 +124,7 @@ public sealed class Orchestrator
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _github = github ?? throw new ArgumentNullException(nameof(github));
+        _merger = merger ?? throw new ArgumentNullException(nameof(merger));
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -476,7 +479,7 @@ public sealed class Orchestrator
     {
         try
         {
-            await _github.MergeAsync(workItem.RepoUrl, workItem.IssueNumber, CancellationToken.None);
+            await _merger.MergeAsync(workItem, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -588,7 +591,7 @@ public sealed class Orchestrator
 
         try
         {
-            await _github.MergeAsync(parked.RepoUrl, parked.IssueNumber, CancellationToken.None);
+            await _merger.MergeAsync(parked, CancellationToken.None);
         }
         catch (Exception refused)
         {
@@ -665,7 +668,7 @@ public sealed class Orchestrator
     /// </para>
     /// <para>
     /// This is a merge and not a shortcut round Done. It goes through the same
-    /// <see cref="IGitHub"/> seam an approve does and obeys the same rule, so a Done here
+    /// <see cref="IMergePolicy"/> seam an approve does and obeys the same rule, so a Done here
     /// is a claim about a repository rather than about a clock: with no merger behind the
     /// seam the timeout cannot complete either, and a work item left for two days must not
     /// report a merge that did not happen. It is also exactly one attempt, because the work
@@ -725,7 +728,7 @@ public sealed class Orchestrator
 
         try
         {
-            await _github.MergeAsync(ignored.RepoUrl, ignored.IssueNumber, CancellationToken.None);
+            await _merger.MergeAsync(ignored, CancellationToken.None);
         }
         catch (Exception refused)
         {

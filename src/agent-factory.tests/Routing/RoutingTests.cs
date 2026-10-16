@@ -5,7 +5,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
 using AgentFactory.Domain.Issues;

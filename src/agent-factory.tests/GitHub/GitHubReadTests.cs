@@ -7,7 +7,7 @@ using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
@@ -27,10 +27,6 @@ public class GitHubReadTests
             new ProjectLoadReport(
                 [new Project("nexus", repoUrl, "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
                 []),
-            new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
-            new SqliteWorkItemStore(
-                Path.Combine(Path.GetTempPath(), $"agent-factory-github-read-{Guid.NewGuid():n}.db"),
-                new TestClock()),
             credentials ?? new FakeCredentialReader().Having("NEXUS_GITHUB_TOKEN", Merging.Token),
             new RecordingLogger<GitHubClient>());
 
@@ -134,10 +130,6 @@ public class GitHubReadTests
             new ProjectLoadReport(
                 [new Project("nexus", "https://github.com/NaniSoft/nexus", "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
                 []),
-            new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
-            new SqliteWorkItemStore(
-                Path.Combine(Path.GetTempPath(), $"agent-factory-github-read-{Guid.NewGuid():n}.db"),
-                new TestClock()),
             new FakeCredentialReader().Having("NEXUS_GITHUB_TOKEN", Merging.Token),
             log);
 

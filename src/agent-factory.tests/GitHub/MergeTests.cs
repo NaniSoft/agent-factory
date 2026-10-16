@@ -7,7 +7,7 @@ using AgentFactory.Domain.Results;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using System.Net;
 
@@ -210,9 +210,12 @@ public class MergeTests
         Assert.DoesNotContain(merging.Api.Shapes, shape => shape.StartsWith("PATCH", StringComparison.Ordinal));
         Assert.Empty(merging.Remote.Branches());
 
-        // And it said so, rather than being a silent success.
+        // And it said so, rather than being a silent success. The record is read from both
+        // sinks: "already merged" is a *policy* judgement — it is the policy that knows a
+        // merged pull request means there is nothing left to do — so it is said on the
+        // policy's own category rather than the client's.
         Assert.Contains(merging.Api.Requests, request => request.Method == "GET");
-        Assert.Contains("already", merging.Log.Everything, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already", merging.EverythingSaid, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -466,16 +469,17 @@ public class MergeTests
         // second attempt would find exactly the same thing.
         using var merging = new Merging();
         var unserved = new AgentFactory.Application.Projects.ProjectLoadReport([], []);
-        var client = new GitHubClient(
-            new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
-            unserved,
-            merging.Options,
+        var policy = new MergePolicy(
             merging.Store,
-            new FakeCredentialReader().Having(Merging.KeyName, Merging.Token),
-            new RecordingLogger<GitHubClient>());
+            new GitHubClient(
+                new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
+                unserved,
+                new FakeCredentialReader().Having(Merging.KeyName, Merging.Token),
+                new RecordingLogger<GitHubClient>()),
+            new RecordingLogger<MergePolicy>());
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(
-            () => client.MergeAsync(merging.WorkItem.RepoUrl, 42, CancellationToken.None));
+            () => policy.MergeAsync(merging.WorkItem, CancellationToken.None));
 
         Assert.Contains("no project file is being served", refused.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(merging.Api.Requests);
@@ -487,24 +491,25 @@ public class MergeTests
         // The name is named, because that is what an operator has to go and fix. The value
         // is not asked about and not logged, because there is not one.
         using var merging = new Merging();
-        var client = new GitHubClient(
-            new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
-            new AgentFactory.Application.Projects.ProjectLoadReport(
-                [new AgentFactory.Domain.Projects.Project(
-                    "nexus",
-                    merging.WorkItem.RepoUrl,
-                    "anthropic",
-                    "NEXUS_GITHUB_TOKEN",
-                    "NEXUS_LLM_KEY",
-                    "nexus.yaml")],
-                []),
-            merging.Options,
+        var policy = new MergePolicy(
             merging.Store,
-            new FakeCredentialReader(),
-            new RecordingLogger<GitHubClient>());
+            new GitHubClient(
+                new HttpClient(merging.Api) { BaseAddress = new Uri("https://api.github.com/") },
+                new AgentFactory.Application.Projects.ProjectLoadReport(
+                    [new AgentFactory.Domain.Projects.Project(
+                        "nexus",
+                        merging.WorkItem.RepoUrl,
+                        "anthropic",
+                        "NEXUS_GITHUB_TOKEN",
+                        "NEXUS_LLM_KEY",
+                        "nexus.yaml")],
+                    []),
+                new FakeCredentialReader(),
+                new RecordingLogger<GitHubClient>()),
+            new RecordingLogger<MergePolicy>());
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(
-            () => client.MergeAsync(merging.WorkItem.RepoUrl, 42, CancellationToken.None));
+            () => policy.MergeAsync(merging.WorkItem, CancellationToken.None));
 
         Assert.Contains("NEXUS_GITHUB_TOKEN", refused.Message, StringComparison.Ordinal);
         Assert.Empty(merging.Api.Requests);
@@ -515,10 +520,20 @@ public class MergeTests
     public async Task The_credential_is_asked_for_by_name_and_never_appears_in_anything_the_factory_says()
     {
         // ADR-0006 is a claim about the host, and the host is where the token lives: the
-        // project declares a name, the name is resolved once, and the value goes into a
-        // header and into one git child's environment. It must not come out of either — not
-        // in a log line, not in the message of the failure a reviewer reads on the board,
-        // and not in a URL that would put it in a proxy's access log.
+        // project declares a name, the name is resolved, and the value goes into a header
+        // and into one git child's environment. It must not come out of either — not in a
+        // log line, not in the message of the failure a reviewer reads on the board, and
+        // not in a URL that would put it in a proxy's access log.
+        //
+        // The assertion below was "the name, once" and is now "the name, and only this
+        // name" — a deliberate change, not a weakened one. The split moved the HTTP calls
+        // behind `IMerger`, and the adapter resolves the token per request rather than
+        // once per merge, because `GitHubClient` is registered as a **singleton**: holding
+        // a resolved token on it would keep one project's credential in memory for the
+        // life of the process and hand it to whichever project asked next. Reading the
+        // environment or the secrets file again is the cheaper mistake, and the properties
+        // this test exists for — the name is what is asked for, the value is never logged,
+        // never in a URL and never in a body — are asserted below and all still hold.
         using var merging = new Merging();
         merging.NothingShippedYet();
         merging.Api.Responding(
@@ -530,7 +545,7 @@ public class MergeTests
 
         var refused = await Assert.ThrowsAsync<PermanentFailure>(() => merging.Merge());
 
-        Assert.Equal([Merging.KeyName], merging.CredentialsAsked);
+        Assert.Equal([Merging.KeyName], merging.CredentialsAsked.Distinct(StringComparer.Ordinal));
         Assert.DoesNotContain(Merging.Token, merging.Log.Everything, StringComparison.Ordinal);
         Assert.DoesNotContain(Merging.Token, refused.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(Merging.Token, refused.ToString(), StringComparison.Ordinal);
@@ -704,7 +719,7 @@ public class MergeTests
         // it is about the *push*, and the second push was skipped because the branch was
         // already at this commit. A second git push would have been refused by git; the
         // point is that none was attempted and none was needed.
-        Assert.Contains("nothing to push", merging.Log.Everything, StringComparison.Ordinal);
+        Assert.Contains("nothing to push", merging.EverythingSaid, StringComparison.Ordinal);
         Assert.Equal([merging.Branch], merging.Remote.Branches());
         Assert.Equal(pushed, merging.Remote.CommitOn(merging.Branch));
     }

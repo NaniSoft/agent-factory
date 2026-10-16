@@ -5,7 +5,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
@@ -188,10 +188,6 @@ public class UserAgentTests
         new ProjectLoadReport(
             [new Project("nexus", RepoUrl, "anthropic", "NEXUS_GITHUB_TOKEN", "NEXUS_LLM_KEY", "nexus.yaml")],
             []),
-        new FactoryOptions("factories", "data/agent-factory.db", new Uri("http://127.0.0.1:0")),
-        new SqliteWorkItemStore(
-            Path.Combine(Path.GetTempPath(), $"agent-factory-user-agent-{Guid.NewGuid():n}.db"),
-            new TestClock()),
         new FakeCredentialReader().Having("NEXUS_GITHUB_TOKEN", Merging.Token),
         new RecordingLogger<GitHubClient>());
 

@@ -11,7 +11,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Driving;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Clock;
 using AgentFactory.Infrastructure.Credentials;
 using AgentFactory.Infrastructure.Projects;
@@ -111,10 +111,18 @@ public static class FactoryApp
 
         // The GitHub seam now has an implementation, and it is the first `HttpClient` in the
         // process — deliberately, and only here. Intake reads through this client and the
-        // loop merges through it, so it is the one place the factory talks to GitHub, and
+        // merger writes through it, so it is the one place the factory talks to GitHub, and
         // the review surface still cannot: `PolicyTests` names this type as the single
         // component allowed to hold a transport, for the same reason it names the driver's
         // single `Task.Delay` (ADR-0003, one process, one boundary).
+        //
+        // **The merger is a second port on the same class, and that is not a second
+        // boundary.** `IGitHub` is intake and the issue writes; `IMerger` is everything the
+        // merge needs to ask GitHub and git, one step at a time, with the policy's plan as
+        // its only input. Both are answered by this one object, so there is still one place
+        // that knows what a repository is — and there is no longer a REST client that can
+        // reach the store, because the merge policy resolves the work item and hands the
+        // plan over.
         //
         // The token is never on a command line and never in a URL: it goes into one
         // `Authorization` header per request and into the environment of the one git child
@@ -127,13 +135,24 @@ public static class FactoryApp
             client.Timeout = GitHubClient.RequestTimeout;
         });
 
-        builder.Services.TryAddSingleton<IGitHub>(services => new GitHubClient(
+        builder.Services.TryAddSingleton<GitHubClient>(services => new GitHubClient(
             services.GetRequiredService<IHttpClientFactory>().CreateClient(GitHubClient.HttpClientName),
             services.GetRequiredService<ProjectLoadReport>(),
-            options,
-            services.GetRequiredService<IWorkItemStore>(),
             services.GetRequiredService<ICredentialReader>(),
             services.GetRequiredService<ILogger<GitHubClient>>()));
+
+        builder.Services.TryAddSingleton<IGitHub>(services => services.GetRequiredService<GitHubClient>());
+
+        builder.Services.TryAddSingleton<IMerger>(services => services.GetRequiredService<GitHubClient>());
+
+        // The merge policy: the order, the naming rules, and every refusal about the
+        // factory's own work. It is the one component that reads the store on the merge's
+        // behalf, and it is in `Application` for exactly that reason — it is policy, and the
+        // adapter behind it can do nothing but answer questions about GitHub and git.
+        builder.Services.TryAddSingleton<IMergePolicy>(services => new MergePolicy(
+            services.GetRequiredService<IWorkItemStore>(),
+            services.GetRequiredService<IMerger>(),
+            services.GetRequiredService<ILogger<MergePolicy>>()));
 
         builder.Services.AddSingleton<IWorkItemStore>(services =>
             new SqliteWorkItemStore(options.DatabasePath, services.GetRequiredService<IClock>()));
@@ -174,10 +193,10 @@ public static class FactoryApp
             builder.Services.AddHostedService(services => services.GetRequiredService<FactoryDriver>());
         }
 
-        // IGitHub is one seam covering both polling and merging — one boundary rather than
-        // two that can disagree about what a repository is, and now both halves of the
-        // factory are wired to it: intake reads through it and the loop merges through it.
-        // One `MergeAsync` is the whole of what "shipped" means to the loop: the client
+        // IGitHub is one seam covering intake and the issue writes, and `IMerger` is the
+        // merge's — one boundary rather than two that can disagree about what a repository
+        // is, and both halves of the factory are wired to the same client. One
+        // `MergeAsync` on the policy is the whole of what "shipped" means to the loop: it
         // pushes the branch, opens the pull request if there is not already one, and merges
         // it, from the host, under a credential no worker container ever held (ADR-0006).
 

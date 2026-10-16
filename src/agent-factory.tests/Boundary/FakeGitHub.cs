@@ -2,8 +2,9 @@ namespace AgentFactory.Tests.Boundary;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Issues;
+using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 
 /// <summary>
 /// GitHub, faked. Intake reads a repository's open issues and its default branch
@@ -12,7 +13,16 @@ using AgentFactory.GitHub;
 /// order it took them, because round-robin is only provable from the order. Nothing here
 /// reaches a network.
 /// </summary>
-public sealed class FakeGitHub : IGitHub
+/// <remarks>
+/// It answers two ports, and that mirrors production exactly: <see cref="GitHubClient"/>
+/// is <see cref="IGitHub"/> and <see cref="IMerger"/>, and this is <see cref="IGitHub"/>
+/// and <see cref="IMergePolicy"/>. The merge policy is the one port whose implementation
+/// is not an adapter — the real one is <c>MergePolicy</c>, in `Application` — so a fake
+/// of it is what a test of the *loop* wants: the loop's own behaviour around a merge
+/// answer, without a repository on a disk. The merge itself is exercised for real by
+/// <c>MergeTests</c>, which builds the real `MergePolicy` over a real client.
+/// </remarks>
+public sealed class FakeGitHub : IGitHub, IMergePolicy
 {
     private readonly Dictionary<string, Script> _repositories = new(StringComparer.Ordinal);
 
@@ -249,6 +259,25 @@ public sealed class FakeGitHub : IGitHub
         return _mergeRefusal is { } refusal
             ? Task.FromException(Refusing(refusal))
             : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The merge policy, as the loop sees it. It answers by asking the work item what the
+    /// old string-shaped call asked its caller for, so the recording and the refusals a
+    /// test scripts are the same ones and no test had to move.
+    /// </summary>
+    /// <remarks>
+    /// The real policy resolves the work item's rounds, its tree and its commit out of the
+    /// store before anything is pushed. None of that is what a test of the loop is asking
+    /// about, which is why this is a fake of the port rather than of the adapter: a
+    /// <see cref="IMergePolicy"/> fake says "this is what came back", and
+    /// <c>MergeTests</c> is where "this is what was actually shipped" is decided.
+    /// </remarks>
+    public Task MergeAsync(WorkItem workItem, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        return MergeAsync(workItem.RepoUrl, workItem.IssueNumber, cancellationToken);
     }
 
     public Task<CreatedIssue> CreateIssueAsync(NewIssue request, CancellationToken cancellationToken)

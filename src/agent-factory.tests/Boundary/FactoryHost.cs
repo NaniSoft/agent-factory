@@ -12,7 +12,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Polling;
 using AgentFactory.Application.WorkItems;
@@ -419,6 +419,14 @@ public sealed class FactoryHost : IAsyncDisposable
         // made a fact rather than an absence of a test. The `GitHub` property below
         // still exposes the fake, because only a fake records what was asked of it.
         builder.Services.AddSingleton<IGitHub>(seams.GitHub ?? fakeGitHub);
+
+        // The merge is the second port on the same boundary, and here it is answered by the
+        // same fake — which plays `IMergePolicy` exactly as the real `GitHubClient` plays
+        // `IMerger`. Registering it is not tidiness: without it the composition root's own
+        // `TryAdd` would wire the **real** policy over the **real** client, and a test that
+        // approved a work item would push to github.com. A test that hands in some other
+        // `IGitHub` still gets the fake here, which is the refusing default.
+        builder.Services.AddSingleton<IMergePolicy>(seams.GitHub as IMergePolicy ?? fakeGitHub);
 
         if (seams.Processes is { } processes)
         {

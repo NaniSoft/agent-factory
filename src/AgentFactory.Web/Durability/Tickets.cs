@@ -68,11 +68,19 @@ public record MergeLanded(bool Merged, string? ParkedBecause);
 /// work item id travels as an argument to every activity, because a workflow's history is
 /// replayed and an ambient context would be a guess at where the replay was.
 /// </summary>
+/// <remarks>
+/// It holds both GitHub seams and they are both still about the same repository:
+/// <c>IGitHub</c> for the conversation a round travels with and for the issue writes the
+/// publisher makes, and <c>IMergePolicy</c> for shipping what a reviewer approved. One
+/// class answers both, and there is still one place in the process that knows what a
+/// repository is.
+/// </remarks>
 public sealed class TicketActivities(
     IWorkItemStore store,
     INOpenCode agent,
     IIssuePublisher publisher,
     IGitHub github,
+    IMergePolicy merger,
     ILogger<TicketActivities> logger) : ITicketActivities
 {
     public async Task<RouteLanded> RouteRoundAsync(Guid workItemId, int roundNumber)
@@ -194,7 +202,7 @@ public sealed class TicketActivities(
 
         try
         {
-            await github.MergeAsync(item.RepoUrl, item.IssueNumber, CancellationToken.None);
+            await merger.MergeAsync(item, CancellationToken.None);
         }
         catch (PermanentFailure refused)
         {

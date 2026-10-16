@@ -1,4 +1,4 @@
-namespace AgentFactory.GitHub;
+namespace AgentFactory.Application.GitHub;
 
 using AgentFactory.Domain.WorkItems;
 

@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Intake;
 using AgentFactory.Application;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Application.WorkItems;

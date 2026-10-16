@@ -3,7 +3,7 @@ namespace AgentFactory.Tests.Durability;
 using AgentFactory.Durability;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Infrastructure.Routing;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.Routing;
@@ -60,6 +60,10 @@ public class TicketWorkflowTests
             store,
             agent,
             new IssuePublisher(github, NullLogger<IssuePublisher>.Instance),
+            github,
+            // The fake answers IMergePolicy as well, the way the real client answers
+            // IMerger. Nothing in these tests merges, so what it answers with is the
+            // refusing default.
             github,
             NullLogger<TicketActivities>.Instance);
 
@@ -131,6 +135,10 @@ public class TicketWorkflowTests
             store,
             agent,
             new IssuePublisher(github, NullLogger<IssuePublisher>.Instance),
+            github,
+            // The fake answers IMergePolicy as well, the way the real client answers
+            // IMerger. Nothing in these tests merges, so what it answers with is the
+            // refusing default.
             github,
             NullLogger<TicketActivities>.Instance);
 

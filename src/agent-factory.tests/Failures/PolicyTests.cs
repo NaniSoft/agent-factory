@@ -133,7 +133,7 @@ public class PolicyTests
         // thing the loop's own gate cannot fix: it holds the machine, and the machine is
         // held until the client comes back.
         Assert.True(
-            AgentFactory.GitHub.GitHubClient.RequestTimeout > TimeSpan.Zero,
+            AgentFactory.Infrastructure.GitHub.GitHubClient.RequestTimeout > TimeSpan.Zero,
             "a GitHub request with no bound is a merge that can hang for ever");
     }
 
@@ -870,8 +870,8 @@ public class PolicyTests
 
         Assert.Equal(
             [
-                "GitHubClient.MergeAsync",
                 "IssuePublisher.PublishAsync",
+                "MergePolicy.MergeAsync",
                 "Orchestrator.Apply",
                 "Orchestrator.HandBackAnAnsweredGrill",
                 "Orchestrator.LandIfTheRoundIsOverAsync",
@@ -1030,6 +1030,7 @@ public class PolicyTests
                 "IWorkItemStore",
                 "INOpenCode",
                 "IGitHub",
+                "IMergePolicy",
                 "IIssuePublisher",
                 "IClock",
                 "ILogger`1",

@@ -1,4 +1,4 @@
-namespace AgentFactory.GitHub;
+namespace AgentFactory.Infrastructure.GitHub;
 
 using System.Net.Http.Json;
 using System.Net;
@@ -13,45 +13,40 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Issues;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// GitHub, over its real API, from the host. Intake reads through it and the merger writes
-/// through it, which is the whole reason it is one class behind one seam: a factory that
-/// polled one repository's issues from one place and pushed to another could disagree with
-/// itself about what a repository is.
+/// GitHub, over its real API, from the host. Intake reads through it and the merger's
+/// adapter is the same class, which is the whole reason it is one class behind two
+/// seams: a factory that polled one repository's issues from one place and pushed to
+/// another could disagree with itself about what a repository is.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <strong>What one <see cref="MergeAsync"/> call does.</strong> The loop says one thing —
-/// "land this work item's change in this repository" — and everything else is here:
+/// <strong>It holds no work item store, and that is the property
+/// <c>docs/architecture.md</c> asks for: an adapter never queries the store.</strong>
+/// It used to, to find the round's tree, which was legal and was also the deepest coupling
+/// in the codebase because two components write the store and one of them was a REST
+/// client. The merge policy now resolves the work item, its tree and its commit into a
+/// <see cref="MergePlan"/> and hands it over; everything below reads the plan and asks
+/// this process's own configuration and the network for the rest.
 /// </para>
-/// <list type="number">
-/// <item><description>Resolve the project, its credential, the work item behind the issue
-/// number, the round's tree on this host, and the commit that tree is on.</description></item>
-/// <item><description><em>Look for a pull request for this branch first.</em> Read before
-/// write, and this is the step that makes a second call safe.</description></item>
-/// <item><description>Push the commit, unless the branch is already on the remote at exactly
-/// that commit — which is what a previous attempt's push looks like.</description></item>
-/// <item><description>Open the pull request, or use the one that is already there.</description></item>
-/// <item><description>Merge it, and only if the branch still carries the commit the reviewer
-/// judged.</description></item>
-/// </list>
 /// <para>
-/// The order is the argument, and the second step is where it is made. A retry after a
-/// push that landed and a merge that did not finds the pull request the first attempt
-/// opened and goes straight to merging it, so it cannot open a second one; and because the
-/// branch is named deterministically from the issue, "this branch" is the same branch on
-/// every attempt. The two windows git and GitHub themselves close are described where they
-/// are closed.
+/// <strong>What belongs to the policy and what belongs here, and why.</strong> The branch
+/// a change is called, the title and body of its pull request, the order of the seven
+/// steps and every refusal about the factory's own work — already merged, closed without
+/// merging, a branch that moved on, a tree holding changes nobody committed — are
+/// <see cref="MergePolicy"/>'s. What is here is the two facts only the outside can
+/// answer: what GitHub said, and what git said. Classification from a status code and two
+/// headers is <see cref="GitHubResponse"/>, and it is here because a status code is a
+/// thing GitHub sends.
 /// </para>
 /// <para>
 /// <strong>Failures are declared here</strong>, from status codes and headers, at the point
-/// the answer was read — see <see cref="GitHubResponse"/>. Nothing above this class reads a
-/// message to decide anything, and this class does not either: where GitHub's only signal
-/// is prose, the caller asks GitHub a second question instead, and the cases that remain are
-/// named in <see cref="GitHubResponse.Unclassifiable"/> rather than guessed at.
+/// the answer was read. Nothing above this class reads a message to decide anything, and
+/// this class does not either: where GitHub's only signal is prose, the caller asks GitHub
+/// a second question instead, and the cases that remain are named in
+/// <see cref="GitHubResponse.Unclassifiable"/> rather than guessed at.
 /// </para>
 /// <para>
 /// <strong>Every request carries a <c>User-Agent</c>, and that is not politeness.</strong>
@@ -76,7 +71,7 @@ using Microsoft.Extensions.Logging;
 /// that ships it (ADR-0006).
 /// </para>
 /// </remarks>
-public sealed class GitHubClient : IGitHub
+public sealed class GitHubClient : IGitHub, IMerger
 {
     /// <summary>
     /// The name of the configured client. Public because the composition root is what
@@ -152,23 +147,22 @@ public sealed class GitHubClient : IGitHub
 
     private readonly HttpClient _http;
     private readonly ProjectLoadReport _projects;
-    private readonly FactoryOptions _options;
-    private readonly IWorkItemStore _store;
     private readonly ICredentialReader _credentials;
     private readonly ILogger<GitHubClient> _logger;
 
+    /// <summary>
+    /// There is no store here, and no work item either: a merge arrives as a
+    /// <see cref="MergePlan"/> and this component reads nothing but the plan, the project's
+    /// own configuration and GitHub's answers.
+    /// </summary>
     public GitHubClient(
         HttpClient http,
         ProjectLoadReport projects,
-        FactoryOptions options,
-        IWorkItemStore store,
         ICredentialReader credentials,
         ILogger<GitHubClient> logger)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-        _store = store ?? throw new ArgumentNullException(nameof(store));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -344,15 +338,20 @@ public sealed class GitHubClient : IGitHub
         ArgumentNullException.ThrowIfNull(request);
 
         var repository = RepositoryRef.Parse(request.RepoUrl);
-        var workItem = WorkItemFor(repository, request.IssueNumber);
         var token = TokenFor(ProjectServing(repository));
 
-        var opened = await OpenThePullRequestAsync(
+        // The base branch is on the request rather than read from the store, and that is the
+        // last of the store coupling gone: this used to look the work item up to find out
+        // which branch the round was built against, in a REST client, because the one
+        // caller of this had a work item and did not put it on the request. The caller
+        // still has it — it is the work item's own base branch, from intake.
+        var opened = await PostThePullRequestAsync(
             repository,
-            workItem,
             request.Branch,
             request.Title,
             request.Body,
+            request.BaseBranch,
+            request.IssueNumber,
             token,
             cancellationToken).ConfigureAwait(false);
 
@@ -525,311 +524,55 @@ public sealed class GitHubClient : IGitHub
         Expect(closed, $"closing {repository.FullName}#{issueNumber}");
     }
 
-    /// <summary>
-    /// An issue's node id, which is what GitHub's own relationship endpoints take rather than
-    /// a number. Resolved rather than composed from a number because the factory does not
-    /// have to be right about GitHub's internal id encoding to link two issues, and a
-    /// composed id that happens to be wrong fails in a way that looks like a permissions
-    /// problem.
-    /// </summary>
-    private async Task<long> IssueIdAsync(
-        RepositoryRef repository,
-        int issueNumber,
-        string token,
-        CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public Task ResolveAsync(MergePlan plan, CancellationToken cancellationToken)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+        var repository = RepositoryFor(plan);
 
-        var answer = await AskAsync(
-            HttpMethod.Get,
-            $"{repository.ApiPath}/issues/{issueNumber}",
-            token,
-            json: null,
-            cancellationToken).ConfigureAwait(false);
+        // Both refusals are raised here rather than at the first request, so that a
+        // misconfigured project and an absent credential are answered with nothing sent and
+        // nothing started. The order is the policy's to decide; the facts are this class's
+        // to answer.
+        _ = TokenFor(ProjectServing(repository));
 
-        Expect(answer, $"{repository.FullName}#{issueNumber}");
-
-        // The database id, not the number and not the node id: the relationship endpoints
-        // below take numbers in their paths and database ids in their bodies, and a node
-        // id is a string no REST relationship endpoint reads. This was found on a live
-        // repository — the first Grill published its questions issue and then linked it
-        // with a 404, because what this method handed the linker was neither of the two
-        // identifiers the endpoint asks for.
-        var node = Read(answer);
-        return node.TryGetProperty("id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.Number
-            ? id.GetInt64()
-            : throw new PermanentFailure(
-                $"GitHub answered for {repository.FullName}#{issueNumber} without the numeric id its own relationship "
-                    + "endpoints need, so this factory cannot link it to anything");
+        return Task.CompletedTask;
     }
-
-    private async Task LinkAsSubIssueAsync(
-        RepositoryRef repository,
-        int parentNumber,
-        long childId,
-        string token,
-        CancellationToken cancellationToken)
-    {
-        // GitHub's own shape, read from its documentation rather than from a fake that
-        // agrees with this client by construction: the parent's issue number addresses the
-        // endpoint, and the child's database id names what is being added under it.
-        var answer = await AskAsync(
-            HttpMethod.Post,
-            $"{repository.ApiPath}/issues/{parentNumber}/sub_issues",
-            token,
-            json: new Dictionary<string, object?> { ["sub_issue_id"] = childId },
-            cancellationToken).ConfigureAwait(false);
-
-        Expect(answer, $"a sub-issue link on {repository.FullName}#{parentNumber}");
-    }
-
-    /// <summary>The label every issue the factory creates carries — <see cref="IGitHub.FactoryIssueLabel"/>.</summary>
 
     /// <inheritdoc />
-    public async Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken)
+    public async Task<TreeAtHead> ReadTheTreeAsync(string tree, CancellationToken cancellationToken)
     {
-        // Everything that can be refused without leaving the building is refused first, so
-        // a misconfigured project, an absent credential, a work item this process has never
-        // heard of and a round whose tree never came out of its container are all answered
-        // without a request and without a git process. Four of those five are facts about
-        // this machine or this configuration, and none of them changes in ten seconds.
-        var repository = RepositoryRef.Parse(repoUrl);
-        var project = ProjectServing(repository);
-        var token = TokenFor(project);
-        var workItem = WorkItemFor(repository, issueNumber);
-        var tree = TreeFor(workItem);
-        var commit = await CommitAt(tree, cancellationToken).ConfigureAwait(false);
-        var branch = BranchName.For(issueNumber, workItem.IssueTitle);
-
-        // The merger is the one component that holds no work item until it has gone looking
-        // for one, and this is where it has it: from here on, every record this method
-        // writes — including the ones its private methods write — carries the work item the
-        // change belongs to. Shipping is the last thing that happens to a work item, and a
-        // record of a push or a merge that names only `project#13` is a record a reader has
-        // to join to a work item by hand, which is the join this scope removes.
-        using var trace = _logger.ForWorkItem(workItem.Id, workItem.Project, workItem.IssueNumber);
-
-        _logger.LogInformation(
-            "Shipping {Project}#{Issue}: the change is commit {Commit} on branch {Branch}, pushed from {Tree}.",
-            project.Name,
-            issueNumber,
-            Short(commit),
-            branch,
-            tree);
-
-        // **Read before write.** Whether a pull request already exists is asked first,
-        // before anything is created and before the branch is pushed, and it is the step
-        // that makes this whole method safe to call twice. Every attempt for one work item
-        // derives the same branch, so "the pull request for this branch" is a question with
-        // one answer, and this is where it is asked.
-        var existing = await FindThePullRequestAsync(repository, branch, token, cancellationToken)
+        // The uncommitted read comes second and is asked whatever the first said, because
+        // "there is no commit" and "there is no commit *and* something uncommitted" are
+        // different refusals with different messages and the policy needs both facts to
+        // tell them apart. Nothing here decides: a null is a null.
+        var head = await GitPusher
+            .RunAsync(tree, GitPusher.HeadArguments(), authorization: null, cancellationToken)
             .ConfigureAwait(false);
 
-        if (existing is { Merged: true })
-        {
-            // Already shipped. Not an error and not a second merge: `Done` means merged, and
-            // the change is merged, so a second approve or a second attempt at a parked
-            // merge has nothing left to do and says so rather than opening anything.
-            _logger.LogInformation(
-                "The change for {Project}#{Issue} is already in {Repository}#{Pull} and merged, so there is "
-                    + "nothing left to ship.",
-                project.Name,
-                issueNumber,
-                repository.FullName,
-                existing.Number);
-
-            await CloseTheStoriesAsync(
-                repository,
-                repoUrl,
-                workItem,
-                existing.Number,
-                token,
-                cancellationToken).ConfigureAwait(false);
-
-            return;
-        }
-
-        if (existing is { Merged: false, State: "closed" })
-        {
-            // A human closed this pull request without merging it. That is the same kind of
-            // act as a rejection, and the asymmetry the whole loop is built on applies here
-            // too: a decline is conclusive and the factory does not go around it. Permanent,
-            // and refused with the pull request named so it can be looked at.
-            throw new PermanentFailure(
-                $"{repository.FullName}#{existing.Number} — the pull request for this change — was closed without "
-                    + $"being merged, so the factory will not open another or merge over that. It is a decline, and "
-                    + "the way out of one is a human's, from the board");
-        }
-
-        // An open pull request means the branch is already on the remote, so the push below
-        // is only for the case where there is nothing there yet.
-        if (existing is null)
-        {
-            await PushAsync(repository, tree, commit, branch, token, cancellationToken).ConfigureAwait(false);
-        }
-
-        var pull = existing ?? await OpenThePullRequestAsync(
-            repository,
-            workItem,
-            branch,
-            PullRequestText.Title(workItem),
-            PullRequestText.Body(workItem, branch),
-            token,
-            cancellationToken).ConfigureAwait(false);
-
-        // The pull request has to be the change a reviewer judged. If something else has
-        // been pushed onto the factory's branch since — a human fixing a conflict, a hook,
-        // a second machine running the same factory — the commits on it are not the ones
-        // that were on the board, and merging would ship work nobody looked at. Refused,
-        // permanently: it is not going to become the reviewed change again on its own.
-        if (pull.HeadSha is { Length: > 0 } head && !string.Equals(head, commit, StringComparison.Ordinal))
-        {
-            throw new PermanentFailure(
-                $"{repository.FullName}#{pull.Number} carries commit {Short(head)} on {branch}, and this round's "
-                    + $"change is {Short(commit)}: the branch has moved on since the reviewer judged it, so merging "
-                    + "it would ship work the board never showed anybody");
-        }
-
-        await MergeThePullRequestAsync(repository, pull, branch, token, cancellationToken)
+        var uncommitted = await GitPusher
+            .RunAsync(tree, GitPusher.UncommittedArguments(), authorization: null, cancellationToken)
             .ConfigureAwait(false);
 
-        _logger.LogInformation(
-            "Merged {Repository}#{Pull} — the change for {Project}#{Issue} — as a {Method} commit on {Branch}.",
-            repository.FullName,
-            pull.Number,
-            project.Name,
-            issueNumber,
-            MergeMethod,
-            branch);
-
-        await CloseTheStoriesAsync(
-            repository,
-            repoUrl,
-            workItem,
-            pull.Number,
-            token,
-            cancellationToken).ConfigureAwait(false);
+        return new TreeAtHead(
+            head.Succeeded ? head.Output.Trim() : null,
+            uncommitted.Succeeded ? uncommitted.Output : null);
     }
 
-    /// <summary>
-    /// Closes the issues a merge ends the story of: the issue the change answers, and —
-    /// when the change was grilled first — the questions issue whose conversation shaped
-    /// it. Nothing short of the merge closes either one.
-    /// </summary>
-    /// <remarks>
-    /// The pull request's body says <c>Refs</c> rather than <c>Closes</c>, so nothing
-    /// GitHub did on its own has closed the answered issue, and the rule this method
-    /// carries is the reviewer's own: <c>merged</c> is what closes an issue, and anything
-    /// short of that — a pull request declined without merging, a merge that never
-    /// landed — leaves the issues exactly as open as they were. Both success paths above
-    /// arrive here: the merge this call made, and the retry that found the pull request
-    /// already merged. Each issue's state is read before its close, because the retry is a
-    /// retry's ordinary answer and a retry creates nothing — a second close would post a
-    /// second comment under an issue a human already saw closed.
-    /// <para>
-    /// The questions issue is closed beside the answered one, and the reason is the same
-    /// rule read from the other side: its conversation is where the human answered, the
-    /// answer is now on the base branch, and a questions issue left open over shipped work
-    /// is the factory's own output outliving its purpose — found the hard way, when the
-    /// first live Grill shipped and its questions issue sat open with nothing left to
-    /// say. A close that cannot happen does not un-land a merge that did: the refusal is
-    /// logged and the merge stands, because <c>Done</c> means merged and an issue left
-    /// open beside a merged change is a state a human can finish with one click.
-    /// </para>
-    /// </remarks>
-    private async Task CloseTheStoriesAsync(
-        RepositoryRef repository,
-        string repoUrl,
-        WorkItem workItem,
-        int pullNumber,
-        string token,
+    /// <inheritdoc />
+    public async Task<PullRequestOnRemote?> FindThePullRequestAsync(
+        MergePlan plan,
         CancellationToken cancellationToken)
     {
-        await CloseWithCommentIfOpenAsync(
-            repository,
-            repoUrl,
-            workItem.IssueNumber,
-            $"Merged as #{pullNumber} — the change answering this issue is on the base branch.",
-            token,
-            cancellationToken).ConfigureAwait(false);
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+        var branch = plan.Branch;
 
-        if (workItem.RoutingIssue is { } questions && questions != workItem.IssueNumber)
-        {
-            await CloseWithCommentIfOpenAsync(
-                repository,
-                repoUrl,
-                questions,
-                $"Merged as #{pullNumber} — the answers in this conversation shaped the change that landed. "
-                    + "Closing it with the work it unblocked.",
-                token,
-                cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private async Task CloseWithCommentIfOpenAsync(
-        RepositoryRef repository,
-        string repoUrl,
-        int issueNumber,
-        string because,
-        string token,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var answer = await AskAsync(
-                HttpMethod.Get,
-                $"{repository.ApiPath}/issues/{issueNumber}",
-                token,
-                json: null,
-                cancellationToken).ConfigureAwait(false);
-
-            Expect(answer, $"an issue on {repository.FullName}");
-
-            if (Read(answer).TryGetProperty("state", out var state)
-                && string.Equals(state.GetString(), "closed", StringComparison.Ordinal))
-            {
-                _logger.LogInformation(
-                    "{Repository}#{Issue} is already closed, so the merge closes nothing.",
-                    repository.FullName,
-                    issueNumber);
-                return;
-            }
-
-            await CloseIssueAsync(repoUrl, issueNumber, because, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation(
-                "Closed {Repository}#{Issue}: the change it belongs to is merged and on the base branch.",
-                repository.FullName,
-                issueNumber);
-        }
-        catch (Exception refused) when (refused is PermanentFailure or TransientFailure)
-        {
-            _logger.LogWarning(
-                "{Repository}#{Issue} could not be closed after the merge: {Refusal}. The merge stands; "
-                    + "the issue is left for a human to close.",
-                repository.FullName,
-                issueNumber,
-                refused.Message);
-        }
-    }
-
-    /// <summary>
-    /// The pull request already open against this branch, or null if there is none.
-    /// </summary>
-    /// <remarks>
-    /// <c>state=all</c>, because "no pull request" has to mean no pull request rather than
-    /// no <em>open</em> one: a retry after a merge that GitHub accepted but this process
-    /// never saw the answer to would otherwise find nothing, push again, and open a second
-    /// pull request for a change that is already on the base branch. When several come back
-    /// the highest number wins, which is the most recent one — the only one that could be
-    /// the one this process is looking for.
-    /// </remarks>
-    private async Task<RemotePullRequest?> FindThePullRequestAsync(
-        RepositoryRef repository,
-        string branch,
-        string token,
-        CancellationToken cancellationToken)
-    {
+        // `state=all`, because "no pull request" has to mean no pull request rather than no
+        // <em>open</em> one: a retry after a merge that GitHub accepted but this process
+        // never saw the answer to would otherwise find nothing, push again, and open a
+        // second pull request for a change that is already on the base branch. When several
+        // come back the highest number wins, which is the most recent one — the only one that
+        // could be the one this process is looking for.
         var head = Uri.EscapeDataString($"{repository.Owner}:{branch}");
         var answer = await AskAsync(
             HttpMethod.Get,
@@ -842,128 +585,18 @@ public sealed class GitHubClient : IGitHub
 
         return Read(answer)
             .EnumerateArray()
-            .Select(RemotePullRequest.From)
+            .Select(PullFrom)
             .OrderByDescending(pull => pull.Number)
             .FirstOrDefault();
     }
 
-    /// <summary>
-    /// Gets the branch onto the remote, or establishes that it is already there.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The remote is asked about the branch <em>before</em> git is, and that read is what
-    /// makes the push idempotent rather than merely repeatable: a second attempt for a work
-    /// item whose push already landed finds the branch at the same commit and sends
-    /// nothing at all. A branch that exists at a <em>different</em> commit is refused
-    /// permanently, because there is no <c>--force</c> anywhere in this factory and a
-    /// branch somebody else owns is not this factory's to overwrite.
-    /// </para>
-    /// <para>
-    /// A push git refuses is then classified by asking the remote two further questions
-    /// rather than by reading git's output, because git has no status code and its prose is
-    /// not a contract. If the branch is now at this commit, the push landed and git did not
-    /// say so. If it is at another commit, the branch is not ours. If it is not there at all,
-    /// then whether this factory could reach the remote *at all* decides: if it could not,
-    /// the push failed because nothing was reachable and that is transient; if it could,
-    /// then git's refusal is the remote's own answer and repeating it would only be
-    /// refused the same way.
-    /// </para>
-    /// </remarks>
-    private async Task PushAsync(
-        RepositoryRef repository,
-        string tree,
-        string commit,
-        string branch,
-        string token,
-        CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<string?> BranchOnTheRemoteAsync(MergePlan plan, CancellationToken cancellationToken)
     {
-        var onRemote = await RemoteBranchAsync(repository, branch, token, cancellationToken).ConfigureAwait(false);
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+        var branch = plan.Branch;
 
-        if (string.Equals(onRemote, commit, StringComparison.Ordinal))
-        {
-            _logger.LogInformation(
-                "{Branch} is already on {Repository} at {Commit}, which is this change, so there is nothing to push.",
-                branch,
-                repository.FullName,
-                Short(commit));
-
-            return;
-        }
-
-        if (onRemote is { Length: > 0 } somebodyElse)
-        {
-            throw new PermanentFailure(
-                $"{repository.FullName} already has a branch {branch}, at commit {Short(somebodyElse)}, and this "
-                    + $"round's change is {Short(commit)}. The factory does not force a branch, so this change "
-                    + "cannot be shipped on it and nothing has been pushed");
-        }
-
-        var pushed = await GitPusher.PushAsync(
-            tree,
-            repository.PushUrl,
-            commit,
-            branch,
-            GitPusher.BasicAuthorization(token),
-            cancellationToken).ConfigureAwait(false);
-
-        if (pushed.Succeeded)
-        {
-            return;
-        }
-
-        // What did the remote actually do? The two questions, in the order that decides.
-        var now = await RemoteBranchAsync(repository, branch, token, cancellationToken).ConfigureAwait(false);
-
-        if (string.Equals(now, commit, StringComparison.Ordinal))
-        {
-            _logger.LogWarning(
-                "git did not report pushing {Branch} to {Repository} ({Reason}), but the branch is there at "
-                    + "{Commit}, so it landed and this is treated as a push that worked.",
-                branch,
-                repository.FullName,
-                pushed.Summary,
-                Short(commit));
-
-            return;
-        }
-
-        if (now is { Length: > 0 } movedOn)
-        {
-            throw new PermanentFailure(
-                $"{repository.FullName} has a branch {branch} at commit {Short(movedOn)} after git refused to push "
-                    + $"this change's commit {Short(commit)} to it. The factory does not force a branch, so nothing "
-                    + "has been pushed");
-        }
-
-        if (!await TheRemoteIsReachableAsync(repository, token, cancellationToken).ConfigureAwait(false))
-        {
-            throw new TransientFailure(
-                $"git could not push {branch} to {repository.FullName} ({pushed.Summary}), and the repository could "
-                    + "not be reached either, so this is a connection that was not there rather than an answer from "
-                    + "the remote");
-        }
-
-        throw new PermanentFailure(
-            $"git refused to push {branch} to {repository.FullName} — {pushed.Summary} — and the branch is not "
-                + "there. The repository answered a request made straight after it, so this is the remote declining "
-                + "the push rather than a connection that dropped, and asking again would be refused the same way");
-    }
-
-    /// <summary>
-    /// The commit a branch is at on the remote, or null when the branch is not there.
-    /// </summary>
-    /// <remarks>
-    /// A 404 is the answer "no such branch" and only that. Anything else is a refusal, and
-    /// a refusal on this read is the same failure the push would be: it happens before the
-    /// push on a first attempt and after one on a retry.
-    /// </remarks>
-    private async Task<string?> RemoteBranchAsync(
-        RepositoryRef repository,
-        string branch,
-        string token,
-        CancellationToken cancellationToken)
-    {
         // The ref is addressed by its full path under refs/, so the branch's own slash is
         // part of the path rather than something to escape.
         var answer = await AskAsync(
@@ -983,18 +616,12 @@ public sealed class GitHubClient : IGitHub
         return Read(answer).GetProperty("object").GetProperty("sha").GetString();
     }
 
-    /// <summary>
-    /// Whether the repository can be reached at all, answered by making the cheapest
-    /// request there is. The answer is a classification rather than a boolean, and that is
-    /// the point: a request that came back as a refusal proves the remote answered, so a
-    /// push git refused was refused by the remote; a request that never came back proves
-    /// the opposite, and the push failed for want of a connection.
-    /// </summary>
-    private async Task<bool> TheRemoteIsReachableAsync(
-        RepositoryRef repository,
-        string token,
-        CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<bool> TheRemoteIsReachableAsync(MergePlan plan, CancellationToken cancellationToken)
     {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
         try
         {
             // Through `Expect`, so a refusal is raised and classified here rather than
@@ -1024,28 +651,48 @@ public sealed class GitHubClient : IGitHub
         }
     }
 
-    private async Task<RemotePullRequest> OpenThePullRequestAsync(
-        RepositoryRef repository,
-        WorkItem workItem,
-        string branch,
-        string title,
-        string body,
-        string token,
+    /// <inheritdoc />
+    public async Task<PushAttempt> PushTheCommitAsync(MergePlan plan, CancellationToken cancellationToken)
+    {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
+        var pushed = await GitPusher.PushAsync(
+            plan.Tree,
+            repository.PushUrl,
+            plan.Commit,
+            plan.Branch,
+            GitPusher.BasicAuthorization(token),
+            cancellationToken).ConfigureAwait(false);
+
+        // The exit code is reported and not interpreted. What a non-zero exit means is a
+        // question about the remote, and only the policy can turn it into an answer — by
+        // asking the remote, twice, rather than by reading git's words.
+        return new PushAttempt(pushed.Succeeded, pushed.Summary);
+    }
+
+    /// <inheritdoc />
+    public async Task<PullRequestOnRemote> OpenThePullRequestAsync(
+        MergePlan plan,
         CancellationToken cancellationToken)
     {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
         var answer = await AskAsync(
             HttpMethod.Post,
             $"{repository.ApiPath}/pulls",
             token,
             json: new Dictionary<string, object?>
             {
-                ["title"] = title,
-                ["body"] = body,
-                ["head"] = branch,
+                ["title"] = plan.Title,
+                ["body"] = plan.Body,
+                ["head"] = plan.Branch,
+
                 // GitHub's own name for the branch the change lands on. The work item's base
                 // is where the round was built, and the two are the same by construction:
                 // intake resolved the default branch and the round fetched it.
-                ["base"] = workItem.BaseBranch,
+                ["base"] = plan.WorkItem.BaseBranch,
 
                 // The factory does not maintain branches, so it does not ask for the
                 // permission to. Said here rather than left to the default because the
@@ -1064,15 +711,14 @@ public sealed class GitHubClient : IGitHub
             // rather than by reading the 422's message: if a pull request is there now, it
             // is the one to merge, and if there is not, the 422 was about something else
             // and is a real refusal.
-            var raced = await FindThePullRequestAsync(repository, branch, token, cancellationToken)
-                .ConfigureAwait(false);
+            var raced = await FindThePullRequestAsync(plan, cancellationToken).ConfigureAwait(false);
 
             if (raced is not null)
             {
                 _logger.LogWarning(
                     "GitHub refused to open a second pull request for {Branch} on {Repository}, and there is one "
                         + "there now (#{Pull}), so this attempt will finish that one instead.",
-                    branch,
+                    plan.Branch,
                     repository.FullName,
                     raced.Number);
 
@@ -1080,27 +726,62 @@ public sealed class GitHubClient : IGitHub
             }
         }
 
-        Expect(answer, $"a pull request for {branch} on {repository.FullName}");
+        Expect(answer, $"a pull request for {plan.Branch} on {repository.FullName}");
 
-        var opened = RemotePullRequest.From(Read(answer));
+        var opened = PullFrom(Read(answer));
         _logger.LogInformation(
             "Opened {Repository}#{Pull} from {Branch} onto {Base}, answering issue #{Issue}.",
             repository.FullName,
             opened.Number,
-            branch,
-            workItem.BaseBranch,
-            workItem.IssueNumber);
+            plan.Branch,
+            plan.WorkItem.BaseBranch,
+            plan.IssueNumber);
 
         return opened;
     }
 
-    private async Task MergeThePullRequestAsync(
-        RepositoryRef repository,
-        RemotePullRequest pull,
-        string branch,
-        string token,
+    /// <inheritdoc />
+    public async Task<PullRequestOnRemote?> ReadThePullRequestAsync(
+        MergePlan plan,
+        int number,
         CancellationToken cancellationToken)
     {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
+        var answer = await AskAsync(
+            HttpMethod.Get,
+            $"{repository.ApiPath}/pulls/{number}",
+            token,
+            json: null,
+            cancellationToken).ConfigureAwait(false);
+
+        // A read that fails is not a reason to change the answer the caller already has.
+        // This read is only there to say whether the merge landed despite it, so it reports
+        // what it found and says nothing when it found nothing.
+        if (!answer.Ok)
+        {
+            _logger.LogWarning(
+                "Could not read {Repository}#{Pull} back after a merge that did not report one: {Reason}",
+                repository.FullName,
+                number,
+                GitHubResponse.Refusal(answer.Status, answer.Headers, answer.Body, "reading a pull request back").Message);
+
+            return null;
+        }
+
+        return PullFrom(Read(answer));
+    }
+
+    /// <inheritdoc />
+    public async Task MergeThePullRequestAsync(
+        MergePlan plan,
+        PullRequestOnRemote pull,
+        CancellationToken cancellationToken)
+    {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
         var answer = await AskAsync(
             new HttpMethod("PUT"),
             $"{repository.ApiPath}/pulls/{pull.Number}/merge",
@@ -1117,8 +798,7 @@ public sealed class GitHubClient : IGitHub
         // merge. Both are answered the same way and neither is answered by reading the
         // answer: what the pull request is *now* is GitHub's own structured account of
         // whether the change landed, and that is the question a retry turns on.
-        var now = await ReadThePullRequestAsync(repository, pull.Number, token, cancellationToken)
-            .ConfigureAwait(false);
+        var now = await ReadThePullRequestAsync(plan, pull.Number, cancellationToken).ConfigureAwait(false);
 
         if (now is { Merged: true })
         {
@@ -1144,6 +824,33 @@ public sealed class GitHubClient : IGitHub
         throw WhyTheMergeWasRefused(repository, pull, answer, now);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> IsTheIssueOpenAsync(MergePlan plan, int issueNumber, CancellationToken cancellationToken)
+    {
+        var repository = RepositoryFor(plan);
+        var token = TokenFor(ProjectServing(repository));
+
+        var answer = await AskAsync(
+            HttpMethod.Get,
+            $"{repository.ApiPath}/issues/{issueNumber}",
+            token,
+            json: null,
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"an issue on {repository.FullName}");
+
+        return !(Read(answer).TryGetProperty("state", out var state)
+            && string.Equals(state.GetString(), "closed", StringComparison.Ordinal));
+    }
+
+    /// <inheritdoc />
+    public Task CloseTheIssueAsync(
+        MergePlan plan,
+        int issueNumber,
+        string because,
+        CancellationToken cancellationToken) =>
+        CloseIssueAsync(plan.Repository, issueNumber, because, cancellationToken);
+
     /// <summary>
     /// The refusal a merge is, decided from the pull request's own mergeable state where
     /// GitHub gave one status for two different facts.
@@ -1156,11 +863,11 @@ public sealed class GitHubClient : IGitHub
     /// new base and often succeeds). Which one it is is in the pull request's
     /// <c>mergeable_state</c>, which is a field rather than a sentence, so it is read.
     /// </remarks>
-    private Exception WhyTheMergeWasRefused(
+    private static Exception WhyTheMergeWasRefused(
         RepositoryRef repository,
-        RemotePullRequest pull,
+        PullRequestOnRemote pull,
         Answer answer,
-        RemotePullRequest? now)
+        PullRequestOnRemote? now)
     {
         if (answer.Status is HttpStatusCode.MethodNotAllowed or HttpStatusCode.Conflict)
         {
@@ -1204,34 +911,110 @@ public sealed class GitHubClient : IGitHub
             $"merging {repository.FullName}#{pull.Number}");
     }
 
-    private async Task<RemotePullRequest?> ReadThePullRequestAsync(
+    /// <summary>
+    /// An issue's node id, which is what GitHub's own relationship endpoints take rather than
+    /// a number. Resolved rather than composed from a number because the factory does not
+    /// have to be right about GitHub's internal id encoding to link two issues, and a
+    /// composed id that happens to be wrong fails in a way that looks like a permissions
+    /// problem.
+    /// </summary>
+    private async Task<long> IssueIdAsync(
         RepositoryRef repository,
-        int number,
+        int issueNumber,
         string token,
         CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+
         var answer = await AskAsync(
             HttpMethod.Get,
-            $"{repository.ApiPath}/pulls/{number}",
+            $"{repository.ApiPath}/issues/{issueNumber}",
             token,
             json: null,
             cancellationToken).ConfigureAwait(false);
 
-        // A read that fails is not a reason to change the answer to the merge. The refusal
-        // the caller already has is the honest one; this read is only there to say whether
-        // the merge landed despite it.
-        if (!answer.Ok)
-        {
-            _logger.LogWarning(
-                "Could not read {Repository}#{Pull} back after a merge that did not report one: {Reason}",
-                repository.FullName,
-                number,
-                GitHubResponse.Refusal(answer.Status, answer.Headers, answer.Body, "reading a pull request back").Message);
+        Expect(answer, $"{repository.FullName}#{issueNumber}");
 
-            return null;
-        }
+        // The database id, not the number and not the node id: the relationship endpoints
+        // below take numbers in their paths and database ids in their bodies, and a node
+        // id is a string no REST relationship endpoint reads. This was found on a live
+        // repository — the first Grill published its questions issue and then linked it
+        // with a 404, because what this method handed the linker was neither of the two
+        // identifiers the endpoint asks for.
+        var node = Read(answer);
+        return node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number
+            ? id.GetInt64()
+            : throw new PermanentFailure(
+                $"GitHub answered for {repository.FullName}#{issueNumber} without the numeric id its own relationship "
+                    + "endpoints need, so this factory cannot link it to anything");
+    }
 
-        return RemotePullRequest.From(Read(answer));
+    private async Task LinkAsSubIssueAsync(
+        RepositoryRef repository,
+        int parentNumber,
+        long childId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        // GitHub's own shape, read from its documentation rather than from a fake that
+        // agrees with this client by construction: the parent's issue number addresses the
+        // endpoint, and the child's database id names what is being added under it.
+        var answer = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/issues/{parentNumber}/sub_issues",
+            token,
+            json: new Dictionary<string, object?> { ["sub_issue_id"] = childId },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"a sub-issue link on {repository.FullName}#{parentNumber}");
+    }
+
+    private async Task<PullRequestOnRemote> PostThePullRequestAsync(
+        RepositoryRef repository,
+        string branch,
+        string title,
+        string body,
+        string baseBranch,
+        int issueNumber,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var answer = await AskAsync(
+            HttpMethod.Post,
+            $"{repository.ApiPath}/pulls",
+            token,
+            json: new Dictionary<string, object?>
+            {
+                ["title"] = title,
+                ["body"] = body,
+                ["head"] = branch,
+
+                // GitHub's own name for the branch the change lands on. The work item's base
+                // is where the round was built, and the two are the same by construction:
+                // intake resolved the default branch and the round fetched it.
+                ["base"] = baseBranch,
+
+                // The factory does not maintain branches, so it does not ask for the
+                // permission to. Said here rather than left to the default because the
+                // default is a question about somebody else's repository, and this is the
+                // one place in the factory that gets to have an opinion about it.
+                ["maintainer_can_modify"] = false,
+                ["draft"] = false,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        Expect(answer, $"a pull request for {branch} on {repository.FullName}");
+
+        var opened = PullFrom(Read(answer));
+        _logger.LogInformation(
+            "Opened {Repository}#{Pull} from {Branch} onto {Base}, answering issue #{Issue}.",
+            repository.FullName,
+            opened.Number,
+            branch,
+            baseBranch,
+            issueNumber);
+
+        return opened;
     }
 
     /// <summary>
@@ -1319,6 +1102,33 @@ public sealed class GitHubClient : IGitHub
         }
     }
 
+    /// <summary>The repository a plan ships to, from the project's own URL and nothing else.</summary>
+    private static RepositoryRef RepositoryFor(MergePlan plan) => RepositoryRef.Parse(plan.Repository);
+
+    /// <summary>
+    /// A pull request as GitHub describes it. Read here rather than on the port's type
+    /// because reading GitHub's JSON is this side's job, and a port that carried a parser
+    /// would be a port that knew the service's wire format.
+    /// </summary>
+    private static PullRequestOnRemote PullFrom(JsonElement pull) => new(
+        pull.GetProperty("number").GetInt32(),
+        pull.TryGetProperty("html_url", out var url) ? url.GetString() ?? string.Empty : string.Empty,
+        pull.TryGetProperty("state", out var state) ? state.GetString() ?? string.Empty : string.Empty,
+        pull.TryGetProperty("head", out var head) && head.TryGetProperty("sha", out var sha)
+            ? sha.GetString() ?? string.Empty
+            : string.Empty,
+        pull.TryGetProperty("base", out var withBase) && withBase.TryGetProperty("ref", out var baseRef)
+            ? baseRef.GetString() ?? string.Empty
+            : string.Empty,
+
+        // `merged_at` rather than `state`: GitHub reports a merged pull request as closed,
+        // so the state alone cannot tell a merge from a decline — and the difference
+        // between them is the whole of what the idempotency argument rests on.
+        pull.TryGetProperty("merged_at", out var mergedAt) && mergedAt.ValueKind == JsonValueKind.String,
+        pull.TryGetProperty("mergeable_state", out var mergeable)
+            ? mergeable.GetString() ?? string.Empty
+            : string.Empty);
+
     /// <summary>The project file being served for this repository, or a refusal naming it.</summary>
     private Project ProjectServing(RepositoryRef repository)
     {
@@ -1355,142 +1165,6 @@ public sealed class GitHubClient : IGitHub
                 + "environment does not have it. Nothing can be pushed and no pull request can be opened without one, "
                 + "and the value an operator sets is not something a second attempt would change");
     }
-
-    /// <summary>
-    /// The work item an issue number is, which is the record the branch, the pull request
-    /// and the tree are all named from.
-    /// </summary>
-    /// <remarks>
-    /// Read from the store rather than fetched from GitHub, deliberately. The work item is
-    /// the factory's own record of the issue — number, title, base branch — and it is what
-    /// the reviewer read on the board. A pull request titled from GitHub's copy of the issue
-    /// would be a second source of truth about the same thing, free to disagree with the
-    /// board; and the branch name is derived from the title, so a title that changed on
-    /// GitHub between the round and the merge would move the branch out from under a push
-    /// that had already happened.
-    /// </remarks>
-    private WorkItem WorkItemFor(RepositoryRef repository, int issueNumber)
-    {
-        var workItem = _store.List()
-            .FirstOrDefault(candidate => candidate.IssueNumber == issueNumber
-                && RepositoryRef.IsSame(candidate.RepoUrl, repository.PushUrl));
-
-        if (workItem is not null)
-        {
-            return workItem;
-        }
-
-        throw new PermanentFailure(
-            $"this factory has no work item for {repository.FullName}#{issueNumber}, so there is no change of its own "
-                + "to ship. The loop asks the merger about work items it holds, so reaching here means the call and the "
-                + "record have come apart");
-    }
-
-    /// <summary>
-    /// The round's tree on this host, which is where its commit is. The host pushes, so a
-    /// round whose tree did not come out of its container has nothing to push — the
-    /// container is gone and there is no second copy of the change (ADR-0006).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// It is the <em>latest</em> round's tree, and that is the whole of the change this
-    /// ticket made to this method. The path is per round rather than per work item now —
-    /// <c>docker cp</c> copies a directory into a destination that already exists rather
-    /// than replacing it, so one directory per work item put round 2's tree inside round
-    /// 1's (#22) — and a merger that still looked in the work item's own directory would be
-    /// pushing round 1's commit while the reviewer believed they were judging round 2.
-    /// </para>
-    /// <para>
-    /// The latest round with a tree, rather than the latest round: a round whose tree never
-    /// came out is not a reason to ship an earlier one, so the search walks back until it
-    /// finds a tree and says which round it is shipping if it cannot find one at all.
-    /// </para>
-    /// </remarks>
-    private string TreeFor(WorkItem workItem)
-    {
-        var rounds = _store.Rounds(workItem.Id);
-
-        foreach (var round in Enumerable.Reverse(rounds))
-        {
-            if (round.Diff is { } diff && Directory.Exists(Path.Combine(diff.Tree, ".git")))
-            {
-                return diff.Tree;
-            }
-        }
-
-        // Named by the rounds that had none, so the refusal says which round the reviewer
-        // was looking at rather than only that the host has nothing.
-        throw new PermanentFailure(
-            $"none of the {rounds.Count} round(s) of {workItem.Project}#{workItem.IssueNumber} left a tree on this "
-                + "host, so there is no commit to push. The containers that made the changes are gone and the host "
-                + "holds the only copy of them, so this cannot be retried into existence and the change has to be "
-                + "built again");
-    }
-
-    /// <summary>
-    /// The commit to ship, and the check that the tree holds nothing else.
-    /// </summary>
-    /// <remarks>
-    /// The uncommitted check is the whole of "the diff a reviewer judges is the diff that
-    /// would ship". The board's diff is <c>git diff</c> against the base of the working
-    /// tree, so it shows a round's uncommitted files along with its commits; a push sends
-    /// only what was committed. Shipping a change that is not the one on the board would
-    /// break the one property the review surface exists for, and committing the difference
-    /// here would make the host the author of work nobody reviewed, which is the thing
-    /// ADR-0006 exists to prevent. So the two are refused against each other, and a human
-    /// finishes it from the board.
-    /// </remarks>
-    private async Task<string> CommitAt(string tree, CancellationToken cancellationToken)
-    {
-        var head = await GitPusher
-            .RunAsync(tree, GitPusher.HeadArguments(), authorization: null, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!head.Succeeded)
-        {
-            throw new PermanentFailure(
-                $"the round's tree at {tree} has no commit to push: {head.Summary}. A round that committed nothing "
-                    + "produced no change for the host to ship, and the base it was built from is not this change");
-        }
-
-        var commit = head.Output.Trim();
-        if (commit.Length == 0)
-        {
-            throw new PermanentFailure($"the round's tree at {tree} named no commit at HEAD");
-        }
-
-        var uncommitted = await GitPusher
-            .RunAsync(tree, GitPusher.UncommittedArguments(), authorization: null, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!uncommitted.Succeeded)
-        {
-            throw new PermanentFailure(
-                $"the round's tree at {tree} would not say what it is holding uncommitted: {uncommitted.Summary}. The "
-                    + "factory will not push a change it cannot account for");
-        }
-
-        if (uncommitted.Output.Trim() is { Length: > 0 } leftBehind)
-        {
-            throw new PermanentFailure(
-                $"the round left changes in its tree that it never committed ({Describe(leftBehind)}), so what the "
-                    + "factory would push is not what the reviewer judged on the board. Committing them here would "
-                    + "make the host the author of work nobody reviewed, so this is left for a human");
-        }
-
-        return commit;
-    }
-
-    /// <summary>What git's porcelain said, in a form a reviewer can read on a board.</summary>
-    private static string Describe(string porcelain) => string.Join(
-        ", ",
-        porcelain
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => line.Trim())
-            .Take(3)
-            .Select(line => line.Length <= 60 ? line : line[..57] + "…"));
-
-    private static string Short(string commit) => commit.Length > 7 ? commit[..7] : commit;
 
     /// <summary>What one request came back with, and the request it was.</summary>
     private sealed record Answer(
@@ -1530,31 +1204,5 @@ public sealed class GitHubClient : IGitHub
                 return Body.ReplaceLineEndings(" ").Trim();
             }
         }
-    }
-
-    /// <summary>
-    /// A pull request as GitHub describes it, which is the only account of it that
-    /// decides anything here.
-    /// </summary>
-    private sealed record RemotePullRequest(int Number, string Url, string State, string HeadSha, string BaseRef, bool Merged, string MergeableState)
-    {
-        public static RemotePullRequest From(JsonElement pull) => new(
-            pull.GetProperty("number").GetInt32(),
-            pull.TryGetProperty("html_url", out var url) ? url.GetString() ?? string.Empty : string.Empty,
-            pull.TryGetProperty("state", out var state) ? state.GetString() ?? string.Empty : string.Empty,
-            pull.TryGetProperty("head", out var head) && head.TryGetProperty("sha", out var sha)
-                ? sha.GetString() ?? string.Empty
-                : string.Empty,
-            pull.TryGetProperty("base", out var withBase) && withBase.TryGetProperty("ref", out var baseRef)
-                ? baseRef.GetString() ?? string.Empty
-                : string.Empty,
-            // `merged_at` rather than `state`: GitHub reports a merged pull request as
-            // closed, so the state alone cannot tell a merge from a decline — and the
-            // difference between them is the whole of what the idempotency argument rests
-            // on.
-            pull.TryGetProperty("merged_at", out var mergedAt) && mergedAt.ValueKind == JsonValueKind.String,
-            pull.TryGetProperty("mergeable_state", out var mergeable)
-                ? mergeable.GetString() ?? string.Empty
-                : string.Empty);
     }
 }

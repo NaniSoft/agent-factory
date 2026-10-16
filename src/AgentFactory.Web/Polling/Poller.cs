@@ -8,7 +8,7 @@ using AgentFactory.Application.GitHub;
 using AgentFactory.Domain.Failures;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Application.WorkItems;
 using Microsoft.Extensions.Logging;
 

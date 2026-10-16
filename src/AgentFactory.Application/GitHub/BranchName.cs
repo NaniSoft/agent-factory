@@ -1,4 +1,4 @@
-namespace AgentFactory.GitHub;
+namespace AgentFactory.Application.GitHub;
 
 /// <summary>
 /// What a change is called on the remote, and what its pull request says. Both are derived

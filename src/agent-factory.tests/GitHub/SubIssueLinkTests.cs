@@ -4,7 +4,7 @@ using AgentFactory.Application.Projects;
 using AgentFactory.Application;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.WorkItems;
 using AgentFactory.Application.WorkItems;
@@ -70,11 +70,6 @@ public class SubIssueLinkTests
         _client = new GitHubClient(
             new HttpClient(_api) { BaseAddress = new Uri("https://api.github.com/") },
             new ProjectLoadReport([project], []),
-            new FactoryOptions(
-                _root.FactoriesDirectory,
-                _root.DatabasePath,
-                new Uri("http://127.0.0.1:0")),
-            new SqliteWorkItemStore(_root.DatabasePath, new TestClock()),
             new FakeCredentialReader().Having("NEXUS_GITHUB_TOKEN", Merging.Token),
             new RecordingLogger<GitHubClient>());
     }

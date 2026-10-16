@@ -41,28 +41,26 @@ public interface IGitHub
     /// Opens a pull request from the host, under the factory's own credential. A worker
     /// container holds nothing that can write to a remote (ADR-0006).
     /// </summary>
-    Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Merges the change a work item produced, from the host, under the factory's own
-    /// credential: the branch is pushed, the pull request is opened and the pull request
-    /// is merged, in that order and from outside the container that wrote the change
-    /// (ADR-0006). Only ever called after a decision.
-    /// </summary>
     /// <remarks>
-    /// The merge is one call because it is one thing to the loop, and the loop is what
-    /// asks: <c>Done</c> means merged, so the factory has to be able to say whether a
-    /// merge landed or not, and nothing above this seam knows or cares how it was done.
-    /// Which pull request the change ships as, what it is called and what it says are the
-    /// merger's own business and are not the loop's to decide; the loop knows the issue
-    /// the change answers and nothing more. That is what the real client is (the merging
-    /// ticket, #10), and it is what makes the call mean "shipped" or "not shipped".
+    /// <para>
+    /// <strong>Merging is not on this seam, and that is a decision rather than an
+    /// omission.</strong> This interface was one seam covering both halves of the boundary —
+    /// intake reads through it and the merger writes through it — and <c>MergeAsync</c> was
+    /// on it so that "one seam" could be claimed literally. The claim does not survive the
+    /// split honestly. What the merger needs is not a GitHub call but the whole of the merge
+    /// <em>policy</em>: which refusals there are, in what order they are reached, what the
+    /// branch is called, what the pull request says, and which round's tree is shipping.
+    /// None of that is GitHub's, and putting it on this interface said it was.
+    /// </para>
+    /// <para>
+    /// The merge is asked for through <see cref="IMergePolicy"/>, with the work item and
+    /// nothing else, and the merge's own knowledge of a repository is
+    /// <see cref="IMerger"/>. Both are declared here and both are answered by the same
+    /// class, so there is still exactly one place in this process that knows what a
+    /// repository is — and a boundary that says what it is actually a boundary for.
+    /// </para>
     /// </remarks>
-    /// <param name="repoUrl">The repository the change ships to.</param>
-    /// <param name="issueNumber">
-    /// The issue the change answers, which is what names the pull request it ships as.
-    /// </param>
-    Task MergeAsync(string repoUrl, int issueNumber, CancellationToken cancellationToken);
+    Task<PullRequest> OpenPullRequestAsync(PullRequestRequest request, CancellationToken cancellationToken);
 
     /// <summary>
     /// Creates one issue, from the host, under the project's own credential. Used for the
@@ -176,4 +174,12 @@ public sealed record PullRequestRequest(
     string Branch,
     string Title,
     string Body,
+
+    /// <summary>
+    /// The branch the change lands on. Carried rather than read from the store, because the
+    /// one caller of this has a work item in hand and a REST client that has to go and look
+    /// one up is the coupling this map is removing. It is the work item's own base branch:
+    /// intake resolved the default branch and the round fetched it.
+    /// </summary>
+    string BaseBranch,
     int IssueNumber);

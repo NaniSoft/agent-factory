@@ -2,7 +2,7 @@ namespace AgentFactory.Tests.GitHub;
 
 using AgentFactory.Domain.Failures;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using System.Net.Http.Headers;
 using System.Net;
 using System.Reflection;

@@ -4,7 +4,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Polling;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Application.WorkItems;
@@ -402,22 +402,29 @@ public class IntakeTests
                 .GetParameters()
                 .Select(parameter => parameter.ParameterType.Name));
 
-        // One seam covering both halves of the boundary: intake reads through it and the
-        // merger will write through it. Two seams would be two things that can disagree
-        // about what a repository is, which is what one seam is for.
+        // One seam covering the reads and the issue writes: intake reads through it, the
+        // routing layer files its questions through it, and the review surface's diff asks
+        // it for nothing at all. Two seams would be two things that can disagree about what
+        // a repository is, which is what one seam is for.
+        //
+        // **`MergeAsync` is no longer on this list, and it left for a reason rather than to
+        // tidy up.** What a merge needs is not a GitHub call but the whole of the merge
+        // *policy* — which refusals there are, in what order, what a branch is called, what
+        // the pull request says and which round's tree is shipping — and none of that is
+        // GitHub's. Claiming it as one seam made the interface assert something untrue. It
+        // is asked for through `IMergePolicy`, and the adapter's own knowledge of a
+        // repository and of git is `IMerger`, answered by this same client.
         //
         // The last four arrived with the routing layer (ADR-0015). They are on the same seam
-        // rather than a second one for the same reason the merger's four were: a factory
-        // that read issues through one interface and wrote them through another would have
-        // two things that can disagree about what a repository is, and the disagreement
-        // would be about the one thing both halves have to be right about.
+        // rather than a second one for the same reason: a factory that read issues through
+        // one interface and wrote them through another would have two things that can
+        // disagree about what a repository is.
         Assert.Equal(
             [
                 "GetDefaultBranchAsync",
                 "ListOpenIssuesAsync",
                 "ReadCommentsAsync",
                 "OpenPullRequestAsync",
-                "MergeAsync",
                 "CreateIssueAsync",
                 "MakeASubIssueAsync",
                 "MakeBlockedByAsync",

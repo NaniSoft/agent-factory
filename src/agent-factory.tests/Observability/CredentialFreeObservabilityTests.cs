@@ -5,7 +5,7 @@ using AgentFactory.Application.Projects;
 using AgentFactory.Domain.Projects;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Tests.Boundary;
 using AgentFactory.Tests.GitHub;
 using AgentFactory.Application.WorkItems;
@@ -142,10 +142,16 @@ public class CredentialFreeObservabilityTests
                     "NEXUS_ANTHROPIC_API_KEY",
                     "nexus.yaml")],
                 []),
-            merging.Options,
-            merging.Store,
             new FakeCredentialReader().Having(Merging.KeyName, Merging.Token),
             log.For<GitHubClient>());
+
+        // The policy is what writes the records the board's operator reads, and it is a
+        // separate component from the client — so the records are read through the policy's
+        // own logger rather than the client's, and the work item's scope is opened there.
+        var policy = new MergePolicy(
+            merging.Store,
+            client,
+            log.For<MergePolicy>());
 
         merging.NothingShippedYet();
         merging.Api.Responding(
@@ -154,7 +160,7 @@ public class CredentialFreeObservabilityTests
             (HttpStatusCode.Created, GitHubApi.PullRequest(7, merging.Commit, merging.Branch)));
         merging.Api.Responding("PUT", "/merge", (HttpStatusCode.OK, """{"merged": true}"""));
 
-        await client.MergeAsync(merging.WorkItem.RepoUrl, 42, CancellationToken.None);
+        await policy.MergeAsync(merging.WorkItem, CancellationToken.None);
 
         var records = log.About(merging.WorkItem.Id);
 

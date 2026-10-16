@@ -4,7 +4,7 @@ using AgentFactory.Application;
 using AgentFactory.Domain.Rounds;
 using AgentFactory.Domain.WorkItems;
 using AgentFactory.Application.GitHub;
-using AgentFactory.GitHub;
+using AgentFactory.Infrastructure.GitHub;
 using AgentFactory.Loop;
 using AgentFactory.Application.Rounds;
 using AgentFactory.Tests.Boundary;
@@ -320,6 +320,7 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
                 "IWorkItemStore",
                 "INOpenCode",
                 "IGitHub",
+                "IMergePolicy",
                 "IIssuePublisher",
                 "IClock",
                 "ILogger`1",
@@ -338,11 +339,23 @@ public async Task A_work_item_moves_backlog_frontier_in_progress_and_review()
         var calls = typeof(INOpenCode).GetMethods().Select(method => method.Name).ToList();
         Assert.Equal(["RunRoundAsync"], calls);
 
-        // And the machine's knowledge of merging is one call too, through the same one seam
-        // intake reads through. Done means merged, so this call is what an approval has to
-        // go through; a loop that decided for itself that a change was shipped would need
-        // no seam at all, and that is the defect this rule exists to keep fixed.
-        var merges = typeof(IGitHub).GetMethods()
+        // And the machine's knowledge of merging is one call too — but it is no longer a
+        // call on this seam. `IGitHub` is intake and the issue writes; a merge is asked for
+        // through `IMergePolicy`, whose whole input is the work item. Done means merged, so
+        // this call is what an approval has to go through, and a loop that decided for
+        // itself that a change was shipped would need no seam at all — which is the defect
+        // this rule exists to keep fixed.
+        //
+        // The claim is asserted in two halves rather than widened, because the halves say
+        // different things: GitHub's seam holds no merge, and the merge's own seam holds
+        // exactly one call.
+        var mergesOnGitHub = typeof(IGitHub).GetMethods()
+            .Where(method => method.Name.StartsWith("Merge", StringComparison.Ordinal))
+            .Select(method => method.Name)
+            .ToList();
+        Assert.Empty(mergesOnGitHub);
+
+        var merges = typeof(IMergePolicy).GetMethods()
             .Where(method => method.Name.StartsWith("Merge", StringComparison.Ordinal))
             .Select(method => method.Name)
             .ToList();
