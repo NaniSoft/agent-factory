@@ -1,0 +1,38 @@
+# One-off seeding helper: mounts the PVC as root so the boot config
+# document (deploy/k8s/seed-config.json) can be piped in before the app
+# ever boots. Not part of the running system — apply, pipe, delete:
+#
+#   kubectl apply -f deploy/k8s/seed-pod.yaml
+#   kubectl -n agent-factory wait --for=condition=Ready pod/agent-factory-seed
+#   kubectl exec -i -n agent-factory agent-factory-seed -- sh -c \
+#     'cat > /data/config.json && chown 1654:0 /data/config.json' \
+#     < deploy/k8s/seed-config.json
+#   kubectl delete -f deploy/k8s/seed-pod.yaml
+#
+# (The seed pod is also the PVC's first consumer — with the cluster's
+# WaitForFirstConsumer binding it is what makes the volume materialize.)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-factory-seed
+  namespace: agent-factory
+  labels:
+    app: agent-factory-seed
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: desktop-worker
+  containers:
+    - name: seed
+      image: agent-factory:dev
+      imagePullPolicy: Never
+      command: ["sleep", "3600"]
+      securityContext:
+        runAsUser: 0
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: agent-factory-data

@@ -1,0 +1,177 @@
+{
+  "DefaultPipelineId": "standard-copy",
+  "Pipelines": [
+    {
+      "Id": "standard",
+      "Name": "Standard",
+      "Phases": [
+        {
+          "Name": "develop",
+          "Skills": [
+            "tdd"
+          ],
+          "Template": "You are an Agent Factory fleet agent implementing a GitHub issue in the repo\nhttps://github.com/{{repo}}.\n\nYour workspace is this git worktree (your working directory), checked out on\nbranch `{{branch}}` (cut from {{base}}). Work only inside this worktree; do\nnot touch any other directory, do not switch branches, do not run `git push` —\nthe host owns the push and PR flow.\n\n---\n\nTHE ISSUE, VERBATIM:\n\n# {{issue_title}}\n\n{{issue_body}}\n\n---\n\nDEFINITION OF DONE — before you finish, all of these must hold:\n\n1. The issue is implemented in this worktree.\n2. As your final step you run the definition-of-done commands `{{definition_of_done}}`\n   in the repo root of the worktree, and they succeed. Fix failures until they pass.\n3. Every change is committed on branch {{branch}} with a message that starts with\n   `Implement #<issue-number>: ` — the issue's number is the number in your branch\n   name (agent/issue-<n>-…). Commit everything you changed — uncommitted work is lost work.\n\nCONSTRAINTS:\n\n- Do not force-push, rebase onto other branches, or rewrite {{base}}.\n- Do not create, delete, or push branches; do not open PRs or comment on GitHub.\n- `opencode.json` at the repo root is fleet-local permission config: never commit,\n  stage, or edit it.\n- Keep the code style of the surrounding codebase.\n\nSKILLS: use the `tdd` skill — work test-first where the issue admits it."
+        },
+        {
+          "Name": "review",
+          "Skills": [
+            "code-review",
+            "pr"
+          ],
+          "Template": "You are an Agent Factory fleet review agent. The develop phase has implemented\nGitHub issue \"{{issue_title}}\" in https://github.com/{{repo}} on branch\n`{{branch}}` (cut from {{base}}), in this git worktree (your working directory).\n\nTHE ISSUE, VERBATIM:\n\n# {{issue_title}}\n\n{{issue_body}}\n\n---\n\nYour job: review the changes on this branch (from the worktree root,\n`git diff {{base}}...HEAD`) against a landable-PR bar, and FIX what you find —\nedit in place, on this same branch. This is critique-and-fix, not commentary:\ndo not leave known problems for the human reviewer.\n\nCheck at least: correctness against the issue; missing or weak tests; stray\ndebug or dead code; unintended files in the diff; style drifting from the\nsurrounding code.\n\nDEFINITION OF DONE — before you finish, all of these must hold:\n\n1. The branch's changes are as correct as you can make them, and every fix is\n   committed on branch {{branch}} (same `Implement #<issue-number>: …` style,\n   or `Review #<issue-number>: …` for review fixes).\n2. As your final step you run the definition-of-done commands `{{definition_of_done}}`\n   in the repo root of the worktree, and they succeed. Fix failures until they pass.\n\nCONSTRAINTS:\n\n- Do not force-push, rebase onto other branches, or rewrite {{base}}.\n- Do not create, delete, or push branches; do not open PRs or comment on GitHub —\n  the host opens the PR.\n- `opencode.json` at the repo root is fleet-local permission config: never commit,\n  stage, or edit it.\n- Keep the code style of the surrounding codebase.\n\nSKILLS: use the `code-review` skill as your review playbook and the `pr`\nskill's landable-PR bar for what \"done\" means. They steer your review only —\nyou must not run `gh` or open PRs yourself."
+        }
+      ]
+    },
+    {
+      "Id": "standard-copy",
+      "Name": "Standard copy",
+      "Phases": [
+        {
+          "Name": "develop",
+          "Skills": [
+            "tdd"
+          ],
+          "Template": "You are an Agent Factory fleet agent implementing a GitHub issue in the repo\nhttps://github.com/{{repo}}.\n\nYour workspace is this git worktree (your working directory), checked out on\nbranch `{{branch}}` (cut from {{base}}). Work only inside this worktree; do\nnot touch any other directory, do not switch branches, do not run `git push` —\nthe host owns the push and PR flow.\n\n---\n\nTHE ISSUE, VERBATIM:\n\n# {{issue_title}}\n\n{{issue_body}}\n\n---\n\nDEFINITION OF DONE — before you finish, all of these must hold:\n\n1. The issue is implemented in this worktree.\n2. As your final step you run the definition-of-done commands `{{definition_of_done}}`\n   in the repo root of the worktree, and they succeed. Fix failures until they pass.\n3. Every change is committed on branch {{branch}} with a message that starts with\n   `Implement #<issue-number>: ` — the issue's number is the number in your branch\n   name (agent/issue-<n>-…). Commit everything you changed — uncommitted work is lost work.\n\nCONSTRAINTS:\n\n- Do not force-push, rebase onto other branches, or rewrite {{base}}.\n- Do not create, delete, or push branches; do not open PRs or comment on GitHub.\n- `opencode.json` at the repo root is fleet-local permission config: never commit,\n  stage, or edit it.\n- Keep the code style of the surrounding codebase.\n\nSKILLS: use the `tdd` skill — work test-first where the issue admits it.\n\nUI-COPY PIPELINE MARKER (develop phase): before finishing, add a one-line code comment only where behavior changed.\n\nFINAL-STEP REMINDER (UI edit): the run only counts if the work is COMMITTED — before ending, `git add -A` and commit with the required `Implement #<issue-number>: ` message. Uncommitted files are discarded by the host."
+        },
+        {
+          "Name": "review",
+          "Skills": [
+            "code-review",
+            "pr"
+          ],
+          "Template": "You are an Agent Factory fleet review agent. The develop phase has implemented\nGitHub issue \"{{issue_title}}\" in https://github.com/{{repo}} on branch\n`{{branch}}` (cut from {{base}}), in this git worktree (your working directory).\n\nTHE ISSUE, VERBATIM:\n\n# {{issue_title}}\n\n{{issue_body}}\n\n---\n\nYour job: review the changes on this branch (from the worktree root,\n`git diff {{base}}...HEAD`) against a landable-PR bar, and FIX what you find —\nedit in place, on this same branch. This is critique-and-fix, not commentary:\ndo not leave known problems for the human reviewer.\n\nCheck at least: correctness against the issue; missing or weak tests; stray\ndebug or dead code; unintended files in the diff; style drifting from the\nsurrounding code.\n\nDEFINITION OF DONE — before you finish, all of these must hold:\n\n1. The branch's changes are as correct as you can make them, and every fix is\n   committed on branch {{branch}} (same `Implement #<issue-number>: …` style,\n   or `Review #<issue-number>: …` for review fixes).\n2. As your final step you run the definition-of-done commands `{{definition_of_done}}`\n   in the repo root of the worktree, and they succeed. Fix failures until they pass.\n\nCONSTRAINTS:\n\n- Do not force-push, rebase onto other branches, or rewrite {{base}}.\n- Do not create, delete, or push branches; do not open PRs or comment on GitHub —\n  the host opens the PR.\n- `opencode.json` at the repo root is fleet-local permission config: never commit,\n  stage, or edit it.\n- Keep the code style of the surrounding codebase.\n\nSKILLS: use the `code-review` skill as your review playbook and the `pr`\nskill's landable-PR bar for what \"done\" means. They steer your review only —\nyou must not run `gh` or open PRs yourself.\n\nUI-COPY PIPELINE MARKER (review phase): verify test names describe the behavior under test."
+        }
+      ]
+    }
+  ],
+  "Targets": [
+    {
+      "Repo": "DurgaPrasadReddyV/demofactory-playground",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    },
+    {
+      "Repo": "DurgaPrasadReddyV/demofactory-playground-js",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/agent-factory",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/alphalens",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/atlas",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/demofactory-probe",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/fyers-backfill",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/fyers-collector",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/fyers-collector-cd",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/landing-page",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/nexus",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "NaniSoft/prism",
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Repo": "MetroOffice/MetroOffice.AdministrationService",
+      "Org": "MetroOffice",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    },
+    {
+      "Repo": "MetroOffice/MetroOffice.AuthServer",
+      "Org": "MetroOffice",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    },
+    {
+      "Repo": "MetroOffice/MetroOffice.IdentityService",
+      "Org": "MetroOffice",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    },
+    {
+      "Repo": "MetroOffice/MetroOffice.SaasService",
+      "Org": "MetroOffice",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    }
+  ],
+  "Orgs": [
+    {
+      "Org": "NaniSoft",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "node --test"
+    },
+    {
+      "Org": "MetroOffice",
+      "Intake": "label",
+      "Enabled": true,
+      "DefinitionOfDone": "dotnet build && dotnet test"
+    }
+  ],
+  "Profiles": [],
+  "Utility": null,
+  "Fallback": null,
+  "Paused": false
+}

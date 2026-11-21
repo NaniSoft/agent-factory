@@ -1,0 +1,16 @@
+# The build context carries the source the Dockerfile copies. Host state,
+# run logs, dependency trees and build output stay out.
+.git
+.github
+.vs
+bin
+obj
+data
+docs
+issues
+*.md
+*.log
+
+src/AgentFactory.App/ClientApp/node_modules
+src/AgentFactory.App/ClientApp/.next
+src/AgentFactory.App/ClientApp/out

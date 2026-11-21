@@ -1,0 +1,23 @@
+# Static Fleet settings (035 charting decision 3): the whole Fleet block as
+# pod env via the standard __ nesting (Fleet__CloneRoot binds FleetOptions
+# .CloneRoot). Paths point into the PVC mount. Mutable config (pipelines,
+# targets, profiles) is NOT here — it is runtime state on the PVC.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-factory-config
+  namespace: agent-factory
+data:
+  Fleet__PlaygroundRepo: "DurgaPrasadReddyV/demofactory-playground"
+  Fleet__BaseBranch: "main"
+  Fleet__CloneRoot: "/data/clones"
+  Fleet__WorktreeRoot: "/data/worktrees"
+  Fleet__DataDir: "/data"
+  Fleet__PollIntervalSeconds: "60"
+  Fleet__OrgRescanMinutes: "15"
+  Fleet__AllIntakeBacklogCap: "20"
+  Fleet__ServerPort: "48180"
+  Fleet__SessionTimeoutMinutes: "30"
+  Fleet__ProbeTimeoutSeconds: "90"
+  Fleet__MaxConcurrentRuns: "1"
+  Fleet__OptInLabel: "agent-factory"

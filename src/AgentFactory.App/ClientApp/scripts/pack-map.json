@@ -1,0 +1,17 @@
+{
+  "$comment": [
+    "Where a pack may appear on this app, and why. The Agent Factory is one",
+    "ground: it wears lavender, dark by default, on the document element. The one",
+    "boundary beneath the document is the product mark in the console's rail,",
+    "drawn in the ground's own pack. It is named because a boundary the gate cannot",
+    "name is a boundary it cannot hold to this map."
+  ],
+  "ground": "lavender",
+  "defaultMode": "dark",
+  "regions": {
+    "product-mark": {
+      "packs": ["lavender"]
+    }
+  },
+  "secondPackRegions": []
+}

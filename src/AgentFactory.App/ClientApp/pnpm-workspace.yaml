@@ -1,0 +1,8 @@
+allowBuilds:
+  '@tsparticles/engine': true
+# Config-only: this is a flat single-app repository, not a pnpm workspace.
+# The file exists because pnpm 11 keeps every setting other than registry and
+# auth in it, and because the pin gate reads it as the second copy of the
+# design-system version — a copy this repository must not hold.
+minimumReleaseAgeExclude:
+  - '@nanisoft/*'

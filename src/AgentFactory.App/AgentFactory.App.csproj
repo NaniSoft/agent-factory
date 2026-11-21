@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!--
+    The React app lives inside this project. Its dependency tree and build output
+    are not .NET content, and the SDK's default globs would walk every file in
+    them on every build.
+  -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);ClientApp\node_modules\**;ClientApp\.next\**;ClientApp\out\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Copy the React app's static export into wwwroot. The target warns, rather
+    than silently shipping an empty site, when a checkout has not run
+    `pnpm build` in ClientApp.
+  -->
+  <Target Name="CopyTheClientExport" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <ClientExport Include="$(MSBuildThisFileDirectory)ClientApp\out\**" />
+    </ItemGroup>
+
+    <Warning Condition="'@(ClientExport)' == ''"
+             Text="The React app's static export was not found under ClientApp/out, so the factory will serve no app. Run `pnpm build` in ClientApp/ and build again; this build continues without one." />
+
+    <ItemGroup>
+      <Content Include="@(ClientExport)"
+               Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+               CopyToOutputDirectory="PreserveNewest"
+               CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

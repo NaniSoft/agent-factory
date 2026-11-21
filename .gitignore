@@ -1,35 +1,21 @@
-# Local agent/tool state. settings.local.json holds a live ANTHROPIC_AUTH_TOKEN.
-.claude/
-.playwright-mcp/
-# Visual Studio's per-solution state, which it writes beside the .slnx on every open.
+bin/
+obj/
+*.user
 .vs/
+appsettings.*.local.json
+*.db
+data/
+TestResults/
 
-# Secrets and local noise.
+# The React app's dependency tree and build output.
+src/AgentFactory.App/ClientApp/node_modules/
+src/AgentFactory.App/ClientApp/.next/
+src/AgentFactory.App/ClientApp/out/
+src/AgentFactory.App/ClientApp/*.tsbuildinfo
+
+# Local agent/tool state.
+.claude/
+.zcode/
 .env
 .env.local
 *.log
-# Credential values live here as one file per name (#32) — never a committed artifact.
-secrets/
-
-# The .NET build output. The patterns are directory names rather than paths, so a nested
-# directory of the same name anywhere in the tree is matched — which is why there is no
-# negation list any more: the one that used to be here kept a deleted worker image's
-# `bin/` in the repository.
-[Bb]in/
-[Oo]bj/
-
-# The store of record is a local file, not a committed artifact.
-data/
-*.db
-*.db-shm
-*.db-wal
-
-# Editor swap files.
-*.swp
-
-# `dotnet test --blame-hang` writes its dumps here. A local artefact of a hung run, and a
-# dump is a great many megabytes of this repository's memory.
-TestResults/
-
-# Local agent-tool state (ZCode session plans)
-.zcode/

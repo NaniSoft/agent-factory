@@ -1,0 +1,91 @@
+# One all-in-one pod (035 charting decision 2): the .NET app plus the
+# opencode CLI, gh, and git all inside agent-factory:dev; the fleet loop
+# executes in-pod on the PVC-backed mount. Locally built, registry-free —
+# the docker-desktop daemon is shared with the cluster, so Never means
+# "use the local image, never pull".
+#
+# Recreate strategy: the RWO PVC means a RollingUpdate pod would deadlock
+# waiting for the volume the old pod still holds.
+#
+# init-data: provisioned volume dirs arrive root-owned; chown to the app
+# uid (1654, baked into the image) before the app container starts. Runs
+# again on every pod start — idempotent. fsGroup was skipped: its
+# application on hostPath-backed volumes is community-reported flaky
+# (docs/research/container-toolchain.md §6), and the deterministic
+# initContainer costs nothing on a single-node dev cluster.
+#
+# No probes/limits yet — that tuning is the map's "in-cluster fleet scale
+# behavior" fog, not this ticket.
+#
+# nodeSelector pins the pod to the node whose local-path PV holds
+# agent-factory-data (the volume materialized on desktop-worker's first
+# consumer); a local-path RWO volume is node-local, so a pod elsewhere
+# could never mount it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-factory
+  namespace: agent-factory
+  labels:
+    app: agent-factory
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agent-factory
+  template:
+    metadata:
+      labels:
+        app: agent-factory
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: desktop-worker
+      initContainers:
+        - name: init-data
+          image: agent-factory:dev
+          imagePullPolicy: Never
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - mkdir -p /data/clones /data/worktrees && chown -R 1654:0 /data && chmod -R g+rwX /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: app
+          image: agent-factory:dev
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: agent-factory-config
+            - secretRef:
+                name: agent-factory-keys
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: agent-factory-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-factory
+  namespace: agent-factory
+  labels:
+    app: agent-factory
+spec:
+  type: ClusterIP
+  selector:
+    app: agent-factory
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

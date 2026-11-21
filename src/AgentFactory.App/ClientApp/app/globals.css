@@ -1,0 +1,877 @@
+/*
+ * The Agent Factory app's own stylesheet. It is layout and spacing only.
+ *
+ * Everything with an opinion about colour, type or a control is Prism: the
+ * cards, badges, buttons, fields, tables, timelines and the bar all arrive in
+ * `@nanisoft/prism-ui/styles.css`. What is here is the column a page sits in,
+ * the arrangements the catalogue ships no item for, and a handful of reading
+ * surfaces (a log, a transcript, a prompt preview) that are this product's own.
+ *
+ * A colour below is always a token, so it resolves in the one pack and mode the
+ * document declares.
+ */
+
+body {
+  margin: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.app-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- the console frame --------------------------------------------------- */
+
+/*
+ * The shell owns the rail, the top bar and the padding around the main column.
+ * What is left for this sheet is the working column inside that padding and the
+ * rail's own rows, and both are layout: every colour below is a token, so they
+ * resolve in the one pack and the mode the document carries.
+ *
+ * **The shell is the viewport and the main column is the scroller.** A console's
+ * rail is how a reader leaves the page they are on, and a document that scrolls
+ * the rail away takes that with it on exactly the long tables a reader needs it.
+ * The Block lays the frame out; this is the one line that decides which part
+ * moves, and the same line is what keeps the rail's foot at the bottom of the
+ * screen rather than at the bottom of the page.
+ */
+.app-shell {
+  height: 100svh;
+  overflow: hidden;
+}
+
+.app-shell > div {
+  height: 100%;
+  min-height: 0;
+}
+
+.app-shell main {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-workspace {
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+}
+
+/*
+ * The wash fills its nearest positioned ancestor, which is the workspace. The
+ * negative layer is what keeps it behind the content and above the shell's own
+ * ground, and the workspace's `isolation` is the stacking context that makes
+ * that layer relative to the workspace rather than to the page.
+ *
+ * The radial mask is this frame's own edge treatment: a plane is a rectangle and
+ * a console's column is a rectangle too, so without a mask the light ends on the
+ * column's own edges and reads as one more pane rather than as light behind one.
+ * Feathering it toward the edges is the one way to keep a still figure from
+ * acquiring an outline.
+ */
+.app-workspace__wash {
+  z-index: -1;
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, #000 22%, transparent 68%),
+    linear-gradient(to right, #000 0%, transparent 58%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, #000 0%, #000 22%, transparent 68%),
+    linear-gradient(to right, #000 0%, transparent 58%);
+  mask-composite: intersect;
+}
+
+.app-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 76rem;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+}
+
+.app-page--wide {
+  max-width: 88rem;
+}
+
+.app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-title-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.app-page-head__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+}
+
+.app-page-head__text {
+  display: flex;
+  min-width: 0;
+  max-width: 54rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.app-page-head__lede {
+  max-width: 62ch;
+}
+
+/* ---- the rail ------------------------------------------------------------ */
+
+.app-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-rail__link {
+  display: flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.app-rail__link:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.app-rail__link--current {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+.app-rail__foot {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.app-rail__foot a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.app-pause {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* ---- sections and grids -------------------------------------------------- */
+
+.app-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-stack--sm {
+  gap: 0.5rem;
+}
+
+.app-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.app-section__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.app-section__hint {
+  margin: 0;
+  max-width: 52rem;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+
+.app-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 1rem;
+}
+
+.app-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.app-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-row--between {
+  justify-content: space-between;
+}
+
+/* ---- type and reading surfaces ------------------------------------------ */
+
+.app-muted {
+  color: var(--muted-foreground);
+}
+
+.app-small {
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.app-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-nowrap {
+  white-space: nowrap;
+}
+
+.app-link {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.app-link:hover {
+  color: var(--primary);
+}
+
+.app-code {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84em;
+  overflow-wrap: anywhere;
+}
+
+.app-pre {
+  max-height: 32rem;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.app-error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.app-success {
+  margin: 0;
+  color: var(--success);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.app-divider {
+  width: 100%;
+  margin: 0.25rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- fields -------------------------------------------------------------- */
+
+.app-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.app-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.app-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.app-card-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+/* ---- lists and key/value rows ------------------------------------------- */
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.app-list__row:first-child {
+  border-top: 0;
+}
+
+.app-list__main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.app-list__side {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-kv {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.app-kv__key {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.app-kv__value {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the runs table and status cards ------------------------------------ */
+
+.app-table-target {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.app-org-detail {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.app-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.app-status-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.app-status-card__row:first-child {
+  border-top: 0;
+}
+
+.app-status-card__label {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.app-status-card__value {
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+/* ---- the pipeline editor ------------------------------------------------- */
+
+.app-pipeline {
+  display: grid;
+  grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-pipeline__tree,
+.app-pipeline__editor,
+.app-pipeline__preview {
+  min-width: 0;
+}
+
+/*
+ * The rail is a panel and the tree inside it is Prism's, so this app's half is
+ * the gutter around the records and the column that holds the footer's action.
+ * The panel's own header, count, toolbar and scroll region arrive with it.
+ */
+.app-pipeline__tree-body {
+  padding: 0.6rem 0.4rem 0.55rem;
+}
+
+.app-pipeline__footer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.app-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.app-editor-head__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.app-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.app-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.app-template {
+  min-height: 20rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.app-preview {
+  max-height: 42rem;
+}
+
+/* ---- targets and the settings drawer ------------------------------------ */
+
+.app-enroll {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.app-enroll__input {
+  min-width: 16rem;
+  flex: 1 1 18rem;
+  max-width: 28rem;
+}
+
+.app-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.app-drawer__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ---- profiles ------------------------------------------------------------ */
+
+.app-bindings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 1rem;
+}
+
+.app-binding {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr) minmax(15rem, 20rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.app-profile {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-profile:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.app-profile--active {
+  border-left-color: var(--primary);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.app-profile__meta {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.app-palette {
+  display: flex;
+  max-height: 18rem;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.app-palette__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.app-palette__free {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.app-palette__stale {
+  color: var(--destructive);
+}
+
+.app-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+/* ---- the run detail ------------------------------------------------------ */
+
+.app-run {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/*
+ * The claim and the facts about the run are one block: the header's rule closes
+ * the name, and the meta line under it is the run's identity rather than a
+ * separate band. The gap is tighter than the page's so the two read together.
+ */
+.app-run__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.app-run__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.app-run__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+}
+
+.app-run__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.app-transcript {
+  display: flex;
+  max-height: 34rem;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--muted);
+}
+
+.app-transcript__line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.app-transcript__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-transcript__text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-summary {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* ---- the dashboard ------------------------------------------------------- */
+
+/*
+ * The dashboard composes Prism's own Section, which owns the page's rhythm for a
+ * marketing band: 4rem to 6rem above and below. A console's top band is the
+ * screen's own header, and the main column's padding is already the shell's, so
+ * the Section's vertical rhythm is the one piece of the Block this screen does
+ * not want. It is layout and nothing else is touched.
+ */
+.app-dashboard {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/*
+ * The Section's own column is Prism's page measure, 72rem with its own 2rem of
+ * side padding. The shell already owns the main column's padding and the board
+ * uses a wider column on its data surfaces, so this screen asks for the same
+ * measure and the same left edge the other four do, and the padding stays where
+ * it is owned.
+ */
+.app-dashboard > div {
+  max-width: 88rem;
+  padding-inline: 0;
+}
+
+/*
+ * A table is as wide as its cells' nowrap content, and a flex item's automatic
+ * minimum size is the width of that content, so the panel holding the board's
+ * run history pushed the whole document sideways at phone width instead of
+ * scrolling inside its own frame. The panel, the column it sits in and the body
+ * that holds the column are the three links in that chain; each is allowed to be
+ * narrower than what it contains, and the overflow belongs to the table's own
+ * scroll container, which is where Prism puts it.
+ */
+.app-dashboard [data-slot='dashboard-01-body'],
+.app-dashboard [data-slot='dashboard-01-main'],
+.app-dashboard [data-slot='dashboard-01-panel'] {
+  min-width: 0;
+}
+
+.app-page--dashboard {
+  max-width: none;
+  padding: 0 0 2rem;
+}
+
+/* ---- responsiveness ------------------------------------------------------ */
+
+@media (max-width: 1100px) {
+  .app-pipeline,
+  .app-profile-layout {
+    grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+  }
+
+  .app-pipeline__preview,
+  .app-profile-layout > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  /*
+   * The top bar has one row and a phone-sized width: the badge names a state the
+   * button beside it already carries in its word ("Pause" is a running fleet,
+   * "Resume" a paused one), so the badge is the half that steps out.
+   */
+  .app-pause__badge {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-page {
+    gap: 1.5rem;
+    padding-bottom: 2rem;
+  }
+
+  .app-pipeline,
+  .app-profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+  }
+
+  .app-kv__key {
+    margin-top: 0.5rem;
+  }
+}
+
+.app-errors {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+/* The issue body a run was built from: a reading surface, collapsed by default. */
+.app-details {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+}
+
+.app-details summary {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.app-details .app-pre {
+  margin-top: 0.75rem;
+}
+

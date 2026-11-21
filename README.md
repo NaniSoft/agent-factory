@@ -1,72 +1,109 @@
-# agent-factory
+# Agent Factory
 
-The agent factory: a generic system that takes GitHub issues as use cases,
-builds the change that answers them by driving OpenCode in a fresh working tree
-per round, and merges the result back to the repository through a Kanban board
-where a human reviews it.
+An autonomous agent-fleet orchestrator in C#, with **opencode** as the engine:
+GitHub issues in, agent sessions working in fresh worktrees, pull requests out,
+and a React board over the top.
 
-## Status
-
-**Implemented, and running.** One .NET process polls the open issues of every
-configured project, turns each into a work item on a board at port 5000, runs up
-to three rounds per work item in fresh working trees, and merges the change
-on approval from the host under a credential the agent never sees. This has been
-run end to end against a real repository: an issue was polled, built by an agent
-in a real working tree, reviewed on the board, and shipped as a merged pull request.
-
-Build and test it with the commands in [`AGENTS.md`](AGENTS.md).
-
-```bash
-dotnet run --project src/AgentFactory.Web    # the factory and the board on 127.0.0.1:5000
-```
-
-[`DESIGN.md`](DESIGN.md) is the specification the factory is built against, and
-[`docs/architecture.md`](docs/architecture.md) is the architecture of record: how the
-four projects are laid out, what the dependency rule is, and why each boundary is where
-it is. [`AGENTS.md`](AGENTS.md) records how to build, test and work in it.
-
-The factory's public documentation is published separately, in the
-[nexus](https://github.com/NaniSoft/nexus) repository, at
-**https://nexus.nanisoft.com/docs**. That is the canonical, reader-facing version
-of the same design and goes into considerably more depth. It was frozen while the
-implementation ran and is reconciled in one sweep now that there is a working
-factory to check it against. Read it there; use this repository for the design
-record and the implementation.
+The factory polls every enrolled repo (or every eligible repo of an enrolled
+org), turns an opted-in issue into a **run**, walks that run through an ordered
+**pipeline** of agent sessions, checks that the work was committed, and lands it
+as a pull request. A human reviews the pull request; the board is the fleet's
+read-only window and its writable configuration surface.
 
 ## What is here
 
-- [`DESIGN.md`](DESIGN.md) — the design: components, the per-project
-  configuration model, the round lifecycle, the Kanban feedback loop
-  and its 3-round ceiling, multi-project round-robin, observability and error
-  handling, the testing strategy, deployment, and the security posture.
-- [`AGENTS.md`](AGENTS.md) — what is built and how it is verified.
-- [`CONTEXT.md`](CONTEXT.md) — the domain vocabulary the code and this repository
-  speak.
-- [`docs/architecture.md`](docs/architecture.md) — the architecture of record: the
-  four projects, the dependency rule, the ports, and how the process is hosted.
-- [`docs/agents/`](docs/agents/) — how agents work in this repository: the issue
-  tracker, the triage labels, and where domain docs live.
-- [`docs/research/`](docs/research/) — the findings behind three decisions that were
-  made from evidence rather than assumption: Aspire, EF Core on SQLite, and OpenAPI
-  codegen. Kept because the corrections in them are still the record.
-- [`agent-factory.slnx`](agent-factory.slnx) — the solution, at the repository root, with
-  the Aspire AppHost as its default startup project.
-- [`src/`](src/) — the source: the .NET factory's four projects, one process, holding the
-  config loader, the work item store, the orchestrator, intake, the merger and the board,
-  the Aspire AppHost that runs the process with its dashboard and telemetry, and the
-  `ClientApp` Board rendered alongside `AgentFactory.Web`.
-- [`tests/`](tests/) — both test projects. [`tests/agent-factory.unit-tests/`](tests/agent-factory.unit-tests/)
-  is the fast layer over `Domain` and `Application` alone: no Temporal, no Docker, under a
-  second. [`tests/agent-factory.tests/`](tests/agent-factory.tests/) is the in-process
-  harness over the real composition.
-- [`factories/`](factories/) — one file per project, and **this repository commits
-  none**: a file there is served, not sampled. The examples are in
-  read [`factories/README.md`](factories/README.md) before adding one.
-- [`docker-compose.yml`](docker-compose.yml) — the Temporal dev server behind the
-  durable workflow; the factory itself runs on this machine.
-- [`.gitignore`](.gitignore) — keeps local agent and tool state, including
-  `.claude/settings.local.json`, out of the repository.
+```
+src/AgentFactory.App/
+  Fleet/        the engine: polling, runs, pipelines, profiles, git, GitHub, triage
+  Api/          the JSON surface the board renders, and the static-export server
+  ClientApp/    the React board (Next static export, designed with Prism)
+tests/          the store, planner and helper tests
+deploy/k8s/     the all-in-one pod, its config map and its durable volume
+docs/           the architecture decision records and the research behind them
+```
 
-The sequenced build tickets that once lived here were a working artifact of the
-planning flow, not part of the design, and have been removed; they are tracked as
-issues in this repository.
+- **Fleet** watches the targets, runs the queue round-robin, and keeps one
+  opencode serve alive. It drives `opencode`, `gh` and `git` on the host.
+- **Pipelines** are ordered phases. Every phase has its own full prompt
+  template, skill allow-list and optional agent-profile pin (profile and model
+  together, or neither).
+- **Profiles** describe how an agent authenticates: a flavour
+  (`opencode-go`), an optional credential
+  and the model palette that bounds every phase pin.
+- **Targets** are the repos and orgs the fleet works. An org scan materializes
+  eligible repos into targets; per-target intake, pipeline and definition of
+  done are editable.
+- **The board** is a React app in `ClientApp`, served by the same .NET process at
+  the root, reading the JSON API under `/api`.
+
+## Build and run
+
+.NET 10 is required.
+
+```sh
+dotnet build agent-factory.slnx
+dotnet test  agent-factory.slnx
+
+dotnet run --project src/AgentFactory.App
+```
+
+The app answers on <http://localhost:5200> (the launch profile) and serves the
+board at `/`. The JSON surface is `/api`.
+
+The board is a static Next export. Build it before the .NET publish, or run it
+in development beside the app:
+
+```sh
+cd src/AgentFactory.App/ClientApp
+pnpm install
+pnpm build          # static export to ClientApp/out, copied into wwwroot by the csproj
+pnpm dev            # dev server on :3000, proxying /api to http://127.0.0.1:5200
+```
+
+The full check set for the board is:
+
+```sh
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm check          # the Prism consumer gates; run after pnpm build
+```
+
+## Configuration
+
+Static engine settings live in `src/AgentFactory.App/appsettings.json` and bind
+from the `Fleet` section (the same keys with `Fleet__` prefix work as pod
+environment variables). Runtime configuration — pipelines, targets, profiles,
+the utility and fallback bindings, and the paused flag — lives in
+`data/config.json`, is hot-reloaded on a hand edit, and is edited from the board.
+
+A credential **name** and a credential **value** are separate facts: a profile
+may carry a literal key, an opencode OAuth envelope, or an `{env:NAME}`
+reference resolved at injection. The GitHub write token is resolved on the host
+and never reaches an agent session.
+
+Data and worktrees are gitignored:
+
+```
+data/                 the config document, runs.json and every run log
+data/clones/          one clone per enrolled repo
+data/worktrees/       one fresh worktree per run attempt
+```
+
+## Deployment
+
+`Dockerfile` builds the board, publishes the app, and packages the runtime with
+`opencode`, `gh`, `git`, the .NET SDK and Node for per-target definitions of
+done. `deploy/k8s/` runs one all-in-one pod on a single durable volume; see
+[`deploy/k8s/README.md`](deploy/k8s/README.md).
+
+## Documentation
+
+- [`GLOSSARY.md`](GLOSSARY.md) — the ubiquitous language. Its *avoid* lists are
+  binding.
+- [`docs/adr/`](docs/adr) — the decisions that outlived the code that first
+  carried them.
+- [`docs/research/`](docs/research) — the evidence behind the container and
+  opencode choices.
+- [`src/AgentFactory.App/ClientApp/README.md`](src/AgentFactory.App/ClientApp/README.md)
+  — the board's own build and design rules.

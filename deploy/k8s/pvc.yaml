@@ -1,0 +1,16 @@
+# Single durable-state volume (035 charting decision 5): config document,
+# runs history, clone root, worktree root — all under one /data mount.
+# The cluster's default StorageClass (standard, rancher.io/local-path)
+# provisions the directory inside the Docker Desktop VM on first consumer.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-factory-data
+  namespace: agent-factory
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 5Gi
